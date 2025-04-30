@@ -31,29 +31,27 @@ constexpr char kModelPathAuxiliary[] = "gemma3_npu_auxiliary.tflite";
 
 // Quantized AOT compiled NPU model, optimized for sm8650.
 constexpr char kModelPathLlm[] =
-    "static_a16w4-full-int_quantized_gemma3_npu_f32_ekv1280_sm8650.tflite";
+    "static_a16w4-full-int_quantized_gemma3_npu_f32_ekv1280_sm8750.tflite";
 
 constexpr char kModelPathTokenizer[] = "gemma3_tokenizer.spiece";
 constexpr char kModelPathEmbedder[] = "gemma3_npu_embedder.tflite";
 constexpr char kModelPathAuxiliary[] = "gemma3_npu_auxiliary.tflite";
 #endif
 
-ABSL_FLAG(std::string, binary_path, "",
-          "Path to models and LiteRT dispatch libraries.");
+ABSL_FLAG(std::string, gemma3_path, "", "Path to the Gemma3 model.");
+ABSL_FLAG(std::string, embedder_path, "", "Path to the embedder model.");
+ABSL_FLAG(std::string, auxiliary_path, "", "Path to the auxiliary model.");
+ABSL_FLAG(std::string, tokenizer_path, "", "Path to the tokenizer model.");
+ABSL_FLAG(std::string, litert_dispatch_lib_path, "",
+          "Path to the LiteRT dispatch library.");
+ABSL_FLAG(std::string, prompt, "", "Prompt to run.");
 
 int main(int argc, char* argv[]) {
   absl::ParseCommandLine(argc, argv);
 
-  // Construct the paths to the models.
-  auto binary_path = std::filesystem::path(absl::GetFlag(FLAGS_binary_path));
-  std::string model_path = (binary_path / kModelPathLlm).string();
-  std::string tokenizer_path = (binary_path / kModelPathTokenizer).string();
-  std::string embedder_path = (binary_path / kModelPathEmbedder).string();
-  std::string auxiliary_path = (binary_path / kModelPathAuxiliary).string();
-
   // Create the tokenizer.
-  auto tokenizer_or =
-      litert::lm::SentencePieceTokenizer::CreateFromFile(tokenizer_path);
+  auto tokenizer_or = litert::lm::SentencePieceTokenizer::CreateFromFile(
+      absl::GetFlag(FLAGS_tokenizer_path));
   if (tokenizer_or.ok()) {
     ABSL_LOG(INFO) << "tokenizer created successfully";
   } else {
@@ -66,7 +64,9 @@ int main(int argc, char* argv[]) {
   uint64_t start = tflite::profiling::time::NowMicros();
   ABSL_LOG(INFO) << "Creating executor";
   auto executor_or = odml::infra::LlmLiteRtNpuCompiledModelExecutor::Create(
-      model_path, embedder_path, auxiliary_path, binary_path);
+      absl::GetFlag(FLAGS_gemma3_path), absl::GetFlag(FLAGS_embedder_path),
+      absl::GetFlag(FLAGS_auxiliary_path),
+      absl::GetFlag(FLAGS_litert_dispatch_lib_path));
   uint64_t end = tflite::profiling::time::NowMicros();
   ABSL_LOG(INFO) << "executor creation took " << (end - start) << " us";
   if (executor_or.ok()) {
@@ -87,9 +87,10 @@ int main(int argc, char* argv[]) {
       litert::lm::SessionConfig::CreateDefault());
 
   // Run the session.
+  const std::string prompt = absl::GetFlag(FLAGS_prompt);
+  ABSL_LOG(INFO) << "Prompt: " << prompt;
   start = tflite::profiling::time::NowMicros();
-  auto status = (*session)->RunPrefill(
-      "Write a product description for a noise-canceling headphone");
+  auto status = (*session)->RunPrefill(prompt);
   end = tflite::profiling::time::NowMicros();
   ABSL_LOG(INFO) << "RunPrefill took " << (end - start) << " us";
 
