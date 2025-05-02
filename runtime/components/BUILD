@@ -152,3 +152,33 @@ cc_test(
         "//runtime/util:convert_tensor_buffer",
     ],
 )
+
+cc_library(
+    name = "sampler_factory",
+    srcs = ["sampler_factory.cc"],
+    hdrs = ["sampler_factory.h"],
+    deps = [
+        ":sampler",
+        ":top_p_cpu_sampler",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@litert//litert/cc:litert_environment",
+        "//runtime/executor:llm_executor_settings",
+        "//runtime/proto:sampler_params_cc_proto",
+    ],
+)
+
+cc_test(
+    name = "sampler_factory_test",
+    srcs = ["sampler_factory_test.cc"],
+    deps = [
+        ":sampler_factory",
+        ":top_p_cpu_sampler",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "//runtime/executor:llm_executor_settings",
+        "//runtime/util:test_utils",
+    ],
+)

@@ -11,13 +11,13 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
-#include "runtime/components/sampler.h"
+#include "runtime/components/sampler_factory.h"
 #include "runtime/components/tokenizer.h"
-#include "runtime/components/top_p_cpu_sampler.h"
 #include "runtime/core/pipeline.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/llm_executor.h"
+#include "runtime/executor/llm_executor_settings.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/status_macros.h"
@@ -35,28 +35,9 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
     std::shared_ptr<LlmExecutor> executor, std::shared_ptr<Tokenizer> tokenizer,
     const std::vector<int>& stop_token_ids,
     const SessionConfig& session_config) {
-  std::unique_ptr<Sampler> sampler;
   proto::SamplerParameters sampler_params = session_config.GetSamplerParams();
-  // TODO(b/407086356): Add test or factor out the logic to create the sampler.
-  switch (sampler_params.type()) {
-    case proto::SamplerParameters::TYPE_UNSPECIFIED:
-      ABSL_LOG(INFO) << "Sampler type is unspecified. Assume the LLM Executor "
-                        "handles the sampling logic.";
-      break;
-    case proto::SamplerParameters::TOP_P: {
-      absl::StatusOr<std::unique_ptr<Sampler>> sampler_or;
-      sampler_or = TopPSampler::Create(
-          sampler_params.k(), sampler_params.p(), sampler_params.temperature(),
-          /*batch_size=*/kOutputBatchSize, sampler_params.seed());
-      if (!sampler_or.ok()) {
-        return sampler_or.status();
-      }
-      sampler = std::move(*sampler_or);
-    } break;
-    default:
-      return absl::UnimplementedError(absl::StrCat(
-          "Sampler type: ", sampler_params.type(), " not implemented yet."));
-  }
+  ASSIGN_OR_RETURN(auto sampler, CreateSampler(Backend::CPU, kOutputBatchSize,
+                                               sampler_params));
   return absl::WrapUnique(new SessionBasic(executor, tokenizer, stop_token_ids,
                                            std::move(sampler), session_config));
 }

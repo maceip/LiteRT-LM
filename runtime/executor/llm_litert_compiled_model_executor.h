@@ -16,7 +16,6 @@
 #define THIRD_PARTY_ODML_INFRA_GENAI_INFERENCE_EXECUTOR_LLM_TFLITE_GPU_EXECUTOR_H_
 
 #include <memory>
-#include <optional>
 #include <utility>
 #include <vector>
 
@@ -30,7 +29,7 @@
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
-#include "runtime/components/top_p_cpu_sampler.h"
+#include "runtime/components/sampler.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
@@ -160,9 +159,9 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   // Output batch size for the sampled ids.
   int output_batch_size_ = 0;
 
-  // CPU sampler for sampling logits.
-  // Only used when the GPU sampling is disabled.
-  std::unique_ptr<::litert::lm::TopPSampler> cpu_sampler_;
+  // Sampler for sampling logits.
+  // For now, only CPU sampler is supported.
+  std::unique_ptr<::litert::lm::Sampler> sampler_;
 
   // Internal timestep.
   int current_step_ = 0;

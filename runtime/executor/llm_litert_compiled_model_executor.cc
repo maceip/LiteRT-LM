@@ -22,7 +22,7 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_options.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
-#include "runtime/components/top_p_cpu_sampler.h"
+#include "runtime/components/sampler_factory.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/executor/llm_executor_settings.h"
@@ -298,14 +298,21 @@ absl::Status LlmLiteRtCompiledModelExecutor::Decode(
 
 absl::StatusOr<std::vector<int>> LlmLiteRtCompiledModelExecutor::SampleLogits(
     Span<const float> logits) {
-  if (cpu_sampler_ == nullptr) {
+  if (sampler_ == nullptr) {
     LITERT_ASSIGN_OR_RETURN_ABSL(const auto decoded_logits_tensor_type,
                                  decoded_logits_.TensorType());
-    ASSIGN_OR_RETURN(cpu_sampler_,
-                     TopPSampler::Create(
-                         /*k=*/1, /*p=*/0.0f, /*temperature=*/1.0f,
-                         decoded_logits_tensor_type.Layout().Dimensions()[0],
-                         /*seed=*/0));
+    proto::SamplerParameters sampler_params;
+    sampler_params.set_type(proto::SamplerParameters::TOP_P);
+    sampler_params.set_k(1);
+    sampler_params.set_p(0.0f);
+    sampler_params.set_temperature(1.0f);
+    sampler_params.set_seed(0);
+    ASSIGN_OR_RETURN(
+        sampler_,
+        CreateSampler(
+            Backend::CPU,
+            /*batch_size=*/decoded_logits_tensor_type.Layout().Dimensions()[0],
+            std::move(sampler_params)));
   }
   ASSIGN_OR_RETURN(auto vocab_size, GetVocabSize());
   LITERT_ASSIGN_OR_RETURN_ABSL(auto logits_tensor,
@@ -318,7 +325,7 @@ absl::StatusOr<std::vector<int>> LlmLiteRtCompiledModelExecutor::SampleLogits(
   // output of the sampler.
   auto ids_tensor = litert::lm::CopyToTensorBuffer<int>(
       absl::MakeConstSpan(ids_vector), {output_batch_size_});
-  RETURN_IF_ERROR(cpu_sampler_->SampleToIdAndScoreBuffer(
+  RETURN_IF_ERROR(sampler_->SampleToIdAndScoreBuffer(
       logits_tensor, *ids_tensor, /*scores_tensor=*/nullptr));
   auto ids = litert::lm::CopyFromTensorBuffer<int>(*ids_tensor);
   return *ids;
