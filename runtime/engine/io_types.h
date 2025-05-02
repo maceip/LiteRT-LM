@@ -21,9 +21,11 @@
 #include <string>
 #include <vector>
 
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "runtime/proto/engine.pb.h"
 
 namespace litert::lm {
 
@@ -74,30 +76,52 @@ struct BenchmarkTurnData {
   uint64_t num_tokens;      // The number of tokens processed in this turn.
   BenchmarkTurnData(uint64_t tokens, absl::Duration dur);
 };
+std::ostream& operator<<(std::ostream& os, const BenchmarkTurnData& data);
 
 // Class to store and manage comprehensive performance benchmark information for
 // LLMs.
 class BenchmarkInfo {
  public:
-  BenchmarkInfo() = default;
+  explicit BenchmarkInfo(const proto::BenchmarkParams& benchmark_params);
+  const proto::BenchmarkParams& GetBenchmarkParams() const;
 
   // --- Methods to record data ---
-  void AddInitPhase(const std::string& phase_name, absl::Duration duration);
-  void AddPrefillTurn(uint64_t num_tokens, absl::Duration duration);
-  void AddDecodeTurn(uint64_t num_generated_tokens, absl::Duration duration);
+  // Time the start and end of a phase in the initialization. The phase name
+  // should be a string that uniquely identifies the phase. Otherwise, the
+  // methods will return an error.
+  absl::Status TimeInitPhaseStart(const std::string& phase_name);
+  absl::Status TimeInitPhaseEnd(const std::string& phase_name);
+  // Time the start and end of a prefill/decode turn. The num_prefill_tokens
+  // should be the number of tokens processed in this turn. The method will
+  // return an error if the methods are called out of order (i.e. one end after
+  // one start).
+  absl::Status TimePrefillTurnStart();
+  absl::Status TimePrefillTurnEnd(uint64_t num_prefill_tokens);
+  absl::Status TimeDecodeTurnStart();
+  absl::Status TimeDecodeTurnEnd(uint64_t num_decode_tokens);
 
   // --- Getters for raw data ---
   const std::map<std::string, absl::Duration>& GetInitPhases() const;
 
-  // --- Calculated Metrics for Prefill ---
+  // --- Calculated metrics and getters for Prefill ---
   uint64_t GetTotalPrefillTurns() const;
+  const BenchmarkTurnData& GetPrefillTurn(int turn_index) const;
   double GetPrefillTokensPerSec(int turn_index) const;
 
-  // --- Calculated Metrics for Decode ---
+  // --- Calculated metrics and getters for Decode ---
   uint64_t GetTotalDecodeTurns() const;
+  const BenchmarkTurnData& GetDecodeTurn(int turn_index) const;
   double GetDecodeTokensPerSec(int turn_index) const;
 
  private:
+  proto::BenchmarkParams benchmark_params_;
+
+  // Map of phase names to start time.
+  std::map<std::string, absl::Time> start_time_map_;
+  // The current index of the prefill / decode turn.
+  int prefill_turn_index_ = 0;
+  int decode_turn_index_ = 0;
+
   std::map<std::string, absl::Duration> init_phases_;
   std::vector<BenchmarkTurnData> prefill_turns_;
   std::vector<BenchmarkTurnData> decode_turns_;

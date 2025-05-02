@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "absl/time/clock.h"  // from @com_google_absl
 #include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
@@ -14,6 +15,7 @@ namespace {
 
 using ::testing::status::IsOkAndHolds;
 using ::testing::status::StatusIs;
+using ::testing::ContainsRegex;
 
 std::string FloatToString(float val) {
   std::ostringstream oss;
@@ -105,73 +107,122 @@ TEST(ResponsesTest, HandlesMultipleCandidatesWithTextAndNoScores) {
   EXPECT_EQ(ss.str(), expected_output);
 }
 
+proto::BenchmarkParams GetBenchmarkParams() {
+  proto::BenchmarkParams benchmark_params;
+  benchmark_params.set_num_decode_tokens(100);
+  benchmark_params.set_num_prefill_tokens(100);
+  return benchmark_params;
+}
+
 // --- Test Init Phases ---
 TEST(BenchmarkInfoTests, AddAndGetInitPhases) {
-  BenchmarkInfo benchmark_info;
-  benchmark_info.AddInitPhase("Tokenizer Load", absl::Milliseconds(50.5));
-  benchmark_info.AddInitPhase("Model Load", absl::Milliseconds(1200.75));
+  BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(benchmark_info.TimeInitPhaseStart("Model Load"));
+  EXPECT_OK(benchmark_info.TimeInitPhaseStart("Tokenizer Load"));
+  absl::SleepFor(absl::Milliseconds(50));
+  EXPECT_OK(benchmark_info.TimeInitPhaseEnd("Tokenizer Load"));
+  absl::SleepFor(absl::Milliseconds(50));
+  EXPECT_OK(benchmark_info.TimeInitPhaseEnd("Model Load"));
 
   const auto& phases = benchmark_info.GetInitPhases();
   ASSERT_EQ(phases.size(), 2);
-  EXPECT_EQ(phases.at("Tokenizer Load"), absl::Milliseconds(50.5));
-  EXPECT_EQ(phases.at("Model Load"), absl::Milliseconds(1200.75));
+  // The time should be greater than 50ms.
+  EXPECT_GT(phases.at("Tokenizer Load"), absl::Milliseconds(50));
+  // The time should be greater than 50 + 50 = 100ms.
+  EXPECT_GT(phases.at("Model Load"), absl::Milliseconds(100));
 }
 
-// --- Test Prefill Turns ---
-TEST(BenchmarkInfoTests, AddAndGetPrefillTurns) {
-  BenchmarkInfo benchmark_info;
-  benchmark_info.AddPrefillTurn(100, absl::Milliseconds(50));
-  benchmark_info.AddPrefillTurn(200, absl::Milliseconds(100));
+TEST(BenchmarkInfoTests, AddInitPhaseTwice) {
+  BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(benchmark_info.TimeInitPhaseStart("Model Load"));
+  // Starting the same phase twice should fail.
+  EXPECT_THAT(benchmark_info.TimeInitPhaseStart("Model Load"),
+              StatusIs(absl::StatusCode::kInternal));
 
+  // Ending a phase that has not started should fail.
+  EXPECT_THAT(benchmark_info.TimeInitPhaseEnd("Tokenizer Load"),
+              StatusIs(absl::StatusCode::kInternal));
+}
+
+TEST(BenchmarkInfoTests, AddPrefillTurn) {
+  BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(benchmark_info.TimePrefillTurnStart());
+  EXPECT_OK(benchmark_info.TimePrefillTurnEnd(100));
+  EXPECT_OK(benchmark_info.TimePrefillTurnStart());
+  EXPECT_OK(benchmark_info.TimePrefillTurnEnd(200));
   EXPECT_EQ(benchmark_info.GetTotalPrefillTurns(), 2);
-  double expected_actual_tps =
-      100.0 / absl::ToDoubleSeconds(absl::Milliseconds(50));
-  EXPECT_EQ(benchmark_info.GetPrefillTokensPerSec(0), expected_actual_tps);
-  EXPECT_EQ(benchmark_info.GetPrefillTokensPerSec(1), expected_actual_tps);
 }
 
-// --- Test Decode Turns ---
-TEST(BenchmarkInfoTests, AddAndGetDecodeTurns) {
-  BenchmarkInfo benchmark_info;
-  benchmark_info.AddDecodeTurn(10, absl::Milliseconds(50));
+TEST(BenchmarkInfoTests, AddPrefillTurnError) {
+  BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(benchmark_info.TimePrefillTurnStart());
+  // Starting the prefill turn twice should fail.
+  EXPECT_THAT(benchmark_info.TimePrefillTurnStart(),
+              StatusIs(absl::StatusCode::kInternal));
 
-  EXPECT_EQ(benchmark_info.GetTotalDecodeTurns(), 1);
+  EXPECT_OK(benchmark_info.TimePrefillTurnEnd(100));
+  // Ending a prefill turn that has not started should fail.
+  EXPECT_THAT(benchmark_info.TimePrefillTurnEnd(200),
+              StatusIs(absl::StatusCode::kInternal));
+}
 
-  double expected_decode_turns_ps =
-      10.0 / absl::ToDoubleSeconds(absl::Milliseconds(50));
-  EXPECT_EQ(benchmark_info.GetDecodeTokensPerSec(0), expected_decode_turns_ps);
+TEST(BenchmarkInfoTests, AddDecodeTurn) {
+  BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(benchmark_info.TimeDecodeTurnStart());
+  EXPECT_OK(benchmark_info.TimeDecodeTurnEnd(100));
+  EXPECT_OK(benchmark_info.TimeDecodeTurnStart());
+  EXPECT_OK(benchmark_info.TimeDecodeTurnEnd(200));
+  EXPECT_EQ(benchmark_info.GetTotalDecodeTurns(), 2);
+}
+
+TEST(BenchmarkInfoTests, AddDecodeTurnError) {
+  BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(benchmark_info.TimeDecodeTurnStart());
+  // Starting the decode turn twice should fail.
+  EXPECT_THAT(benchmark_info.TimeDecodeTurnStart(),
+              StatusIs(absl::StatusCode::kInternal));
+
+  EXPECT_OK(benchmark_info.TimeDecodeTurnEnd(100));
+  // Ending a decode turn that has not started should fail.
+  EXPECT_THAT(benchmark_info.TimeDecodeTurnEnd(200),
+              StatusIs(absl::StatusCode::kInternal));
 }
 
 TEST(BenchmarkInfoTests, OperatorOutputWithData) {
-  BenchmarkInfo benchmark_info;
-  benchmark_info.AddInitPhase("Load Model", absl::Milliseconds(1000.50));
-  benchmark_info.AddInitPhase("Load Tokenizer", absl::Milliseconds(50.25));
+  BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(benchmark_info.TimeInitPhaseStart("Load Model"));
+  EXPECT_OK(benchmark_info.TimeInitPhaseStart("Load Tokenizer"));
+  EXPECT_OK(benchmark_info.TimeInitPhaseEnd("Load Model"));
+  EXPECT_OK(benchmark_info.TimeInitPhaseEnd("Load Tokenizer"));
 
-  benchmark_info.AddPrefillTurn(10, absl::Milliseconds(20));
-  benchmark_info.AddPrefillTurn(20, absl::Milliseconds(10));
+  EXPECT_OK(benchmark_info.TimePrefillTurnStart());
+  EXPECT_OK(benchmark_info.TimePrefillTurnEnd(100));
+  EXPECT_OK(benchmark_info.TimePrefillTurnStart());
+  EXPECT_OK(benchmark_info.TimePrefillTurnEnd(200));
 
-  benchmark_info.AddDecodeTurn(5, absl::Milliseconds(25));
+  EXPECT_OK(benchmark_info.TimeDecodeTurnStart());
+  EXPECT_OK(benchmark_info.TimeDecodeTurnEnd(100));
 
   std::stringstream ss;
   ss << benchmark_info;
   const std::string expected_output = R"(BenchmarkInfo:
-  Init Phases (2):
-    - Load Model: 1000.50 ms
-    - Load Tokenizer: 50.25 ms
-    Total init time: 1050.75 ms
+  Init Phases \(2\):
+    - Load Model: .* ms
+    - Load Tokenizer: .* ms
+    Total init time: .* ms
 --------------------------------------------------
-  Prefill Turns (Total: 2):
-    Prefill Turn 1:
-      Prefill Speed: 500.00 tokens/sec.
-    Prefill Turn 2:
-      Prefill Speed: 2000.00 tokens/sec.
+  Prefill Turns \(Total: 2\):
+    Prefill Turn 1: Processed 100 tokens in .* duration.
+      Prefill Speed: .* tokens/sec.
+    Prefill Turn 2: Processed 200 tokens in .* duration.
+      Prefill Speed: .* tokens/sec.
 --------------------------------------------------
-  Decode Turns (Total: 1):
-    Decode Turn 1:
-      Decode Speed: 200.00 tokens/sec.
+  Decode Turns \(Total: 1\):
+    Decode Turn 1: Processed 100 tokens in .* duration.
+      Decode Speed: .* tokens/sec.
 --------------------------------------------------
 )";
-  EXPECT_EQ(ss.str(), expected_output);
+  EXPECT_THAT(ss.str(), ContainsRegex(expected_output));
 }
 
 }  // namespace

@@ -14,6 +14,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/time/clock.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 
 namespace litert::lm {
@@ -89,19 +90,81 @@ std::ostream& operator<<(std::ostream& os, const Responses& responses) {
 BenchmarkTurnData::BenchmarkTurnData(uint64_t tokens, absl::Duration dur)
     : duration(dur), num_tokens(tokens) {}
 
-void BenchmarkInfo::AddInitPhase(const std::string& phase_name,
-                                 absl::Duration duration) {
-  init_phases_[phase_name] = duration;
+BenchmarkInfo::BenchmarkInfo(const proto::BenchmarkParams& benchmark_params)
+    : benchmark_params_(benchmark_params) {};
+
+const proto::BenchmarkParams& BenchmarkInfo::GetBenchmarkParams() const {
+  return benchmark_params_;
 }
 
-void BenchmarkInfo::AddPrefillTurn(uint64_t num_tokens,
-                                   absl::Duration duration) {
-  prefill_turns_.emplace_back(num_tokens, duration);
+absl::Status BenchmarkInfo::TimeInitPhaseStart(const std::string& phase_name) {
+  if (start_time_map_.contains(phase_name)) {
+    return absl::InternalError(
+        absl::StrCat("Phase ", phase_name, " already started."));
+  }
+  start_time_map_[phase_name] = absl::Now();
+  return absl::OkStatus();
 }
 
-void BenchmarkInfo::AddDecodeTurn(uint64_t num_generated_tokens,
-                                  absl::Duration duration) {
-  decode_turns_.emplace_back(num_generated_tokens, duration);
+absl::Status BenchmarkInfo::TimeInitPhaseEnd(const std::string& phase_name) {
+  if (!start_time_map_.contains(phase_name)) {
+    return absl::InternalError(
+        absl::StrCat("Phase ", phase_name, " not started."));
+  }
+  init_phases_[phase_name] = absl::Now() - start_time_map_[phase_name];
+  return absl::OkStatus();
+}
+
+absl::Status BenchmarkInfo::TimePrefillTurnStart() {
+  const std::string phase_name = absl::StrCat("prefill:", prefill_turn_index_);
+  if (start_time_map_.contains(phase_name)) {
+    return absl::InternalError(
+        absl::StrCat("Prefill turn ", phase_name, " already started."));
+  }
+  start_time_map_[phase_name] = absl::Now();
+  return absl::OkStatus();
+}
+
+absl::Status BenchmarkInfo::TimePrefillTurnEnd(uint64_t num_prefill_tokens) {
+  const std::string phase_name = absl::StrCat("prefill:", prefill_turn_index_);
+  if (!start_time_map_.contains(phase_name)) {
+    return absl::InternalError(
+        absl::StrCat("Prefill turn ", phase_name, " not started."));
+  }
+  prefill_turns_.emplace_back(num_prefill_tokens,
+                              absl::Now() - start_time_map_[phase_name]);
+  prefill_turn_index_++;
+  return absl::OkStatus();
+}
+
+const BenchmarkTurnData& BenchmarkInfo::GetPrefillTurn(int turn_index) const {
+  return prefill_turns_[turn_index];
+}
+
+absl::Status BenchmarkInfo::TimeDecodeTurnStart() {
+  const std::string phase_name = absl::StrCat("decode:", decode_turn_index_);
+  if (start_time_map_.contains(phase_name)) {
+    return absl::InternalError(
+        absl::StrCat("Decode turn ", phase_name, " already started."));
+  }
+  start_time_map_[phase_name] = absl::Now();
+  return absl::OkStatus();
+}
+
+absl::Status BenchmarkInfo::TimeDecodeTurnEnd(uint64_t num_decode_tokens) {
+  const std::string phase_name = absl::StrCat("decode:", decode_turn_index_);
+  if (!start_time_map_.contains(phase_name)) {
+    return absl::InternalError(
+        absl::StrCat("Decode turn ", phase_name, " not started."));
+  }
+  decode_turns_.emplace_back(num_decode_tokens,
+                             absl::Now() - start_time_map_[phase_name]);
+  decode_turn_index_++;
+  return absl::OkStatus();
+}
+
+const BenchmarkTurnData& BenchmarkInfo::GetDecodeTurn(int turn_index) const {
+  return decode_turns_[turn_index];
 }
 
 const std::map<std::string, absl::Duration>& BenchmarkInfo::GetInitPhases()
@@ -157,7 +220,12 @@ double BenchmarkInfo::GetDecodeTokensPerSec(int turn_index) const {
   return static_cast<double>(turn.num_tokens) / turn_seconds;
 }
 
-// --- operator<< Definition ---
+std::ostream& operator<<(std::ostream& os, const BenchmarkTurnData& data) {
+  os << "Processed " << data.num_tokens << " tokens in " << data.duration
+     << " duration." << std::endl;
+  return os;
+}
+
 std::ostream& operator<<(std::ostream& os, const BenchmarkInfo& info) {
   os << std::fixed << std::setprecision(2);
 
@@ -182,7 +250,7 @@ std::ostream& operator<<(std::ostream& os, const BenchmarkInfo& info) {
     os << "    No prefill turns recorded." << std::endl;
   } else {
     for (uint64_t i = 0; i < info.GetTotalPrefillTurns(); ++i) {
-      os << "    Prefill Turn " << i + 1 << ":" << std::endl;
+      os << "    Prefill Turn " << i + 1 << ": " << info.GetPrefillTurn(i);
       os << "      Prefill Speed: "
          << info.GetPrefillTokensPerSec(static_cast<int>(i)) << " tokens/sec."
          << std::endl;
@@ -196,7 +264,7 @@ std::ostream& operator<<(std::ostream& os, const BenchmarkInfo& info) {
     os << "    No decode turns recorded." << std::endl;
   } else {
     for (uint64_t i = 0; i < info.GetTotalDecodeTurns(); ++i) {
-      os << "    Decode Turn " << i + 1 << ":" << std::endl;
+      os << "    Decode Turn " << i + 1 << ": " << info.GetDecodeTurn(i);
       os << "      Decode Speed: "
          << info.GetDecodeTokensPerSec(static_cast<int>(i)) << " tokens/sec."
          << std::endl;

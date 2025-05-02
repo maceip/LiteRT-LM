@@ -48,6 +48,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
+        "//runtime/proto:engine_cc_proto",
     ],
 )
 
@@ -105,5 +106,6 @@ cc_test(
         ":engine_settings",
         "@com_google_googletest//:gtest_main",
         "//runtime/executor:llm_executor_settings",
+        "//runtime/proto:engine_cc_proto",
     ],
 )

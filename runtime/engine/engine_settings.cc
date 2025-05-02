@@ -8,11 +8,30 @@
 
 namespace litert::lm {
 
-EngineSettings::EngineSettings(const LlmExecutorSettings& executor_settings)
-    : main_executor_settings_(executor_settings) {}
+EngineSettings::EngineSettings(
+    const LlmExecutorSettings& executor_settings,
+    std::optional<proto::BenchmarkParams> benchmark_params)
+    : main_executor_settings_(executor_settings),
+      benchmark_params_(benchmark_params) {}
 
 const LlmExecutorSettings& EngineSettings::GetMainExecutorSettings() const {
   return main_executor_settings_;
+}
+
+// Benchmark parameters:
+// Returns true if the benchmark is enabled.
+bool EngineSettings::IsBenchmarkEnabled() const {
+  return benchmark_params_.has_value();
+}
+// Returns the benchmark parameters.
+std::optional<proto::BenchmarkParams> EngineSettings::GetBenchmarkParams()
+    const {
+  return benchmark_params_;
+}
+// Sets the benchmark parameters.
+void EngineSettings::SetBenchmarkParams(
+    const proto::BenchmarkParams& benchmark_params) {
+  benchmark_params_ = benchmark_params;
 }
 
 SessionConfig SessionConfig::CreateDefault() {
@@ -26,23 +45,7 @@ SessionConfig SessionConfig::CreateDefault() {
 }
 
 SessionConfig::SessionConfig(const proto::SamplerParameters& sampler_params)
-    : sampler_params_(sampler_params), benchmark_params_(std::nullopt) {}
-
-// Returns true if the benchmark is enabled.
-bool SessionConfig::IsBenchmarkEnabled() const {
-  return benchmark_params_.has_value();
-}
-
-std::optional<proto::BenchmarkParams> SessionConfig::GetBenchmarkParams()
-    const {
-  return benchmark_params_;
-}
-
-// Sets the benchmark parameters.
-void SessionConfig::SetBenchmarkParams(
-    const proto::BenchmarkParams& benchmark_params) {
-  benchmark_params_ = benchmark_params;
-}
+    : sampler_params_(sampler_params) {}
 
 // Returns the sampler parameters.
 proto::SamplerParameters SessionConfig::GetSamplerParams() const {

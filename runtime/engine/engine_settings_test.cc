@@ -5,6 +5,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "runtime/executor/llm_executor_settings.h"
+#include "runtime/proto/engine.pb.h"
 
 namespace litert::lm {
 namespace {
@@ -13,9 +14,7 @@ using ::litert::lm::EngineSettings;
 using ::litert::lm::LlmExecutorSettings;
 using ::testing::Eq;
 
-class LlmModelSettingsTest : public ::testing::Test {};
-
-TEST_F(LlmModelSettingsTest, GetModelPath) {
+TEST(EngineSettingsTest, GetModelPath) {
   ModelAssets model_assets;
   model_assets.model_paths.push_back("test_model_path_1");
   LlmExecutorSettings executor_settings(model_assets);
@@ -25,7 +24,7 @@ TEST_F(LlmModelSettingsTest, GetModelPath) {
             "test_model_path_1");
 }
 
-TEST_F(LlmModelSettingsTest, SetAndGetCacheDir) {
+TEST(EngineSettingsTest, SetAndGetCacheDir) {
   ModelAssets model_assets;
   model_assets.model_paths.push_back("test_model_path_1");
   LlmExecutorSettings executor_settings(model_assets);
@@ -34,7 +33,7 @@ TEST_F(LlmModelSettingsTest, SetAndGetCacheDir) {
   EXPECT_EQ(settings.GetMainExecutorSettings().GetCacheDir(), "test_cache_dir");
 }
 
-TEST_F(LlmModelSettingsTest, SetAndGetMaxNumTokens) {
+TEST(EngineSettingsTest, SetAndGetMaxNumTokens) {
   ModelAssets model_assets;
   model_assets.model_paths.push_back("test_model_path_1");
   LlmExecutorSettings executor_settings(model_assets);
@@ -43,7 +42,7 @@ TEST_F(LlmModelSettingsTest, SetAndGetMaxNumTokens) {
   EXPECT_EQ(settings.GetMainExecutorSettings().GetMaxNumTokens(), 128);
 }
 
-TEST_F(LlmModelSettingsTest, SetAndGetExecutorBackend) {
+TEST(EngineSettingsTest, SetAndGetExecutorBackend) {
   ModelAssets model_assets;
   model_assets.model_paths.push_back("test_model_path_1");
   LlmExecutorSettings executor_settings(model_assets);
@@ -53,13 +52,29 @@ TEST_F(LlmModelSettingsTest, SetAndGetExecutorBackend) {
               Eq(Backend::GPU));
 }
 
-TEST_F(LlmModelSettingsTest, DefaultExecutorBackend) {
+TEST(EngineSettingsTest, DefaultExecutorBackend) {
   ModelAssets model_assets;
   model_assets.model_paths.push_back("test_model_path_1");
   LlmExecutorSettings executor_settings(model_assets);
   EngineSettings settings(executor_settings);
   EXPECT_THAT(settings.GetMainExecutorSettings().GetBackend(),
               Eq(Backend::CPU));
+}
+
+TEST(EngineSettingsTest, BenchmarkParams) {
+  ModelAssets model_assets;
+  model_assets.model_paths.push_back("test_model_path_1");
+  LlmExecutorSettings executor_settings(model_assets);
+  EngineSettings settings(executor_settings);
+  EXPECT_FALSE(settings.IsBenchmarkEnabled());
+
+  proto::BenchmarkParams benchmark_params;
+  benchmark_params.set_num_decode_tokens(100);
+  benchmark_params.set_num_prefill_tokens(100);
+  settings.SetBenchmarkParams(benchmark_params);
+  EXPECT_TRUE(settings.IsBenchmarkEnabled());
+  EXPECT_EQ(settings.GetBenchmarkParams()->num_decode_tokens(), 100);
+  EXPECT_EQ(settings.GetBenchmarkParams()->num_prefill_tokens(), 100);
 }
 
 TEST(SessionConfigTest, CreateDefault) {
@@ -70,14 +85,6 @@ TEST(SessionConfigTest, CreateDefault) {
   EXPECT_EQ(session_config.GetSamplerParams().p(), 0.95f);
   EXPECT_EQ(session_config.GetSamplerParams().temperature(), 1.0f);
   EXPECT_EQ(session_config.GetSamplerParams().seed(), 0);
-  EXPECT_FALSE(session_config.IsBenchmarkEnabled());
-}
-
-TEST(SessionConfigTest, IsBenchmarkEnabled) {
-  SessionConfig session_config = SessionConfig::CreateDefault();
-  EXPECT_FALSE(session_config.IsBenchmarkEnabled());
-  session_config.SetBenchmarkParams(proto::BenchmarkParams());
-  EXPECT_TRUE(session_config.IsBenchmarkEnabled());
 }
 
 }  // namespace
