@@ -77,6 +77,20 @@ absl::Status LlmLiteRtCompiledModelExecutor::Prefill(
   ASSIGN_OR_RETURN(auto work_groups, GetOptimizedPrefillWorkGroups(
                                          prefill_signature_map_, ids.size()));
   for (const auto& [prefill_signature, prefill_length] : work_groups) {
+    // Create input_token, positions and attn_mask buffers after determining
+    // the prefill length.
+    auto tokens_buffer = compiled_model_.CreateInputBuffer(
+        prefill_signature, signatures_.input_tokens);
+    auto positions_buffer = compiled_model_.CreateInputBuffer(
+        prefill_signature, signatures_.input_positions);
+    auto attn_mask_buffer = compiled_model_.CreateInputBuffer(
+        prefill_signature, signatures_.input_attn_mask.value());
+    prefill_input_buffers_[signatures_.input_tokens] =
+        std::move(*tokens_buffer);
+    prefill_input_buffers_[signatures_.input_positions] =
+        std::move(*positions_buffer);
+    prefill_input_buffers_[signatures_.input_attn_mask.value()] =
+        std::move(*attn_mask_buffer);
     RETURN_IF_ERROR(PrefillInternal(prefill_signature,
                                     ids.subspan(/*pos=*/0, prefill_length)));
     ids = ids.subspan(/*pos=*/prefill_length);
@@ -409,8 +423,20 @@ LlmLiteRtCompiledModelExecutor::Create(
   RETURN_IF_ERROR(GetCacheRootNames(prefill_signature->InputNames(),
                                     kv_cache_k_root_name,
                                     kv_cache_v_root_name));
+  auto decode_signature = litert_model.FindSignature(kDecodeSignatureRunner);
+  ASSIGN_OR_RETURN(
+      ModelSignatures signatures,
+      GetModelSignaturesFromInputOutputNames(decode_signature->InputNames(),
+                                             decode_signature->OutputNames()));
 
   for (auto input_name : prefill_signature->InputNames()) {
+    // Skip creating buffers for the input tokens, positions and attn mask. Move
+    // into prefill function to create them based on the ids size.
+    if (input_name == signatures.input_tokens ||
+        input_name == signatures.input_positions ||
+        input_name == signatures.input_attn_mask) {
+      continue;
+    }
     auto input_buffer =
         compiled_model->CreateInputBuffer(prefill_signature_key, input_name);
     if (!input_buffer) {
@@ -441,7 +467,6 @@ LlmLiteRtCompiledModelExecutor::Create(
     }
   }
 
-  auto decode_signature = litert_model.FindSignature(kDecodeSignatureRunner);
   for (auto input_name : decode_signature->InputNames()) {
     if (!absl::StartsWith(input_name, kv_cache_k_root_name) &&
         !absl::StartsWith(input_name, kv_cache_v_root_name)) {
@@ -468,11 +493,6 @@ LlmLiteRtCompiledModelExecutor::Create(
       decode_output_buffers[output_name] = std::move(*output_buffer);
     }
   }
-
-  ASSIGN_OR_RETURN(
-      ModelSignatures signatures,
-      GetModelSignaturesFromInputOutputNames(decode_signature->InputNames(),
-                                             decode_signature->OutputNames()));
 
   auto output_logits_buffer =
       decode_output_buffers[signatures.output_logits].Duplicate();

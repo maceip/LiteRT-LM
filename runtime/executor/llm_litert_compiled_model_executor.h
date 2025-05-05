@@ -58,9 +58,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
 
   // Advanced API to allow customized query parameters.
   // Input is token ids with shape `[batch, sequence_length]`
-  absl::Status Prefill(
-      const ExecutorInputs& inputs,
-      const ExecutorPrefillParams& params) override;
+  absl::Status Prefill(const ExecutorInputs& inputs,
+                       const ExecutorPrefillParams& params) override;
 
   // Output APIs:
   // Basic API to trigger the "decode" process.
