@@ -105,7 +105,15 @@ absl::StatusOr<Responses> Decode(std::shared_ptr<LlmExecutor> executor,
   int num_decoded_steps = 0;
   for (int i = 0; i < std::max(kMaxDecodeStop, benchmark_decode_token_count);
        ++i) {
+    if (benchmark_info.has_value()) {
+      RETURN_IF_ERROR(
+          benchmark_info->TimeMarkDelta("executor_decode_and_sample"));
+    }
     RETURN_IF_ERROR(executor->Decode(output_tokens));
+    if (benchmark_info.has_value()) {
+      RETURN_IF_ERROR(
+          benchmark_info->TimeMarkDelta("executor_decode_and_sample"));
+    }
     LITERT_ASSIGN_OR_RETURN_ABSL(auto output_tokens_span,
                                  ReferTensorBufferAsSpan<int>(output_tokens));
     if (output_tokens_span.size() != 1) {
@@ -164,10 +172,19 @@ absl::StatusOr<Responses> DecodeCustomSampling(
                             decoded_ids.Duplicate());
     ExecutorInputs inputs(ExecutorTextData(std::move(duplicate_decoded_ids)),
                           std::nullopt, std::nullopt);
+    if (benchmark_info.has_value()) {
+      RETURN_IF_ERROR(benchmark_info->TimeMarkDelta("executor_decode"));
+    }
     RETURN_IF_ERROR(executor->Decode(inputs, output_logits));
+    if (benchmark_info.has_value()) {
+      RETURN_IF_ERROR(benchmark_info->TimeMarkDelta("executor_decode"));
+      RETURN_IF_ERROR(benchmark_info->TimeMarkDelta("sampling"));
+    }
     RETURN_IF_ERROR(sampler.SampleToIdAndScoreBuffer(output_logits, decoded_ids,
                                                      &(*scores_tensor)));
-
+    if (benchmark_info.has_value()) {
+      RETURN_IF_ERROR(benchmark_info->TimeMarkDelta("sampling"));
+    }
     ASSIGN_OR_RETURN(auto result_tokens,
                      tokenizer->TensorBufferToText(decoded_ids));
 

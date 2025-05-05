@@ -1,7 +1,6 @@
 #include "runtime/components/top_p_cpu_sampler.h"
 
 #include <cmath>
-#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -62,10 +61,6 @@ absl::StatusOr<std::unique_ptr<TopPSampler>> TopPSampler::Create(
 absl::Status TopPSampler::SampleToIdAndScoreBuffer(
     const TensorBuffer& logits_tensor, TensorBuffer& ids_tensor,
     TensorBuffer* scores_tensor) {
-  LITERT_ASSIGN_OR_RETURN(auto logits_tensor_type, logits_tensor.TensorType());
-  LITERT_ASSIGN_OR_RETURN(size_t num_elements,
-                          logits_tensor_type.Layout().NumElements());
-  const int vocab_size = num_elements / batch_size_;
   auto status = ValidateTensor(logits_tensor, /*max_num_dims=*/2, batch_size_,
                                "input logits");
   if (!status.ok()) {
@@ -77,14 +72,10 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
     return status;
   }
 
-  auto logits_data = CopyFromTensorBuffer<float>(logits_tensor);
-  auto probabilities =
-      Softmax(absl::MakeConstSpan((*logits_data)), temperature_, batch_size_);
-  if (!probabilities.ok()) {
-    return probabilities.status();
-  }
-  auto sampled_ids = TopKTopPSampling(absl::MakeConstSpan(*probabilities), k_,
-                                      p_, *generator_, batch_size_);
+  auto logits_data = ReferTensorBufferAsSpan<float>(logits_tensor);
+  std::vector<float> sampled_scores;
+  auto sampled_ids = TopKTopPSampling(*logits_data, k_, p_, temperature_,
+                                      generator_, batch_size_, sampled_scores);
   if (!sampled_ids.ok()) {
     return sampled_ids.status();
   }
@@ -98,8 +89,7 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
     std::vector<float> scores(batch_size_);
     for (int i = 0; i < batch_size_; ++i) {
       // The scores are the log of the probability of the sampled token.
-      scores[i] =
-          std::log((*probabilities)[i * vocab_size + (*sampled_ids)[i]]);
+      scores[i] = std::log(sampled_scores[i]);
     }
     scores_tensor->Write(absl::MakeConstSpan(scores));
   }

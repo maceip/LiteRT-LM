@@ -285,6 +285,14 @@ std::ostream& operator<<(std::ostream& os, const BenchmarkInfo& info) {
   }
   os << "--------------------------------------------------" << std::endl;
 
+  if (!info.GetMarkDurations().empty()) {
+    os << "  Mark Durations (" << info.GetMarkDurations().size() << "):"
+       << std::endl;
+    for (const auto& [mark_name, duration] : info.GetMarkDurations()) {
+      os << "    - " << mark_name << ": " << duration << std::endl;
+    }
+  }
+  os << "--------------------------------------------------" << std::endl;
   return os;
 }
 

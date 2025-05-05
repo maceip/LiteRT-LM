@@ -2,8 +2,9 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_TOP_P_CPU_SAMPLER_H_
 
 #include <memory>
-#include <random>
+#include <utility>
 
+#include "absl/random/random.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
@@ -36,18 +37,18 @@ class TopPSampler : public Sampler {
  private:
   explicit TopPSampler(int k, float p, float temperature, int batch_size,
                        int seed)
-      : k_(k),
-        p_(p),
-        temperature_(temperature),
-        batch_size_(batch_size),
-        generator_(std::make_unique<std::mt19937>(seed)) {}
+      : k_(k), p_(p), temperature_(temperature), batch_size_(batch_size) {
+    absl::SeedSeq proper_seed_seq({seed});
+    absl::BitGen rng(proper_seed_seq);
+    generator_ = std::move(rng);
+  }
 
   // The parameters for the sampler.
   const int k_;
   const float p_;
   const float temperature_;
   const int batch_size_;
-  std::unique_ptr<std::mt19937> generator_;
+  absl::BitGen generator_;
 };
 
 }  // namespace litert::lm
