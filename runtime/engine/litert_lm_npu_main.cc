@@ -83,9 +83,20 @@ int main(int argc, char* argv[]) {
   // Create the session.
   constexpr int kEndOfTurnTokenId = 106;
   std::vector<int> stop_token_ids = {kEndOfTurnTokenId};
+  // TODO(b/405424188): The NPU executor currently uses direct sampling on the
+  // int16 logits. Use SamplerParameters::TYPE_UNSPECIFIED to avoid using the
+  // default float CPU sampler.
+  // See the description of cl/752681117 that justifies the usage of a
+  // custom sampler (decode performance speed-up). We should extend the
+  // 'litert::lm' Sampler to support this natively and remove the custom sampler
+  // of the NPU executor.
+  auto session_config = litert::lm::SessionConfig::CreateDefault();
+  auto sampler_params = session_config.GetSamplerParams();
+  sampler_params.set_type(
+      litert::lm::proto::SamplerParameters::TYPE_UNSPECIFIED);
+  session_config.SetSamplerParams(sampler_params);
   auto session = litert::lm::SessionBasic::Create(
-      executor_shared, tokenizer, stop_token_ids,
-      litert::lm::SessionConfig::CreateDefault(), std::nullopt);
+      executor_shared, tokenizer, stop_token_ids, session_config, std::nullopt);
 
   // Run the session.
   const std::string prompt = absl::GetFlag(FLAGS_prompt);
