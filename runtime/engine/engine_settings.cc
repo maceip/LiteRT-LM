@@ -47,10 +47,14 @@ SessionConfig SessionConfig::CreateDefault() {
 SessionConfig::SessionConfig(const proto::SamplerParameters& sampler_params)
     : sampler_params_(sampler_params) {}
 
-// Returns the sampler parameters.
-proto::SamplerParameters SessionConfig::GetSamplerParams() const {
+const proto::SamplerParameters& SessionConfig::GetSamplerParams() const {
   return sampler_params_;
 }
+
+proto::SamplerParameters& SessionConfig::GetMutableSamplerParams() {
+  return sampler_params_;
+}
+
 void SessionConfig::SetSamplerParams(
     const proto::SamplerParameters& sampler_params) {
   sampler_params_ = sampler_params;

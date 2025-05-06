@@ -87,5 +87,22 @@ TEST(SessionConfigTest, CreateDefault) {
   EXPECT_EQ(session_config.GetSamplerParams().seed(), 0);
 }
 
+TEST(SessionConfigTest, SetAndGetSamplerParams) {
+  proto::SamplerParameters sampler_params;
+  sampler_params.set_type(proto::SamplerParameters::TOP_K);
+  sampler_params.set_k(10);
+  SessionConfig session_config(sampler_params);
+  EXPECT_EQ(session_config.GetSamplerParams().type(),
+            proto::SamplerParameters::TOP_K);
+  EXPECT_EQ(session_config.GetSamplerParams().k(), 10);
+
+  // Mutable sampler params.
+  session_config.GetMutableSamplerParams().set_type(
+      proto::SamplerParameters::TYPE_UNSPECIFIED);
+  EXPECT_EQ(session_config.GetSamplerParams().type(),
+            proto::SamplerParameters::TYPE_UNSPECIFIED);
+}
+
+
 }  // namespace
 }  // namespace litert::lm

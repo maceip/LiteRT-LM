@@ -51,8 +51,9 @@ class SessionConfig {
   explicit SessionConfig(const proto::SamplerParameters& sampler_params);
 
   // Sampler parameters:
-  // Returns the sampler parameters.
-  proto::SamplerParameters GetSamplerParams() const;
+  // Getters for the sampler parameters.
+  const proto::SamplerParameters& GetSamplerParams() const;
+  proto::SamplerParameters& GetMutableSamplerParams();
   // Sets the sampler parameters.
   void SetSamplerParams(const proto::SamplerParameters& sampler_params);
 

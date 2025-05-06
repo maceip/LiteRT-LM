@@ -90,11 +90,11 @@ int main(int argc, char* argv[]) {
   // custom sampler (decode performance speed-up). We should extend the
   // 'litert::lm' Sampler to support this natively and remove the custom sampler
   // of the NPU executor.
+  // TODO(b/415915773): update the session config to use the provided sampler
+  // once it supports the int16 logits.
   auto session_config = litert::lm::SessionConfig::CreateDefault();
-  auto sampler_params = session_config.GetSamplerParams();
-  sampler_params.set_type(
+  session_config.GetMutableSamplerParams().set_type(
       litert::lm::proto::SamplerParameters::TYPE_UNSPECIFIED);
-  session_config.SetSamplerParams(sampler_params);
   auto session = litert::lm::SessionBasic::Create(
       executor_shared, tokenizer, stop_token_ids, session_config, std::nullopt);
 
