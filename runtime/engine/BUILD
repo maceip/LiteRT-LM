@@ -67,6 +67,11 @@ cc_test(
 cc_binary(
     name = "litert_lm_main",
     srcs = ["litert_lm_main.cc"],
+    # Export LiteRt* symbols for LiteRt accelerator shlibs.
+    linkopts = ["-Wl,--export-dynamic-symbol=LiteRt*"] + select({
+        "@platforms//os:android": ["-lEGL", "-lGLESv3"],
+        "//conditions:default": [],
+    }),
     deps = [
         ":engine_interface",
         ":engine_settings",
@@ -81,10 +86,6 @@ cc_binary(
         "//runtime/executor:llm_executor_settings",
     ] + select({
         "//conditions:default": ["//runtime/core:engine_impl"],
-    }),
-    linkopts = select({
-        "@platforms//os:android": ["-lEGL", "-lGLESv3"],
-        "//conditions:default": [],
     }),
 )
 
