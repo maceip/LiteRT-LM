@@ -47,17 +47,29 @@ constexpr AttentionMaskDataType kGemma2JAX_InputAttnMaskDataType =
 // Output: [batch_size, max_seq_len, vocab_size]
 constexpr char kGemma2JAX_OutputLogits[] = "logits";
 
-// Gemma2 PyTorch model signatures.
+// PyTorch model signatures running on CPU and GPU including Gemma2 & 3 and
+// other open source models, which has "mask" as input.
 // Input: [batch_size, max_seq_len]
-constexpr char kGemma2PyTorch_InputTokens[] = "tokens";
+constexpr char kPyTorch_InputTokens[] = "tokens";
 // Input: [max_seq_len]
-constexpr char kGemma2PyTorch_InputPositions[] = "input_pos";
+constexpr char kPyTorch_InputPositions[] = "input_pos";
 // Input: [batch_size, 1, max_seq_len, context_size]
-constexpr char kGemma2PyTorch_InputAttnMask[] = "mask";
-constexpr AttentionMaskDataType kGemma2PyTorch_InputAttnMaskDataType =
+constexpr char kPyTorch_InputAttnMask[] = "mask";
+constexpr AttentionMaskDataType kPyTorch_InputAttnMaskDataType =
     AttentionMaskDataType::FLOAT;
 // Output: [batch_size, max_seq_len, vocab_size]
-constexpr char kGemma2PyTorch_OutputLogits[] = "logits";
+constexpr char kPyTorch_OutputLogits[] = "logits";
+
+// PyTorch model signatures running only on CPU including Gemma2 & 3 and other
+// open source models, which does not have "mask" as input.
+// Input: [batch_size, max_seq_len]
+constexpr char kPyTorchCpuOnly_InputTokens[] = "tokens";
+// Input: [max_seq_len]
+constexpr char kPyTorchCpuOnly_InputPositions[] = "input_pos";
+constexpr AttentionMaskDataType kPyTorchCpuOnly_InputAttnMaskDataType =
+    AttentionMaskDataType::FLOAT;
+// Output: [batch_size, max_seq_len, vocab_size]
+constexpr char kPyTorchCpuOnly_OutputLogits[] = "logits";
 
 // Gemini V1.5 model signatures.
 // Input: [batch_size, max_seq_len]
@@ -73,32 +85,35 @@ constexpr char kGemini_OutputLogits[] = "logits";
 
 bool Contains(const std::vector<absl::string_view>& input_names,
               const char* name) {
-  for (auto& input_name : input_names) {
-    if (input_name == name) {
-      return true;
-    }
-  }
-  return false;
+  return std::find(input_names.begin(), input_names.end(), name) !=
+         input_names.end();
 }
 
-bool IsGemma2JAX(std::vector<absl::string_view>& input_names,
-                 std::vector<absl::string_view>& output_names) {
+bool IsGemma2JAX(const std::vector<absl::string_view>& input_names,
+                 const std::vector<absl::string_view>& output_names) {
   return Contains(input_names, kGemma2JAX_InputTokens) &&
          Contains(input_names, kGemma2JAX_InputPositions) &&
          Contains(input_names, kGemma2JAX_InputAttnMask) &&
          Contains(output_names, kGemma2JAX_OutputLogits);
 }
 
-bool IsGemma2PyTorch(std::vector<absl::string_view>& input_names,
-                     std::vector<absl::string_view>& output_names) {
-  return Contains(input_names, kGemma2PyTorch_InputTokens) &&
-         Contains(input_names, kGemma2PyTorch_InputPositions) &&
-         Contains(input_names, kGemma2PyTorch_InputAttnMask) &&
-         Contains(output_names, kGemma2PyTorch_OutputLogits);
+bool IsPyTorch(const std::vector<absl::string_view>& input_names,
+               const std::vector<absl::string_view>& output_names) {
+  return Contains(input_names, kPyTorch_InputTokens) &&
+         Contains(input_names, kPyTorch_InputPositions) &&
+         Contains(input_names, kPyTorch_InputAttnMask) &&
+         Contains(output_names, kPyTorch_OutputLogits);
 }
 
-bool IsGemini(std::vector<absl::string_view>& input_names,
-              std::vector<absl::string_view>& output_names) {
+bool IsPyTorchCpuOnly(const std::vector<absl::string_view>& input_names,
+                      const std::vector<absl::string_view>& output_names) {
+  return Contains(input_names, kPyTorchCpuOnly_InputTokens) &&
+         Contains(input_names, kPyTorchCpuOnly_InputPositions) &&
+         Contains(output_names, kPyTorchCpuOnly_OutputLogits);
+}
+
+bool IsGemini(const std::vector<absl::string_view>& input_names,
+              const std::vector<absl::string_view>& output_names) {
   return Contains(input_names, kGemini_InputTokens) &&
          Contains(input_names, kGemini_InputPositions) &&
          Contains(input_names, kGemini_InputAttnMask) &&
@@ -108,8 +123,8 @@ bool IsGemini(std::vector<absl::string_view>& input_names,
 }  // namespace
 
 absl::StatusOr<ModelSignatures> GetModelSignaturesFromInputOutputNames(
-    std::vector<absl::string_view> input_names,
-    std::vector<absl::string_view> output_names) {
+    const std::vector<absl::string_view>& input_names,
+    const std::vector<absl::string_view>& output_names) {
   if (IsGemma2JAX(input_names, output_names)) {
     return ModelSignatures{
         .input_tokens = kGemma2JAX_InputTokens,
@@ -118,15 +133,28 @@ absl::StatusOr<ModelSignatures> GetModelSignaturesFromInputOutputNames(
         .input_attn_mask_data_type = kGemma2JAX_InputAttnMaskDataType,
         .output_logits = kGemma2JAX_OutputLogits,
     };
-  } else if (IsGemma2PyTorch(input_names, output_names)) {
+  }
+
+  if (IsPyTorch(input_names, output_names)) {
     return ModelSignatures{
-        .input_tokens = kGemma2PyTorch_InputTokens,
-        .input_positions = kGemma2PyTorch_InputPositions,
-        .input_attn_mask = kGemma2PyTorch_InputAttnMask,
-        .input_attn_mask_data_type = kGemma2PyTorch_InputAttnMaskDataType,
-        .output_logits = kGemma2PyTorch_OutputLogits,
+        .input_tokens = kPyTorch_InputTokens,
+        .input_positions = kPyTorch_InputPositions,
+        .input_attn_mask = kPyTorch_InputAttnMask,
+        .input_attn_mask_data_type = kPyTorch_InputAttnMaskDataType,
+        .output_logits = kPyTorch_OutputLogits,
     };
-  } else if (IsGemini(input_names, output_names)) {
+  }
+
+  if (IsPyTorchCpuOnly(input_names, output_names)) {
+    return ModelSignatures{
+        .input_tokens = kPyTorch_InputTokens,
+        .input_positions = kPyTorch_InputPositions,
+        .input_attn_mask_data_type = kPyTorchCpuOnly_InputAttnMaskDataType,
+        .output_logits = kPyTorchCpuOnly_OutputLogits,
+    };
+  }
+
+  if (IsGemini(input_names, output_names)) {
     return ModelSignatures{
         .input_tokens = kGemini_InputTokens,
         .input_positions = kGemini_InputPositions,
@@ -134,9 +162,9 @@ absl::StatusOr<ModelSignatures> GetModelSignaturesFromInputOutputNames(
         .input_attn_mask_data_type = kGemini_InputAttnMaskDataType,
         .output_logits = kGemini_OutputLogits,
     };
-  } else {
-    return absl::FailedPreconditionError("Unsupported model signature.");
   }
+
+  return absl::FailedPreconditionError("Unsupported model signature.");
 }
 
 absl::StatusOr<SortedPrefillSignatureMap> GetPrefillRunnerSetFromModel(
@@ -178,8 +206,9 @@ absl::StatusOr<SortedPrefillSignatureMap> GetPrefillRunnerSetFromModel(
 }
 
 absl::StatusOr<std::vector<std::pair<std::string, int>>>
-GetOptimizedPrefillWorkGroups(SortedPrefillSignatureMap prefill_runner_set,
-                              int input_length) {
+GetOptimizedPrefillWorkGroups(
+    const SortedPrefillSignatureMap& prefill_runner_set,
+    int input_length) {
   std::vector<std::pair<std::string, int>> work_groups;
   // Current strategy:
   // 1. Use the prefill runner with the largest sequence length, until the

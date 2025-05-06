@@ -64,8 +64,8 @@ struct ModelSignatures {
 // For now, we should use decode runner, since it contains all input and output
 // signatures of the model.
 absl::StatusOr<ModelSignatures> GetModelSignaturesFromInputOutputNames(
-    std::vector<absl::string_view> input_names,
-    std::vector<absl::string_view> output_names);
+    const std::vector<absl::string_view>& input_names,
+    const std::vector<absl::string_view>& output_names);
 
 // Gets a set of prefill signature runners from the interpreter.
 // The signature runners are sorted by the input tokens dimension.
@@ -84,8 +84,8 @@ absl::StatusOr<SortedPrefillSignatureMap> GetPrefillRunnerSetFromModel(
 // SignatureRunner* - the prefill runner to be used for current prefill call.
 // int - the prefill length for current prefill call.
 absl::StatusOr<std::vector<std::pair<std::string, int>>>
-GetOptimizedPrefillWorkGroups(SortedPrefillSignatureMap prefill_runner_set,
-                              int input_length);
+GetOptimizedPrefillWorkGroups(
+    const SortedPrefillSignatureMap& prefill_runner_set, int input_length);
 
 // Initializes the attention mask tensor for prefill/decode.
 // The mask is a 4D tensor with shape [batch=1, seq_len, 1, max_kv_len].
