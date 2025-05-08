@@ -76,6 +76,7 @@ cc_library(
         "@litert//litert/cc/internal:litert_environment",
         "@litert//litert/cc/internal:litert_options",
         "@litert//litert/cc/internal:litert_tensor_buffer",
+        "@litert//litert/cc/options:accelerator_options",
         "@litert//litert/cc/options:litert_cpu_options",
         "//runtime/components:sampler",
         "//runtime/components:sampler_factory",
