@@ -72,9 +72,22 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
     return status;
   }
 
-  auto logits_data = ReferTensorBufferAsSpan<float>(logits_tensor);
+  auto logits_data_or = ReferTensorBufferAsSpan<float>(logits_tensor);
+  absl::Span<float> logits_data;
+  if (!logits_data_or) {  // Download the data if it is not in host memory.
+    LITERT_ASSIGN_OR_RETURN(auto logits_size, logits_tensor.PackedSize());
+    if (logits_data_.size() != logits_size / sizeof(float)) {
+      logits_data_ = std::vector<float>(logits_size / sizeof(float));
+    }
+    TensorBuffer& mutable_logits_tensor =
+        const_cast<TensorBuffer&>(logits_tensor);
+    mutable_logits_tensor.Read(absl::MakeSpan(logits_data_));
+    logits_data = absl::MakeSpan(logits_data_);
+  } else {
+    logits_data = logits_data_or.Value();
+  }
   std::vector<float> sampled_scores;
-  auto sampled_ids = TopKTopPSampling(*logits_data, k_, p_, temperature_,
+  auto sampled_ids = TopKTopPSampling(logits_data, k_, p_, temperature_,
                                       generator_, batch_size_, sampled_scores);
   if (!sampled_ids.ok()) {
     return sampled_ids.status();

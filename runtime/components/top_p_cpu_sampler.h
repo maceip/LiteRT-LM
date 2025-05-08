@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "absl/random/random.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
@@ -49,6 +50,10 @@ class TopPSampler : public Sampler {
   const float temperature_;
   const int batch_size_;
   absl::BitGen generator_;
+
+  // The logits data to be used for sampling. Having it as a member to avoid
+  // re-allocating the vector for each sampling call.
+  std::vector<float> logits_data_;
 };
 
 }  // namespace litert::lm
