@@ -16,10 +16,9 @@ http_archive(
 # Tensorflow
 http_archive(
     name = "org_tensorflow",
-    sha256 = "ac2bbd6be2fa67f00bd6dd6bcfec9d1d2acb378d02b9391dae5f035a100b2687",
-    strip_prefix = "tensorflow-5744ab80be91c0bee68c50dda34eea49a259da0d",
-    # 2025-04-27, has tools/toolchains/android/BUILD and lite_headers_filegroup public.
-    url = "https://github.com/tensorflow/tensorflow/archive/5744ab80be91c0bee68c50dda34eea49a259da0d.tar.gz",
+    sha256 = "a36b8c2171b6f50c3bc27e7d72c6a659239c78a96d79dc72e013ad9c05713fd7",
+    strip_prefix = "tensorflow-e9eb360ce8adbbf6a2fcc8b78d66720db5082753",
+    url = "https://github.com/tensorflow/tensorflow/archive/e9eb360ce8adbbf6a2fcc8b78d66720db5082753.tar.gz",  # 2025-05-12
 )
 
 # Initialize the TensorFlow repository and all dependencies.
