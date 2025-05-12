@@ -36,8 +36,8 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_options.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
-#include "litert/cc/options/litert_cpu_options.h"  // from @litert
 #include "litert/cc/options/accelerator_options.h"  // from @litert
+#include "litert/cc/options/litert_cpu_options.h"  // from @litert
 #include "runtime/components/sampler_factory.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
@@ -491,6 +491,16 @@ LlmLiteRtCompiledModelExecutor::Create(
       // Currently, the ML_DRIFT delegate only supports BUFFER storage type.
       gpu_compilation_options->SetBufferStorageType(
           kLiteRtDelegateBufferStorageTypeBuffer);
+      gpu_compilation_options->SetPreferTextureWeights(true);
+      if (!executor_settings.GetCacheDir().empty()) {
+        gpu_compilation_options->SetSerializationDir(
+            executor_settings.GetCacheDir().c_str());
+        absl::string_view model_name =
+            Basename(executor_settings.GetModelAssets().model_paths[0]);
+        gpu_compilation_options->SetModelCacheKey(model_name.data());
+        gpu_compilation_options->SetSerializeProgramCache(false);
+        gpu_compilation_options->SetSerializeExternalTensors(true);
+      }
       compilation_options->AddOpaqueOptions(
           std::move(*gpu_compilation_options));
       compilation_options->SetHardwareAccelerators(kLiteRtHwAcceleratorGpu);
