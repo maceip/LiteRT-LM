@@ -99,7 +99,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
           output_kv_cache_buffers,
       SortedPrefillSignatureMap prefill_signature_map,
-      ModelSignatures signatures, int batch_size)
+      ModelSignatures signatures, int batch_size, std::string weight_cache_path)
       : env_(std::move(env)),
         model_(std::move(model)),
         compiled_model_(std::move(compiled_model)),
@@ -113,7 +113,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
         output_kv_cache_buffers_(&kv_cache_buffers_2_),
         prefill_signature_map_(std::move(prefill_signature_map)),
         signatures_(signatures),
-        output_batch_size_(batch_size) {}
+        output_batch_size_(batch_size),
+        weight_cache_path_(weight_cache_path) {}
 
  private:
   // Samples output logits on CPU and get tokens.
@@ -183,6 +184,10 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   // A vector to store the logits decoded before sampling the final tokens.
   // It's to avoid creating a new vector for each Decode() call.
   std::vector<float> decoded_logits_vector_;
+
+  // The path to the weight cache directory. Executor will take the ownership of
+  // this path to maintain the path lifecycle.
+  std::string weight_cache_path_;
 };
 
 }  // namespace litert::lm

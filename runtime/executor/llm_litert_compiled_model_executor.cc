@@ -479,6 +479,7 @@ LlmLiteRtCompiledModelExecutor::Create(
   // default.
   // TODO(b/405424188): - Add support for NPU backends.
   auto compilation_options = ::litert::Options::Create();
+  std::string weight_cache_path = executor_settings.GetCacheDir();
   switch (executor_settings.GetBackend()) {
     case Backend::GPU: {
       // TODO: b/403132820 - Add accelerator compilation options for ML_DRIFT.
@@ -492,9 +493,8 @@ LlmLiteRtCompiledModelExecutor::Create(
       gpu_compilation_options->SetBufferStorageType(
           kLiteRtDelegateBufferStorageTypeBuffer);
       gpu_compilation_options->SetPreferTextureWeights(true);
-      if (!executor_settings.GetCacheDir().empty()) {
-        gpu_compilation_options->SetSerializationDir(
-            executor_settings.GetCacheDir().c_str());
+      if (!weight_cache_path.empty()) {
+        gpu_compilation_options->SetSerializationDir(weight_cache_path.c_str());
         absl::string_view model_name =
             Basename(executor_settings.GetModelAssets().model_paths[0]);
         gpu_compilation_options->SetModelCacheKey(model_name.data());
@@ -512,7 +512,6 @@ LlmLiteRtCompiledModelExecutor::Create(
       const uint32_t num_threads =
           executor_settings.GetBackendConfig<CpuConfig>()->number_of_threads;
       cpu_compilation_options->SetNumThreads(num_threads);
-      std::string weight_cache_path = executor_settings.GetCacheDir();
       if (weight_cache_path != ":nocache") {
         std::string model_path =
             executor_settings.GetModelAssets().model_paths[0];
@@ -522,7 +521,6 @@ LlmLiteRtCompiledModelExecutor::Create(
           ASSIGN_OR_RETURN(weight_cache_path,
                            JoinPath(weight_cache_path, Basename(model_path)));
         }
-
         cpu_compilation_options->SetXNNPackWeightCachePath(
             weight_cache_path.c_str());
       }
@@ -669,7 +667,8 @@ LlmLiteRtCompiledModelExecutor::Create(
       std::move(prefill_input_buffers), std::move(prefill_output_buffers),
       std::move(decode_input_buffers), std::move(decode_output_buffers),
       std::move(input_kv_cache_buffers), std::move(output_kv_cache_buffers),
-      std::move(prefill_runner_set), signatures, batch_size));
+      std::move(prefill_runner_set), signatures, batch_size,
+      weight_cache_path));
 }
 
 }  // namespace litert::lm
