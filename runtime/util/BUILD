@@ -235,7 +235,6 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
-        ":external_file_handler",
         ":memory_mapped_file",
         ":scoped_file",
         ":zip_utils",
@@ -258,24 +257,6 @@ cc_proto_library(
     name = "external_file_cc_proto",
     visibility = ["//visibility:public"],
     deps = [":external_file_proto"],
-)
-
-cc_library(
-    name = "external_file_handler",
-    srcs = ["external_file_handler.cc"],
-    hdrs = [
-        "external_file_handler.h",
-        "status_macros.h",
-    ],
-    deps = [
-        ":external_file_cc_proto",
-        "@com_google_absl//absl/memory",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
-        "@litert//litert/cc:litert_macros",
-    ],
 )
 
 cc_library(
