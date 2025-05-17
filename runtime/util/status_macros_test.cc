@@ -4,9 +4,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 
 // Re-define status macros.
-#undef ASSIGN_OR_RETURN  // NOLINT: for testing
-#undef RETURN_IF_ERROR   // NOLINT: for testing
-#undef RET_CHECK         // NOLINT: for testing
+#define _LITERT_LM_REDEFINE_STATUS_MACROS 1  // NOLINT: for testing
 #include "runtime/util/status_macros.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 

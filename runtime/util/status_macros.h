@@ -8,21 +8,21 @@
 
 // Minimal implementations of status_macros.h and ret_check.h.
 
-#if !defined(ASSIGN_OR_RETURN)
+#if _LITERT_LM_REDEFINE_STATUS_MACROS || !defined(ASSIGN_OR_RETURN)
 #define ASSIGN_OR_RETURN(DECL, EXPR) \
   _ASSIGN_OR_RETURN_IMPL(_CONCAT_NAME(_statusor_, __LINE__), DECL, EXPR)
 #define _ASSIGN_OR_RETURN_IMPL(TMP_VAR, DECL, EXPR) \
   auto&& TMP_VAR = (EXPR);                          \
   if (!TMP_VAR.ok()) return TMP_VAR.status();       \
   DECL = std::move(*TMP_VAR)
-#endif  // !defined(ASSIGN_OR_RETURN)
+#endif  // _LITERT_LM_REDEFINE_STATUS_MACROS || !defined(ASSIGN_OR_RETURN)
 
-#if !defined(RETURN_IF_ERROR)
+#if _LITERT_LM_REDEFINE_STATUS_MACROS || !defined(RETURN_IF_ERROR)
 #define RETURN_IF_ERROR(EXPR) \
   if (auto s = (EXPR); !s.ok()) return s
-#endif  // !defined(RETURN_IF_ERROR)
+#endif  // _LITERT_LM_REDEFINE_STATUS_MACROS || !defined(RETURN_IF_ERROR)
 
-#if !defined(RET_CHECK)
+#if _LITERT_LM_REDEFINE_STATUS_MACROS || !defined(RET_CHECK)
 #define RET_CHECK(cond) \
   if (!(cond)) return ::litert::lm::internal::StreamToStatusHelper(#cond)
 #define RET_CHECK_EQ(lhs, rhs) RET_CHECK((lhs) == (rhs))
@@ -31,7 +31,7 @@
 #define RET_CHECK_LT(lhs, rhs) RET_CHECK((lhs) < (rhs))
 #define RET_CHECK_GE(lhs, rhs) RET_CHECK((lhs) >= (rhs))
 #define RET_CHECK_GT(lhs, rhs) RET_CHECK((lhs) > (rhs))
-#endif  // !defined(RET_CHECK)
+#endif  // _LITERT_LM_REDEFINE_STATUS_MACROS || !defined(RET_CHECK)
 
 namespace litert::lm::internal {
 

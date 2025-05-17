@@ -229,12 +229,10 @@ cc_library(
 cc_library(
     name = "model_asset_bundle_resources",
     srcs = ["model_asset_bundle_resources.cc"],
-    hdrs = [
-        "model_asset_bundle_resources.h",
-        "status_macros.h",
-    ],
+    hdrs = ["model_asset_bundle_resources.h"],
     visibility = ["//visibility:public"],
     deps = [
+        ":litert_status_util",
         ":memory_mapped_file",
         ":scoped_file",
         ":zip_utils",
@@ -273,12 +271,10 @@ cc_library(
 cc_library(
     name = "zip_utils",
     srcs = ["zip_utils.cc"],
-    hdrs = [
-        "status_macros.h",
-        "zip_utils.h",
-    ],
+    hdrs = ["zip_utils.h"],
     deps = [
         ":external_file_cc_proto",
+        ":litert_status_util",
         ":zip_readonly_mem_file",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/container:flat_hash_map",
