@@ -35,10 +35,11 @@
 #include "litert/cc/litert_expected.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/model_resources.h"
 #include "runtime/util/litert_lm_loader.h"
 #include "runtime/util/model_asset_bundle_resources.h"
 #include "runtime/util/scoped_file.h"
-#include "runtime/util/status_macros.h"
+#include "runtime/util/status_macros.h"  //NOLINT
 
 namespace litert::lm {
 
@@ -319,39 +320,42 @@ absl::Status FillAttentionMask(litert::TensorBuffer& mask, int start_timestep,
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::unique_ptr<ExecutorModelResources>>
+absl::StatusOr<std::unique_ptr<ModelResources>>
 BuildLiteRtCompiledModelResources(const std::string& model_path) {
-  auto executor_model_resources = std::make_unique<ExecutorModelResources>();
+  std::unique_ptr<ModelResources>
+      executor_model_resources;  // =
+                                 // std::make_unique<ModelResources>();
   Expected<Model> litert_model;
   std::unique_ptr<ModelAssetBundleResources> resources;
   if (absl::EndsWith(model_path, ".litertlm")) {
     ABSL_LOG(FATAL) << "Not supported file format in OSS yet.";
   } else if (absl::EndsWith(model_path, ".task")) {
     // .task format
-    ASSIGN_OR_RETURN(auto scoped_file, ScopedFile::Open(model_path));
-    ASSIGN_OR_RETURN(resources, ModelAssetBundleResources::Create(
+    ASSIGN_OR_RETURN(auto scoped_file, ScopedFile::Open(model_path));  // NOLINT
+    ASSIGN_OR_RETURN(resources, ModelAssetBundleResources::Create(     // NOLINT
                                     "", std::move(scoped_file)));
     const std::vector<std::string>& files_list = resources->ListFiles();
     const absl::flat_hash_set<std::string> files_set(files_list.begin(),
                                                      files_list.end());
-    RET_CHECK(files_set.contains(kPrefilDecodeModelNameInTaskBundle))
+    RET_CHECK(files_set.contains(kPrefilDecodeModelNameInTaskBundle))  // NOLINT
         << kPrefilDecodeModelNameInTaskBundle
         << " model file not found in task bundle.";
-    ASSIGN_OR_RETURN(absl::string_view buffer,
+    ASSIGN_OR_RETURN(absl::string_view buffer,  // NOLINT
                      resources->GetFile(kPrefilDecodeModelNameInTaskBundle));
     litert::BufferRef<uint8_t> buffer_ref(buffer.data(), buffer.size());
     litert_model = Model::CreateFromBuffer(buffer_ref);
     RET_CHECK(litert_model) << "Failed to build "
                             << kPrefilDecodeModelNameInTaskBundle << " model.";
-    executor_model_resources->model_asset_bundle_resources =
-        std::move(resources);
-    executor_model_resources->litert_model = std::move(*litert_model);
+    ASSIGN_OR_RETURN(executor_model_resources,  // NOLINT
+                     ModelResources::Create(std::move(resources)));
   } else {
     // .tflite format
     litert_model = Model::CreateFromFile(model_path.c_str());
-    RET_CHECK(litert_model) << "Failed to build "
+    RET_CHECK(litert_model) << "Failed to build "  // NOLINT
                             << kPrefilDecodeModelNameInTaskBundle << " model.";
-    executor_model_resources->litert_model = std::move(*litert_model);
+    ASSIGN_OR_RETURN(executor_model_resources,  // NOLINT
+                     ModelResources::Create(
+                         std::make_unique<Model>(std::move(*litert_model))));
   }
   return executor_model_resources;
 }

@@ -38,13 +38,14 @@
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/cc/options/accelerator_options.h"  // from @litert
 #include "litert/cc/options/litert_cpu_options.h"  // from @litert
+#include "runtime/components/model_resources.h"
 #include "runtime/components/sampler_factory.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/litert_status_util.h"
-#include "runtime/util/status_macros.h"
+#include "runtime/util/status_macros.h"  //NOLINT
 
 namespace litert::lm {
 namespace {
@@ -474,7 +475,8 @@ absl::StatusOr<int> LlmLiteRtCompiledModelExecutor::GetVocabSize() {
 absl::StatusOr<std::unique_ptr<LlmLiteRtCompiledModelExecutor>>
 LlmLiteRtCompiledModelExecutor::Create(
     const LlmExecutorSettings& executor_settings,
-    ::litert::Model& litert_model) {
+    const std::unique_ptr<ModelResources>& resources) {
+  ASSIGN_OR_RETURN(auto litert_model, resources->GetTFLiteModel());
   // For the LlmLiteRtCompiledModelExecutor, ML_DRIFT backend is used by
   // default.
   // TODO(b/405424188): - Add support for NPU backends.
@@ -545,7 +547,7 @@ LlmLiteRtCompiledModelExecutor::Create(
     return absl::InternalError("Failed to build LiteRt model");
   }
   auto compiled_model = ::litert::CompiledModel::Create(
-      *lrt_env, litert_model, std::move(*compilation_options));
+      *lrt_env, *litert_model, std::move(*compilation_options));
   if (!compiled_model) {
     return absl::InternalError(absl::StrCat("Failed to create compiled model: ",
                                             compiled_model.Error().Message()));
@@ -559,22 +561,22 @@ LlmLiteRtCompiledModelExecutor::Create(
   absl::flat_hash_map<absl::string_view, TensorBuffer> output_kv_cache_buffers;
 
   absl::string_view prefill_signature_key = "";
-  for (int i = 0; i < litert_model.GetNumSignatures(); ++i) {
-    LITERT_ASSIGN_OR_RETURN_ABSL(auto sig, litert_model.GetSignature(i));
+  for (int i = 0; i < litert_model->GetNumSignatures(); ++i) {
+    LITERT_ASSIGN_OR_RETURN_ABSL(auto sig, litert_model->GetSignature(i));
     absl::string_view key = sig.Key();
     if (absl::StartsWith(key, kPrefillSignatureRunner)) {
       prefill_signature_key = key;
       break;
     }
   }
-  auto prefill_signature = litert_model.FindSignature(prefill_signature_key);
+  auto prefill_signature = litert_model->FindSignature(prefill_signature_key);
   RET_CHECK(prefill_signature) << "Prefill signature not found.";
   std::string kv_cache_k_root_name;
   std::string kv_cache_v_root_name;
   RETURN_IF_ERROR(GetCacheRootNames(prefill_signature->InputNames(),
                                     kv_cache_k_root_name,
                                     kv_cache_v_root_name));
-  auto decode_signature = litert_model.FindSignature(kDecodeSignatureRunner);
+  auto decode_signature = litert_model->FindSignature(kDecodeSignatureRunner);
   ASSIGN_OR_RETURN(
       ModelSignatures signatures,
       GetModelSignaturesFromInputOutputNames(decode_signature->InputNames(),
@@ -659,12 +661,12 @@ LlmLiteRtCompiledModelExecutor::Create(
 
   ASSIGN_OR_RETURN(auto prefill_runner_set,
                    GetPrefillRunnerSetFromModel(
-                       litert_model, kPrefillSignatureRunner,
+                       *litert_model, kPrefillSignatureRunner,
                        /*input_tokens_name=*/signatures.input_tokens));
   RET_CHECK(!prefill_runner_set.empty()) << "No prefill runner available.";
 
   return absl::WrapUnique(new LlmLiteRtCompiledModelExecutor(
-      std::move(*lrt_env), std::move(litert_model), std::move(*compiled_model),
+      std::move(*lrt_env), std::move(*litert_model), std::move(*compiled_model),
       std::move(prefill_input_buffers), std::move(prefill_output_buffers),
       std::move(decode_input_buffers), std::move(decode_output_buffers),
       std::move(input_kv_cache_buffers), std::move(output_kv_cache_buffers),

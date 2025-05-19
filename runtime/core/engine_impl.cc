@@ -30,6 +30,7 @@
 #include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "runtime/components/model_resources.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/core/session_factory.h"
@@ -46,21 +47,25 @@
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/model_asset_bundle_resources.h"
 #include "runtime/util/scoped_file.h"
+#include "runtime/util/status_macros.h"  // NOLINT
 
 namespace litert::lm {
 namespace {
 
 // Builds the LiteRT compiled model executor.
 absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildLitertCompiledModelExecutor(
-    const std::unique_ptr<ExecutorModelResources>& model_resources,
+    const std::unique_ptr<ModelResources>& model_resources,
     const LlmExecutorSettings& executor_settings) {
   if (executor_settings.GetModelAssets().HasScopedFile()) {
     return absl::InvalidArgumentError("Model must be passed as a single path.");
   }
 
   // Create executor that creates and owns the interpreter and kv cache.
-  return LlmLiteRtCompiledModelExecutor::Create(executor_settings,
-                                                model_resources->litert_model);
+  std::unique_ptr<LlmExecutor> executor;
+  ASSIGN_OR_RETURN(executor,  // NOLINT
+                   LlmLiteRtCompiledModelExecutor::Create(
+                       executor_settings, std::move(model_resources)));
+  return executor;
 }
 
 // Assume the files are in the same directory with the following names. This
@@ -213,7 +218,7 @@ class EngineImpl : public Engine {
   std::shared_ptr<Tokenizer> tokenizer_;
   // Default stop token ids for all sessions loaded from the model file.
   std::vector<int> stop_token_ids_;
-  std::unique_ptr<ExecutorModelResources> litert_model_resources_;
+  std::unique_ptr<ModelResources> litert_model_resources_;
   proto::SamplerParameters sampler_params_;
 
   // Benchmark info for the engine.

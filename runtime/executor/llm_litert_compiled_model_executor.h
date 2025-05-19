@@ -46,7 +46,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   // Creates a LlmLiteRtCompiledModelExecutor from a LiteRt model.
   static absl::StatusOr<std::unique_ptr<LlmLiteRtCompiledModelExecutor>> Create(
       const LlmExecutorSettings& executor_settings,
-      ::litert::Model& litert_model);
+      const std::unique_ptr<ModelResources>& resources);
 
   // Input APIs:
   // Basic API to trigger the "prefill" or "prefix" process.
