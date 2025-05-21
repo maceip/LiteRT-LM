@@ -75,6 +75,17 @@ std::ostream& operator<<(std::ostream& os,
   }
 }
 
+std::ostream& operator<<(std::ostream& os, const FileFormat& file_format) {
+  switch (file_format) {
+    case FileFormat::TFLITE:
+      return os << "TFLITE";
+    case FileFormat::TASK:
+      return os << "TASK";
+    case FileFormat::LITERT_LM:
+      return os << "LITERT_LM";
+  }
+}
+
 // static
 absl::StatusOr<ModelAssets> ModelAssets::Create(absl::string_view model_path) {
   return ModelAssets(std::string(model_path));

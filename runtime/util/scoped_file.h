@@ -62,7 +62,7 @@ class ScopedFile {
 
   // Returns the number of bytes of the file.
   static absl::StatusOr<size_t> GetSize(PlatformFile file);
-  absl::StatusOr<size_t> GetSize() { return GetSize(file_); }
+  absl::StatusOr<size_t> GetSize() const { return GetSize(file_); }
 
  private:
   PlatformFile Release() {

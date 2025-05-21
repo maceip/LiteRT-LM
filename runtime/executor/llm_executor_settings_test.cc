@@ -82,6 +82,22 @@ TEST(LlmExecutorConfigTest, FakeWeightsMode) {
   EXPECT_EQ(oss.str(), "FAKE_WEIGHTS_ATTN_8_FFN_4_EMB_4");
 }
 
+TEST(LlmExecutorConfigTest, FileFormat) {
+  std::stringstream oss;
+
+  oss.str("");
+  oss << FileFormat::TFLITE;
+  EXPECT_EQ(oss.str(), "TFLITE");
+
+  oss.str("");
+  oss << FileFormat::TASK;
+  EXPECT_EQ(oss.str(), "TASK");
+
+  oss.str("");
+  oss << FileFormat::LITERT_LM;
+  EXPECT_EQ(oss.str(), "LITERT_LM");
+}
+
 TEST(LlmExecutorConfigTest, ModelAssets) {
   auto model_assets = ModelAssets::Create("/path/to/model1");
   ASSERT_OK(model_assets);

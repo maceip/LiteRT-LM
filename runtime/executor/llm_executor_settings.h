@@ -83,6 +83,18 @@ enum class FakeWeightsMode {
 std::ostream& operator<<(std::ostream& os,
                          const FakeWeightsMode& fake_weights_mode);
 
+enum class FileFormat {
+  // .tflite file format.
+  TFLITE,
+
+  // .task file format.
+  TASK,
+
+  // .litert_lm file format.
+  LITERT_LM,
+};
+std::ostream& operator<<(std::ostream& os, const FileFormat& file_format);
+
 // Class to host the model assets, including base models and lora models.
 class ModelAssets {
  public:
