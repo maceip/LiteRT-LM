@@ -40,3 +40,13 @@ cc_proto_library(
     name = "sampler_params_cc_proto",
     deps = [":sampler_params_proto"],
 )
+
+proto_library(
+    name = "llm_metadata_proto",
+    srcs = ["llm_metadata.proto"],
+)
+
+cc_proto_library(
+    name = "llm_metadata_cc_proto",
+    deps = [":llm_metadata_proto"],
+)
