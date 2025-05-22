@@ -14,18 +14,23 @@
 
 #include "runtime/executor/llm_executor_settings.h"
 
+#include <filesystem>  // NOLINT: Required for path manipulation.
+#include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
+#include "runtime/util/scoped_file.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
 namespace {
 
 using absl::StatusCode::kInvalidArgument;
+using ::testing::VariantWith;
 using ::testing::status::StatusIs;
 
 TEST(LlmExecutorConfigTest, Backend) {
@@ -162,11 +167,138 @@ max_tokens: 1024
 activation_data_type: FLOAT16
 max_num_images: 1
 cache_dir: /path/to/cache
+cache_file: Not set.
 model_assets: model_path: /path/to/model1
 fake_weights_mode: FAKE_WEIGHTS_NONE
 
 )";
   EXPECT_EQ(oss.str(), expected_output);
+}
+
+TEST(GetWeightCacheFileTest, CacheDirAndModelPath) {
+  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  ASSERT_OK(model_assets);
+  LlmExecutorSettings config(*model_assets);
+  config.SetCacheDir("/weight/cache/path");
+
+  ASSERT_OK_AND_ASSIGN(auto weight_cache_file, config.GetWeightCacheFile());
+  EXPECT_THAT(weight_cache_file, VariantWith<std::string>(
+                                     "/weight/cache/path/model1.tflite.cache"));
+}
+
+TEST(GetWeightCacheFileTest, CacheDirHasTrailingSeparator) {
+  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  ASSERT_OK(model_assets);
+  LlmExecutorSettings config(*model_assets);
+  config.SetCacheDir("/weight/cache/path/");
+
+  ASSERT_OK_AND_ASSIGN(auto weight_cache_file, config.GetWeightCacheFile());
+  EXPECT_THAT(weight_cache_file, VariantWith<std::string>(
+                              "/weight/cache/path/model1.tflite.cache"));
+}
+
+TEST(GetWeightCacheFileTest, CacheDirAndModelPathAndCustomSuffix) {
+  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  ASSERT_OK(model_assets);
+  LlmExecutorSettings config(*model_assets);
+  config.SetCacheDir("/weight/cache/path");
+
+  ASSERT_OK_AND_ASSIGN(auto weight_cache_file,
+                       config.GetWeightCacheFile(".xnnpack_cache"));
+  EXPECT_THAT(weight_cache_file,
+              VariantWith<std::string>(
+                  "/weight/cache/path/model1.tflite.xnnpack_cache"));
+}
+
+TEST(LlmExecutorConfigTest, ModelPathOnly) {
+  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  ASSERT_OK(model_assets);
+  LlmExecutorSettings config(*model_assets);
+
+  ASSERT_OK_AND_ASSIGN(auto weight_cache_file, config.GetWeightCacheFile());
+  EXPECT_THAT(weight_cache_file,
+              VariantWith<std::string>("/path/to/model1.tflite.cache"));
+}
+
+TEST(GetWeightCacheFileTest, ModelPathAndSuffix) {
+  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  ASSERT_OK(model_assets);
+  LlmExecutorSettings config(*model_assets);
+
+  ASSERT_OK_AND_ASSIGN(auto weight_cache_file,
+                       config.GetWeightCacheFile(".custom_suffix"));
+  EXPECT_THAT(weight_cache_file,
+              VariantWith<std::string>("/path/to/model1.tflite.custom_suffix"));
+}
+
+TEST(GetWeightCacheFileTest, PreferScopedCacheFileToCacheDir) {
+  const std::string cache_path =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/runtime/testdata/test_lm.cache";
+
+  ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path));
+  auto shared_cache_file = std::make_shared<ScopedFile>(std::move(cache_file));
+
+  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  ASSERT_OK(model_assets);
+  LlmExecutorSettings config(*model_assets);
+  config.SetScopedCacheFile(shared_cache_file);
+  config.SetCacheDir("/weight/cache/path");
+
+  ASSERT_OK_AND_ASSIGN(auto weight_cache_file, config.GetWeightCacheFile());
+  EXPECT_THAT(weight_cache_file,
+              VariantWith<std::shared_ptr<ScopedFile>>(shared_cache_file));
+}
+
+TEST(GetWeightCacheFileTest, PreferScopedCacheFileToScopedModelFile) {
+  const std::string model_path =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/runtime/testdata/test_lm.litertlm";
+  const std::string cache_path =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/runtime/testdata/test_lm.cache";
+
+  ASSERT_OK_AND_ASSIGN(auto model_file, ScopedFile::Open(model_path));
+  ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path));
+  auto shared_cache_file = std::make_shared<ScopedFile>(std::move(cache_file));
+
+  auto model_assets =
+      ModelAssets::Create(std::make_shared<ScopedFile>(std::move(model_file)));
+  ASSERT_OK(model_assets);
+  LlmExecutorSettings config(*model_assets);
+  config.SetScopedCacheFile(shared_cache_file);
+
+  ASSERT_OK_AND_ASSIGN(auto weight_cache_file, config.GetWeightCacheFile());
+  EXPECT_THAT(weight_cache_file,
+              VariantWith<std::shared_ptr<ScopedFile>>(shared_cache_file));
+}
+
+TEST(GetWeightCacheFileTest, EmptyModelPath) {
+  auto model_assets = ModelAssets::Create("");
+  ASSERT_OK(model_assets);
+  LlmExecutorSettings config(*model_assets);
+  config.SetCacheDir("/weight/cache/path");
+
+  EXPECT_THAT(config.GetWeightCacheFile(".xnnpack_cache"),
+              StatusIs(kInvalidArgument));
+}
+
+TEST(GetWeightCacheFileTest, CacheDisabled) {
+  const std::string cache_path =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/runtime/testdata/test_lm.cache";
+
+  ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path));
+
+  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  ASSERT_OK(model_assets);
+  LlmExecutorSettings config(*model_assets);
+  config.SetCacheDir(":nocache");
+  // This should be ignored in favor of the explicitly disabled cache dir.
+  config.SetScopedCacheFile(
+      std::make_shared<ScopedFile>(std::move(cache_file)));
+
+  EXPECT_THAT(config.GetWeightCacheFile(), StatusIs(kInvalidArgument));
 }
 
 TEST(LlmExecutorConfigTest, GetBackendConfig) {

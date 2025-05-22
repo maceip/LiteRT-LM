@@ -244,6 +244,7 @@ cc_library(
     srcs = ["llm_executor_settings.cc"],
     hdrs = ["llm_executor_settings.h"],
     deps = [
+        ":litert_compiled_model_executor_utils",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -256,10 +257,12 @@ cc_library(
 cc_test(
     name = "llm_executor_settings_test",
     srcs = ["llm_executor_settings_test.cc"],
+    data = ["//runtime/testdata"],
     deps = [
         ":llm_executor_settings",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
+        "//runtime/util:scoped_file",
         "//runtime/util:test_utils",
     ],
 )

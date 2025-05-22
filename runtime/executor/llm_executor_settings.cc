@@ -20,8 +20,11 @@
 #include <utility>
 #include <variant>
 
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/util/logging.h"
 #include "runtime/util/scoped_file.h"
 
@@ -146,6 +149,34 @@ std::ostream& operator<<(std::ostream& os, const CpuConfig& config) {
   return os;
 }
 
+absl::StatusOr<
+    std::variant<std::string, std::shared_ptr<litert::lm::ScopedFile>>>
+LlmExecutorSettings::GetWeightCacheFile(absl::string_view suffix) const {
+  // Cache is explicitly disabled.
+  if (GetCacheDir() == ":nocache") {
+    return absl::InvalidArgumentError("Cache is explicitly disabled.");
+  }
+
+  // Prefer to use the scoped cache file if it's set.
+  if (GetScopedCacheFile()) {
+    return GetScopedCacheFile();
+  }
+
+  auto model_path = GetModelAssets().GetPath().value_or("");
+
+  // There is no model path to suffix.
+  if (model_path.empty()) {
+    return absl::InvalidArgumentError(
+        "Cache path cannot be computed without knowing the model path.");
+  }
+
+  if (GetCacheDir().empty()) {
+    return absl::StrCat(model_path, suffix);
+  }
+
+  return JoinPath(GetCacheDir(), absl::StrCat(Basename(model_path), suffix));
+}
+
 std::ostream& operator<<(std::ostream& os, const LlmExecutorSettings& config) {
   os << "backend: " << config.GetBackend() << "\n";
   std::visit(
@@ -157,6 +188,11 @@ std::ostream& operator<<(std::ostream& os, const LlmExecutorSettings& config) {
   os << "activation_data_type: " << config.GetActivationDataType() << "\n";
   os << "max_num_images: " << config.GetMaxNumImages() << "\n";
   os << "cache_dir: " << config.GetCacheDir() << "\n";
+  if (config.GetScopedCacheFile()) {
+    os << "cache_file: " << config.GetScopedCacheFile()->file() << "\n";
+  } else {
+    os << "cache_file: Not set.\n";
+  }
   os << "model_assets: " << config.GetModelAssets() << "\n";
   return os;
 }

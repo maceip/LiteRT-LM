@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -219,12 +220,27 @@ class LlmExecutorSettings {
 
   // Getter APIs.
   const ModelAssets& GetModelAssets() const { return model_assets_; }
-  const std::string& GetCacheDir() const { return cache_dir_; }
   uint32_t GetMaxNumTokens() const { return max_num_tokens_; }
   uint32_t GetMaxNumImages() const { return max_num_images_; }
   const Backend& GetBackend() const { return backend_; }
   const std::optional<ActivationDataType>& GetActivationDataType() const {
     return activation_data_type_;
+  }
+
+  // Should be used by consumers who want to write to a single weight cache
+  // file. Returns, in order of preference:
+  //   1. an open file descriptor to the weight cache file,
+  //   2. the file path of the weight cache file, based on the given cache
+  //      directory and/or model path. Will append `suffix`.
+  //   3. an error if a weight cache file could not be determined.
+  absl::StatusOr<
+      std::variant<std::string, std::shared_ptr<litert::lm::ScopedFile>>>
+  GetWeightCacheFile(absl::string_view suffix = ".cache") const;
+  // Prefer to use `GetWeightCacheFile()` if possible.
+  const std::string& GetCacheDir() const { return cache_dir_; }
+  // Prefer to use `GetWeightCacheFile()` if possible.
+  const std::shared_ptr<litert::lm::ScopedFile>& GetScopedCacheFile() const {
+    return scoped_cache_file_;
   }
 
   template <typename T>
@@ -247,6 +263,9 @@ class LlmExecutorSettings {
 
   // Setter APIs.
   void SetCacheDir(const std::string& cache_dir) { cache_dir_ = cache_dir; }
+  void SetScopedCacheFile(std::shared_ptr<litert::lm::ScopedFile> cache_file) {
+    scoped_cache_file_ = std::move(cache_file);
+  }
   void SetMaxNumTokens(uint64_t max_num_tokens) {
     max_num_tokens_ = max_num_tokens;
   }
@@ -270,7 +289,13 @@ class LlmExecutorSettings {
   // backend supports it, the re-arranged weights will be stored in the
   // directory after the 1st initialization, making the future initialization
   // to be much faster.
+  //
+  // Consumers should prefer to use the `cache_file_` if set.
   std::string cache_dir_;
+
+  // Open file for writing the weight cache to and later loading cache from.
+  // If set, this should be preferred over the `cache_dir_`.
+  std::shared_ptr<litert::lm::ScopedFile> scoped_cache_file_;
 
   // Maximum number of the sum of input and output tokens. It is equivalent to
   // the size of the kv-cache.
