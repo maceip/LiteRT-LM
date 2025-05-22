@@ -245,7 +245,6 @@ cc_library(
     hdrs = ["llm_executor_settings.h"],
     deps = [
         ":litert_compiled_model_executor_utils",
-        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
