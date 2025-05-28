@@ -6,6 +6,7 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_LLM_EXECUTOR_GOOGLE_H_
 
 #include <atomic>
+#include <climits>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -54,11 +55,16 @@ class ProcessedContext {
 // Noticed: The states here are all the internal states excluded those that are
 // directly related to the KVCache.
 struct RuntimeState {
-  // The current time step.
-  int current_step;
+  // The invalid token id. It is not safe to use positive integers as they can
+  // be tokens. It is not safe to use -1 and -2 as they are used for vision
+  // and audio tokens.
+  static constexpr int kInvalidTokenId = INT_MIN;
 
-  // The id that is to be processed. -1 if all ids are processed.
-  int next_input_token_id;
+  // The current time step.
+  int current_step = 0;
+
+  // The id that is to be processed. kInvalidTokenId if all ids are processed.
+  int next_input_token_id = kInvalidTokenId;
 
   // Random generator for sampling step.
   std::shared_ptr<std::default_random_engine> rand_gen;
