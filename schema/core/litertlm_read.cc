@@ -104,7 +104,7 @@ absl::Status ReadHeaderFromLiteRTLM(std::istream& litertlm_stream,
   return absl::OkStatus();
 }
 
-// The public function that takes a file path
+// The public function that takes a file path.
 absl::Status ReadHeaderFromLiteRTLM(const std::string& litertlm_path,
                                     LitertlmHeader* header, int* major_version,
                                     int* minor_version, int* patch_version) {
@@ -117,6 +117,22 @@ absl::Status ReadHeaderFromLiteRTLM(const std::string& litertlm_path,
   absl::Status status = ReadHeaderFromLiteRTLM(
       input_file_stream, header, major_version, minor_version, patch_version);
 
+  return status;
+}
+
+// The public function that takes a pointer and a length.
+absl::Status ReadHeaderFromLiteRTLM(void* data, std::size_t length,
+                                    LitertlmHeader* header, int* major_version,
+                                    int* minor_version, int* patch_version) {
+  char* char_data = static_cast<char*>(data);
+  // Create a streambuf instance based on the given buffer info.
+  MemoryStreamBuf sbuf(char_data, length);
+  // Create an istream using the custom streambuf.
+  std::istream input_stream(&sbuf);
+
+  absl::Status status = ReadHeaderFromLiteRTLM(
+      input_stream, header, major_version, minor_version, patch_version);
+  // Cleanup of the streambuf and istream is automatic upon exit.
   return status;
 }
 
