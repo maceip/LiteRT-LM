@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@org_tensorflow//tensorflow:tensorflow.google.bzl", "get_compatible_with_portable")
-
 package_group(
     name = "litert_lm_schema",
     packages = [
@@ -23,7 +21,10 @@ package_group(
 
 package(
     default_applicable_licenses = ["//third_party/odml:license"],
-    default_compatible_with = get_compatible_with_portable(),
+    default_compatible_with = [
+        "//buildenv/target:non_prod",
+        "//buildenv/target:prod",
+    ],
     default_hdrs_check = "strict",
     default_visibility = [
         "//third_party/odml:__subpackages__",
