@@ -191,20 +191,20 @@ TEST(BenchmarkInfoTests, AddDecodeTurnError) {
 TEST(BenchmarkInfoTests, AddMarks) {
   BenchmarkInfo benchmark_info(GetBenchmarkParams());
   EXPECT_OK(benchmark_info.TimeMarkDelta("sampling"));
-  absl::SleepFor(absl::Milliseconds(50));
+  absl::SleepFor(absl::Milliseconds(200));
   EXPECT_OK(benchmark_info.TimeMarkDelta("sampling"));
-  absl::SleepFor(absl::Milliseconds(100));
+  absl::SleepFor(absl::Milliseconds(200));
   EXPECT_OK(benchmark_info.TimeMarkDelta("sampling"));
   EXPECT_EQ(benchmark_info.GetMarkDurations().size(), 1);
 
-  // The time should record the duration between the 2ne and 3rd calls, which
-  // should be slightly more than 100ms.
+  // The time should record the duration between the 2nd and 3rd calls, which
+  // should be slightly more than 200ms.
   EXPECT_GT(benchmark_info.GetMarkDurations().at("sampling"),
-            absl::Milliseconds(100));
+            absl::Milliseconds(200));
   // Verify that the time doesn't record the duration between the 1st and 3nd
-  // calls, which is more than 150ms.
+  // calls, which is less than 200ms + 200ms = 400ms.
   EXPECT_LT(benchmark_info.GetMarkDurations().at("sampling"),
-            absl::Milliseconds(150));
+            absl::Milliseconds(400));
 }
 
 TEST(BenchmarkInfoTests, AddTwoMarks) {
