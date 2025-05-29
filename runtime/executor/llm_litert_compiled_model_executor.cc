@@ -483,7 +483,8 @@ LlmLiteRtCompiledModelExecutor::Create(
   // TODO(b/405424188): - Add support for NPU backends.
   auto compilation_options = ::litert::Options::Create();
   std::string weight_cache_path = executor_settings.GetCacheDir();
-  switch (executor_settings.GetBackend()) {
+  const Backend backend = executor_settings.GetBackend();
+  switch (backend) {
     case Backend::GPU: {
       // TODO: b/403132820 - Add accelerator compilation options for ML_DRIFT.
       Expected<GpuOptions> gpu_compilation_options = GpuOptions::Create();
@@ -598,6 +599,11 @@ LlmLiteRtCompiledModelExecutor::Create(
     }
     if (absl::StartsWith(input_name, kv_cache_k_root_name) ||
         absl::StartsWith(input_name, kv_cache_v_root_name)) {
+      if (backend == Backend::CPU) {
+        auto output_buffer = input_buffer->Duplicate();
+        RET_CHECK(output_buffer) << "Failed to duplicate input buffer.";
+        output_kv_cache_buffers[input_name] = std::move(*output_buffer);
+      }
       input_kv_cache_buffers[input_name] = std::move(*input_buffer);
     } else {
       prefill_input_buffers[input_name] = std::move(*input_buffer);
@@ -613,7 +619,11 @@ LlmLiteRtCompiledModelExecutor::Create(
     }
     if (absl::StartsWith(output_name, kv_cache_k_root_name) ||
         absl::StartsWith(output_name, kv_cache_v_root_name)) {
-      output_kv_cache_buffers[output_name] = std::move(*output_buffer);
+      if (backend == Backend::GPU) {
+        output_kv_cache_buffers[output_name] = std::move(*output_buffer);
+      }
+      // For CPU, we will use single buffer for kv cache input and output to
+      // improve performance and memory usage.
     } else {
       prefill_output_buffers[output_name] = std::move(*output_buffer);
     }
