@@ -16,10 +16,6 @@ load("//third_party/flatbuffers:build_defs.bzl", "flatbuffer_cc_library")
 
 package(
     default_applicable_licenses = ["//third_party/odml:license"],
-    default_compatible_with = [
-        "//buildenv/target:non_prod",
-        "//buildenv/target:prod",
-    ],
     default_hdrs_check = "strict",
     default_visibility = [
         "//third_party/odml:__subpackages__",
@@ -146,10 +142,6 @@ cc_test(
 flatbuffer_cc_library(
     name = "litertlm_header_schema",
     srcs = ["litertlm_header_schema.fbs"],
-    compatible_with = [
-        "//buildenv/target:non_prod",
-        "//buildenv/target:prod",
-    ],
     flatc_args = [
         "--gen-mutable",
         "--gen-object-api",

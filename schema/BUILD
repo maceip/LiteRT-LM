@@ -21,10 +21,6 @@ package_group(
 
 package(
     default_applicable_licenses = ["//third_party/odml:license"],
-    default_compatible_with = [
-        "//buildenv/target:non_prod",
-        "//buildenv/target:prod",
-    ],
     default_hdrs_check = "strict",
     default_visibility = [
         "//third_party/odml:__subpackages__",
