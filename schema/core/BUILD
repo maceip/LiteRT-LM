@@ -51,6 +51,7 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "//third_party/flatbuffers",
         "//runtime/proto:llm_metadata_cc_proto",
+        "//runtime/util:litert_status_util",
         "@sentencepiece//:sentencepiece_processor",
         "@org_tensorflow//tensorflow/lite:framework",
         "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
@@ -95,6 +96,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "//third_party/flatbuffers",
+        "//runtime/util:litert_status_util",
     ],
 )
 

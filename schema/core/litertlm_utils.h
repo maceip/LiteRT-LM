@@ -9,13 +9,6 @@
 
 #include "schema/core/litertlm_header_schema_generated.h"
 
-// Helpful macros.
-
-#if !defined(RETURN_IF_ERROR)
-#define RETURN_IF_ERROR(EXPR) \
-  if (auto s = (EXPR); !s.ok()) return s
-#endif  // !defined(RETURN_IF_ERROR)
-
 namespace litert {
 
 namespace litertlm {

@@ -17,6 +17,7 @@
 #include "schema/core/litertlm_utils.h"
 #include "sentencepiece_processor.h"  // from @sentencepiece
 #include "tensorflow/lite/model_builder.h"  // from @org_tensorflow
+#include "runtime/util/status_macros.h" //NOLINT
 
 namespace litert {
 namespace litertlm {

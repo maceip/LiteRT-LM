@@ -19,6 +19,7 @@
 #include "schema/core/litertlm_header_schema_generated.h"
 #include "schema/core/litertlm_section.h"
 #include "schema/core/litertlm_utils.h"
+#include "runtime/util/status_macros.h" //NOLINT
 
 namespace litert {
 namespace litertlm {
