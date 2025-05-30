@@ -211,7 +211,10 @@ absl::Status EmbeddingLookupText::LookupPrefill(absl::Span<const int> tokens,
 
   // If there are fewer tokens than the output tensor can hold, we need to treat
   // the remaining tokens as if they were 0.
-  for (int i = tokens.size(); i < prefill_output_layout.Dimensions()[1]; ++i) {
+  size_t token_offset = byte_offset / bytes_per_token;
+  size_t starting_token = token_offset + tokens.size();
+  size_t num_tokens_to_fill = prefill_output_layout.Dimensions()[1];
+  for (int i = starting_token; i < num_tokens_to_fill; ++i) {
     memcpy(prefill_output_ptr, default_embedding_vector_.data(),
            bytes_per_token);
     prefill_output_ptr += bytes_per_token;
