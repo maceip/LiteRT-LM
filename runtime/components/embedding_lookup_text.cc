@@ -126,10 +126,12 @@ size_t EmbeddingLookupText::GetFloatsPerToken() {
 
 absl::Status EmbeddingLookupText::LookupPrefill(absl::Span<const int> tokens,
                                                 TensorBuffer* prefill_output,
-                                                size_t byte_offset) {
+                                                size_t token_offset) {
   if (prefill_output == nullptr) {
     return absl::InvalidArgumentError("Prefill output tensor buffer is null.");
   }
+
+  size_t byte_offset = token_offset * GetFloatsPerToken() * sizeof(float);
 
   LITERT_ASSIGN_OR_RETURN(auto prefill_output_type,
                           prefill_output->TensorType());
@@ -211,7 +213,6 @@ absl::Status EmbeddingLookupText::LookupPrefill(absl::Span<const int> tokens,
 
   // If there are fewer tokens than the output tensor can hold, we need to treat
   // the remaining tokens as if they were 0.
-  size_t token_offset = byte_offset / bytes_per_token;
   size_t starting_token = token_offset + tokens.size();
   size_t num_tokens_to_fill = prefill_output_layout.Dimensions()[1];
   for (int i = starting_token; i < num_tokens_to_fill; ++i) {

@@ -74,7 +74,7 @@ class EmbeddingLookupText : public EmbeddingLookup {
   // had some embeddings written to it.
   absl::Status LookupPrefill(absl::Span<const int> tokens,
                              litert::TensorBuffer* prefill_output,
-                             size_t byte_offset) override;
+                             size_t token_offset) override;
 
   // Returns number of floats per token in the output tensor.
   size_t GetFloatsPerToken();
