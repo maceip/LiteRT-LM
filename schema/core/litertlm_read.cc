@@ -14,6 +14,7 @@
 #include "absl/strings/str_format.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/util/status_macros.h"  //NOLINT
+#include "schema/core/litertlm_header.h"
 #include "schema/core/litertlm_header_schema_generated.h"
 #include "schema/core/litertlm_utils.h"
 #include "sentencepiece_processor.h"  // from @sentencepiece
@@ -55,8 +56,14 @@ absl::Status ReadHeaderFromLiteRTLM(std::istream& litertlm_stream,
   *minor_version = static_cast<int>(minor_version_u8);
   *patch_version = static_cast<int>(patch_version_u8);
 
-  // TODO(talumbau) Assert that major version matches current major version
-  // constant.
+  // If major version doesn't match our current major version,
+  // bail out for now
+  if (*major_version != LITERTLM_MAJOR_VERSION) {
+    return absl::UnimplementedError(
+        absl::StrFormat("Unimplemented Error: This reader doesn't support "
+                        "version %d, expected version %d.",
+                        *major_version, LITERTLM_MAJOR_VERSION));
+  }
 
   // 1. Skip 5 bytes of padding.
   litertlm_stream.ignore(5);

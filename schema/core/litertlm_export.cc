@@ -25,9 +25,6 @@ namespace litert {
 namespace litertlm {
 namespace schema {
 
-constexpr uint8_t LITERTLM_MAJOR_VERSION = 1;
-constexpr uint8_t LITERTLM_MINOR_VERSION = 0;
-constexpr uint8_t LITERTLM_PATCH_VERSION = 0;
 constexpr int kHeaderBeginByteOffset = 32;
 constexpr int kHeaderEndLocationByteOffset = 16;
 constexpr int kBlockSize = 16 * 1024;

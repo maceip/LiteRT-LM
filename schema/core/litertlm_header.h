@@ -14,6 +14,15 @@ namespace litertlm {
 
 namespace schema {
 
+// LiteRT-LM File Format Version uses Semantic Version Rules (SemVer):
+// MAJOR version: increments for incompatible API changes.
+// MINOR version: increments on added functionality in a backward
+//                compatible manner.
+// PATCH version: increments on backward compatible bug fixes.
+constexpr uint8_t LITERTLM_MAJOR_VERSION = 1;
+constexpr uint8_t LITERTLM_MINOR_VERSION = 0;
+constexpr uint8_t LITERTLM_PATCH_VERSION = 0;
+
 // Alias for a fully constructed KeyValuePair for LiteRTLM metadata.
 // Users of the CreateKeyValuePair function (see below) will get
 // back one of these during the creation of their metadata
