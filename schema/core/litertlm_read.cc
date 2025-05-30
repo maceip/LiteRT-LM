@@ -10,9 +10,13 @@
 #include <string>
 #include <utility>
 
+#include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
+#include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_format.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "runtime/util/memory_mapped_file.h"
+#include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"  //NOLINT
 #include "schema/core/litertlm_header.h"
 #include "schema/core/litertlm_header_schema_generated.h"
@@ -144,11 +148,13 @@ absl::Status ReadHeaderFromLiteRTLM(void* data, std::size_t length,
   return status;
 }
 
-template <AnySectionDataType SectionT, typename T>
+template <AnySectionDataType SectionT, typename T, typename... Args>
 absl::Status ReadValueTFromSection(
     const std::string& litertlm_path, int section_idx, T* data,
-    std::function<absl::Status(std::ifstream&, uint64_t, uint64_t, T*)>
-        read_section_into_t) {
+    std::function<absl::Status(const std::string&, uint64_t, uint64_t, T*,
+                               Args...)>
+        read_section_into_t,
+    Args&&... additional_args) {
   LitertlmHeader header;
   int major_version, minor_version, patch_version;
 
@@ -183,44 +189,56 @@ absl::Status ReadValueTFromSection(
         absl::StrFormat("Section %d has zero size.", section_idx));
   }
 
-  // Read the data from the file using the provided function.
+  return read_section_into_t(litertlm_path, begin_offset, end_offset, data,
+                             std::forward<Args>(additional_args)...);
+}
+
+// Function to read TFLite model data from a section.
+absl::Status ReadSectionIntoTFLite(
+    const std::string& litertlm_path, uint64_t begin_offset,
+    uint64_t end_offset, std::unique_ptr<tflite::FlatBufferModel>* tflite_model,
+    std::unique_ptr<lm::MemoryMappedFile>* mapped_file) {
+  size_t model_size = end_offset - begin_offset;
+
+  // Create the scoped file
+  auto model_file = lm::ScopedFile::Open(litertlm_path);
+
+  litert::lm::ScopedFile::PlatformFile platform_file =
+      model_file.value().file();
+
+  absl::StatusOr<std::unique_ptr<lm::MemoryMappedFile>> mmap_status =
+      litert::lm::MemoryMappedFile::Create(platform_file, begin_offset,
+                                           model_size, "section");
+  if (!mmap_status.ok()) {
+    ABSL_LOG(ERROR) << "Failed to create memory-mapped file: "
+                    << mmap_status.status();
+    return absl::InternalError("Failed to create memory-mapped file");
+  }
+
+  *mapped_file = std::move(*mmap_status);
+  *tflite_model = tflite::FlatBufferModel::BuildFromBuffer(
+      reinterpret_cast<const char*>((*mapped_file)->data()),
+      (*mapped_file)->length());
+  return absl::OkStatus();
+}
+
+// Function to read LlmMetadata from a section.
+absl::Status ReadSectionIntoLlmMetadata(const std::string& litertlm_path,
+                                        uint64_t begin_offset,
+                                        uint64_t end_offset,
+                                        LlmMetadata* llm_metadata) {
+  // Create an ifstream from the file.
   std::ifstream input_file_stream(litertlm_path, std::ios::binary);
   if (!input_file_stream.is_open()) {
     return absl::InternalError(
         absl::StrFormat("Could not open file: %s", litertlm_path));
   }
-  input_file_stream.seekg(section->begin_offset());
+  input_file_stream.seekg(begin_offset);
 
-  return read_section_into_t(input_file_stream, begin_offset, end_offset, data);
-}
-
-// Function to read TFLite model data from a section.
-absl::Status ReadSectionIntoTFLite(
-    std::ifstream& input_stream, uint64_t begin_offset, uint64_t end_offset,
-    std::unique_ptr<tflite::FlatBufferModel>* tflite_model) {
-  size_t model_size = end_offset - begin_offset;
-  std::unique_ptr<char[]> buffer(new char[model_size]);
-  input_stream.read(buffer.get(), model_size);
-  if (!input_stream) {
-    return absl::InternalError(
-        absl::StrFormat("Could not read %d bytes from stream.", model_size));
-  }
-
-  // Store the model in the output parameter.
-  *tflite_model =
-      tflite::FlatBufferModel::BuildFromBuffer(buffer.get(), model_size);
-  return absl::OkStatus();
-}
-
-// Function to read LlmMetadata from a section.
-absl::Status ReadSectionIntoLlmMetadata(std::ifstream& input_stream,
-                                        uint64_t begin_offset,
-                                        uint64_t end_offset,
-                                        LlmMetadata* llm_metadata) {
   size_t size = end_offset - begin_offset;
   std::unique_ptr<char[]> buffer(new char[size]);
-  input_stream.read(buffer.get(), size);
-  if (!input_stream) {
+  input_file_stream.read(buffer.get(), size);
+  if (!input_file_stream) {
     return absl::InternalError(
         absl::StrFormat("Could not read %d bytes from stream.", size));
   }
@@ -230,12 +248,20 @@ absl::Status ReadSectionIntoLlmMetadata(std::ifstream& input_stream,
 
 // Function to read a SP Tokenizer from a section.
 absl::Status ReadSectionIntoSPTokenizer(
-    std::ifstream& input_stream, uint64_t begin_offset, uint64_t end_offset,
-    sentencepiece::SentencePieceProcessor* sp_proc) {
+    const std::string& litertlm_path, uint64_t begin_offset,
+    uint64_t end_offset, sentencepiece::SentencePieceProcessor* sp_proc) {
+  // Create an ifstream from the file.
+  std::ifstream input_file_stream(litertlm_path, std::ios::binary);
+  if (!input_file_stream.is_open()) {
+    return absl::InternalError(
+        absl::StrFormat("Could not open file: %s", litertlm_path));
+  }
+  input_file_stream.seekg(begin_offset);
+
   size_t size = end_offset - begin_offset;
   std::unique_ptr<char[]> buffer(new char[size]);
-  input_stream.read(buffer.get(), size);
-  if (!input_stream) {
+  input_file_stream.read(buffer.get(), size);
+  if (!input_file_stream) {
     return absl::InternalError(
         absl::StrFormat("Could not read %d bytes from stream.", size));
   }
@@ -243,13 +269,21 @@ absl::Status ReadSectionIntoSPTokenizer(
   return sp_proc->LoadFromSerializedProto(buffer_view);
 }
 
-absl::Status ReadSectionIntoBinaryData(std::ifstream& input_stream,
+absl::Status ReadSectionIntoBinaryData(const std::string& litertlm_path,
                                        uint64_t begin_offset,
                                        uint64_t end_offset, std::string* data) {
+  // Create an ifstream from the file.
+  std::ifstream input_file_stream(litertlm_path, std::ios::binary);
+  if (!input_file_stream.is_open()) {
+    return absl::InternalError(
+        absl::StrFormat("Could not open file: %s", litertlm_path));
+  }
+  input_file_stream.seekg(begin_offset);
+
   size_t size = end_offset - begin_offset;
   data->resize(size);
-  input_stream.read(data->data(), size);
-  if (!input_stream) {
+  input_file_stream.read(data->data(), size);
+  if (!input_file_stream) {
     return absl::InternalError(
         absl::StrFormat("Could not read %d bytes from stream.", size));
   }
@@ -258,10 +292,17 @@ absl::Status ReadSectionIntoBinaryData(std::ifstream& input_stream,
 
 absl::Status ReadTFLiteFromSection(
     const std::string& litertlm_path, int section_idx,
-    std::unique_ptr<tflite::FlatBufferModel>* tflite_model) {
+    std::unique_ptr<tflite::FlatBufferModel>* tflite_model,
+    std::unique_ptr<lm::MemoryMappedFile>* mapped_file) {
   return ReadValueTFromSection<AnySectionDataType_TFLiteModel,
-                               std::unique_ptr<tflite::FlatBufferModel>>(
-      litertlm_path, section_idx, tflite_model, ReadSectionIntoTFLite);
+                               std::unique_ptr<tflite::FlatBufferModel>,
+                               std::unique_ptr<lm::MemoryMappedFile>*>(
+      litertlm_path, section_idx, tflite_model,
+      std::function<absl::Status(const std::string&, uint64_t, uint64_t,
+                                 std::unique_ptr<tflite::FlatBufferModel>*,
+                                 std::unique_ptr<lm::MemoryMappedFile>*)>(
+          ReadSectionIntoTFLite),
+      std::forward<std::unique_ptr<lm::MemoryMappedFile>*>(mapped_file));
 }
 
 absl::Status ReadLlmMetadataFromSection(const std::string& litertlm_path,
@@ -269,7 +310,9 @@ absl::Status ReadLlmMetadataFromSection(const std::string& litertlm_path,
                                         LlmMetadata* llm_metadata) {
   return ReadValueTFromSection<AnySectionDataType_LlmMetadataProto,
                                LlmMetadata>(
-      litertlm_path, section_idx, llm_metadata, ReadSectionIntoLlmMetadata);
+      litertlm_path, section_idx, llm_metadata,
+      std::function<absl::Status(const std::string&, uint64_t, uint64_t,
+                                 LlmMetadata*)>(ReadSectionIntoLlmMetadata));
 }
 
 absl::Status ReadSPTokenizerFromSection(
@@ -277,20 +320,27 @@ absl::Status ReadSPTokenizerFromSection(
     sentencepiece::SentencePieceProcessor* sp_proc) {
   return ReadValueTFromSection<AnySectionDataType_SP_Tokenizer,
                                sentencepiece::SentencePieceProcessor>(
-      litertlm_path, section_idx, sp_proc, ReadSectionIntoSPTokenizer);
+      litertlm_path, section_idx, sp_proc,
+      std::function<absl::Status(const std::string&, uint64_t, uint64_t,
+                                 sentencepiece::SentencePieceProcessor*)>(
+          ReadSectionIntoSPTokenizer));
 }
 
 absl::Status ReadBinaryDataFromSection(const std::string& litertlm_path,
                                        int section_idx, std::string* data) {
   return ReadValueTFromSection<AnySectionDataType_GenericBinaryData,
-                               std::string>(litertlm_path, section_idx, data,
-                                            ReadSectionIntoBinaryData);
+                               std::string>(
+      litertlm_path, section_idx, data,
+      std::function<absl::Status(const std::string&, uint64_t, uint64_t,
+                                 std::string*)>(ReadSectionIntoBinaryData));
 }
 
-template <AnySectionDataType SectionT, typename T>
-absl::Status ReadAnyT(const std::string& litertlm_path, T* data,
-                      std::function<absl::Status(const std::string&, int, T*)>
-                          read_data_from_section) {
+template <AnySectionDataType SectionT, typename T, typename... Args>
+absl::Status ReadAnyT(
+    const std::string& litertlm_path, T* data,
+    std::function<absl::Status(const std::string&, int, T*, Args...)>
+        read_data_from_section,
+    Args&&... additional_args) {
   LitertlmHeader header;
   int major_version, minor_version, patch_version;
 
@@ -314,23 +364,32 @@ absl::Status ReadAnyT(const std::string& litertlm_path, T* data,
   }
 
   // Read the data from the found section.
-  return read_data_from_section(litertlm_path, section_index, data);
+  return read_data_from_section(litertlm_path, section_index, data,
+                                std::forward<Args>(additional_args)...);
 }
 
 // Instantiation of ReadAnyT for TFLite models.
 absl::Status ReadAnyTFLite(
     const std::string& litertlm_path,
-    std::unique_ptr<tflite::FlatBufferModel>* tflite_model) {
+    std::unique_ptr<tflite::FlatBufferModel>* tflite_model,
+    std::unique_ptr<lm::MemoryMappedFile>* mapped_file) {
   return ReadAnyT<AnySectionDataType_TFLiteModel,
-                  std::unique_ptr<tflite::FlatBufferModel>>(
-      litertlm_path, tflite_model, ReadTFLiteFromSection);
+                  std::unique_ptr<tflite::FlatBufferModel>,
+                  std::unique_ptr<lm::MemoryMappedFile>*>(
+      litertlm_path, tflite_model,
+      std::function<absl::Status(
+          const std::string&, int, std::unique_ptr<tflite::FlatBufferModel>*,
+          std::unique_ptr<lm::MemoryMappedFile>*)>(ReadTFLiteFromSection),
+      std::forward<std::unique_ptr<lm::MemoryMappedFile>*>(mapped_file));
 }
 
 // Instantiation of ReadAnyT for LlmMetadata.
 absl::Status ReadAnyLlmMetadata(const std::string& litertlm_path,
                                 LlmMetadata* llm_metadata) {
   return ReadAnyT<AnySectionDataType_LlmMetadataProto, LlmMetadata>(
-      litertlm_path, llm_metadata, ReadLlmMetadataFromSection);
+      litertlm_path, llm_metadata,
+      std::function<absl::Status(const std::string&, int, LlmMetadata*)>(
+          ReadLlmMetadataFromSection));
 }
 
 // Instantiation of ReadAnyT for LlmMetadata.
@@ -339,7 +398,10 @@ absl::Status ReadAnySPTokenizer(
     sentencepiece::SentencePieceProcessor* sp_proc) {
   return ReadAnyT<AnySectionDataType_SP_Tokenizer,
                   sentencepiece::SentencePieceProcessor>(
-      litertlm_path, sp_proc, ReadSPTokenizerFromSection);
+      litertlm_path, sp_proc,
+      std::function<absl::Status(const std::string&, int,
+                                 sentencepiece::SentencePieceProcessor*)>(
+          ReadSPTokenizerFromSection));
 }
 
 // Read any binary data from the file (convenience function if the caller knows
@@ -347,7 +409,9 @@ absl::Status ReadAnySPTokenizer(
 absl::Status ReadAnyBinaryData(const std::string& litertlm_path,
                                std::string* data) {
   return ReadAnyT<AnySectionDataType_GenericBinaryData, std::string>(
-      litertlm_path, data, ReadBinaryDataFromSection);
+      litertlm_path, data,
+      std::function<absl::Status(const std::string&, int, std::string*)>(
+          ReadBinaryDataFromSection));
 }
 
 }  // namespace schema

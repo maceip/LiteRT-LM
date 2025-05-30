@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
 #include "runtime/proto/llm_metadata.pb.h"
+#include "runtime/util/memory_mapped_file.h"
 #include "schema/core/litertlm_header_schema_generated.h"
 #include "sentencepiece_processor.h"  // from @sentencepiece
 #include "tensorflow/lite/model_builder.h"  // from @org_tensorflow
@@ -87,8 +88,12 @@ TEST(LiteRTLMReadTest, TFLiteRead) {
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::unique_ptr<tflite::FlatBufferModel> model;
-  absl::Status result = ReadTFLiteFromSection(input_filename, 1, &model);
+  std::unique_ptr<lm::MemoryMappedFile> mapped_file;
+  absl::Status result =
+      ReadTFLiteFromSection(input_filename, 1, &model, &mapped_file);
   ASSERT_TRUE(result.ok());
+  // Verify that buffer backing TFLite is still valid and reading data works.
+  ASSERT_EQ(model->GetModel()->subgraphs()->size(), 1);
 }
 
 TEST(LiteRTLMReadTest, TFLiteReadBinaryData) {
@@ -108,7 +113,9 @@ TEST(LiteRTLMReadTest, TFLiteReadAny) {
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::unique_ptr<tflite::FlatBufferModel> tflite_model;
-  absl::Status result = ReadAnyTFLite(input_filename, &tflite_model);
+  std::unique_ptr<lm::MemoryMappedFile> mapped_file;
+  absl::Status result =
+      ReadAnyTFLite(input_filename, &tflite_model, &mapped_file);
   ASSERT_TRUE(result.ok());
 }
 
@@ -118,7 +125,9 @@ TEST(LiteRTLMReadTest, TFLiteRead_InvalidSection) {
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::unique_ptr<tflite::FlatBufferModel> tflite_model;
-  absl::Status result = ReadTFLiteFromSection(input_filename, 0, &tflite_model);
+  std::unique_ptr<lm::MemoryMappedFile> mapped_file;
+  absl::Status result =
+      ReadTFLiteFromSection(input_filename, 0, &tflite_model, &mapped_file);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), absl::StatusCode::kInvalidArgument);
 }

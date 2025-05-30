@@ -9,6 +9,7 @@
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "runtime/proto/llm_metadata.pb.h"
+#include "runtime/util/memory_mapped_file.h"
 #include "schema/core/litertlm_header.h"
 #include "schema/core/litertlm_header_schema_generated.h"
 #include "schema/core/litertlm_utils.h"
@@ -119,16 +120,23 @@ absl::Status ReadHeaderFromLiteRTLM(std::istream& litertlm_stream,
 
 // Read a TF Lite from the specified section in the LiteRT-LM file.
 // Returns InvalidArgumentError if no TFLite is found in that section.
+// TFLite libraries expect a caller-provided buffer, so the convention
+// here is: we read the TF Lite at the given section from the LiteRT-LM
+// file. Upon return, the caller provided mapped_file will be the holder
+// of the mmapped buffer (assigned to the passed object via move operations).
 absl::Status ReadTFLiteFromSection(
     const std::string& litertlm_path, int section_idx,
-    std::unique_ptr<tflite::FlatBufferModel>* tflite_model);
+    std::unique_ptr<tflite::FlatBufferModel>* tflite_model,
+    std::unique_ptr<lm::MemoryMappedFile>* mapped_file);
 
 // Read any TF Lite from the file (convenience function if the caller knows
 // that only 1 TF Lite file exists in the LiteRT-LM file). This function will
 // not return an error if there are more than 1 TF Lite sections.
+// See above for semantics of the mapped_file.
 absl::Status ReadAnyTFLite(
     const std::string& litertlm_path,
-    std::unique_ptr<tflite::FlatBufferModel>* tflite_model);
+    std::unique_ptr<tflite::FlatBufferModel>* tflite_model,
+    std::unique_ptr<lm::MemoryMappedFile>* mapped_file);
 
 // Read a LlmMetadata from the specified section in the LiteRT-LM file.
 // Returns InvalidArgumentError if no LlmMetadata are found in that section.
