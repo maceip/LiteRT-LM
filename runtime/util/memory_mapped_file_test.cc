@@ -77,6 +77,24 @@ TEST(MemoryMappedFile, SucceedsMappingOpenFile) {
   CheckContents(**file, "foo bar");
 }
 
+TEST(MemoryMappedFile, SucceedsMappingMoveAndOpenFile) {
+  auto path = std::filesystem::path(::testing::TempDir()) / "file.txt";
+  WriteFile(path.string(), "foo bar");
+
+  absl::StatusOr<std::unique_ptr<MemoryMappedFile>> file;
+  {
+    auto handle = ScopedFile::Open(path.string());
+    ASSERT_OK(handle);
+    file = MemoryMappedFile::Create(handle->file());
+  }
+
+  ASSERT_OK(file);
+  CheckContents(**file, "foo bar");
+  absl::StatusOr<std::unique_ptr<MemoryMappedFile>> file2(std::move(file));
+  ASSERT_OK(file2);
+  CheckContents(**file2, "foo bar");
+}
+
 TEST(MemoryMappedFile, MapsValidScopedFile) {
   auto path = std::filesystem::path(::testing::TempDir()) / "file.txt";
   WriteFile(path.string(), "foo bar");

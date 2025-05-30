@@ -28,10 +28,54 @@ class MemoryMappedFileWin : public MemoryMappedFile {
  public:
   MemoryMappedFileWin(HANDLE hmap, uint64_t length, void* data)
       : hmap_(hmap), length_(length), data_(data) {}
+
   ~MemoryMappedFileWin() override {
-    ::UnmapViewOfFile(data_);
-    ::CloseHandle(hmap_);
+    // These checks are now safe for moved-from objects.
+    if (data_ != nullptr) {
+      ::UnmapViewOfFile(data_);
+    }
+    if (hmap_ != nullptr) {
+      ::CloseHandle(hmap_);
+    }
   }
+
+  // Move constructor
+  MemoryMappedFileWin(MemoryMappedFileWin&& other) noexcept
+      : hmap_(other.hmap_), length_(other.length_), data_(other.data_) {
+    // Reset the other object's handles to prevent it from releasing
+    // the resources we just took ownership of.
+    other.hmap_ = nullptr;
+    other.length_ = 0;
+    other.data_ = nullptr;
+  }
+
+  // Move assignment operator
+  MemoryMappedFileWin& operator=(MemoryMappedFileWin&& other) noexcept {
+    if (this != &other) {
+      // Free our existing resources before taking the new ones.
+      if (data_ != nullptr) {
+        ::UnmapViewOfFile(data_);
+      }
+      if (hmap_ != nullptr) {
+        ::CloseHandle(hmap_);
+      }
+
+      // Transfer ownership from the other object.
+      hmap_ = other.hmap_;
+      length_ = other.length_;
+      data_ = other.data_;
+
+      // Reset the other object.
+      other.hmap_ = nullptr;
+      other.length_ = 0;
+      other.data_ = nullptr;
+    }
+    return *this;
+  }
+
+  // Disable copy operations to enforce single ownership .
+  MemoryMappedFileWin(const MemoryMappedFileWin&) = delete;
+  MemoryMappedFileWin& operator=(const MemoryMappedFileWin&) = delete;
 
   uint64_t length() override { return length_; }
 

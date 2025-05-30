@@ -36,7 +36,44 @@ class MemoryMappedFilePosix : public MemoryMappedFile {
  public:
   MemoryMappedFilePosix(uint64_t length, void* data)
       : length_(length), data_(data) {}
-  ~MemoryMappedFilePosix() override { munmap(data_, length_); }
+  ~MemoryMappedFilePosix() override {
+    if (data_) {
+      munmap(data_, length_);
+    }
+  }
+
+  // Move constructor
+  MemoryMappedFilePosix(MemoryMappedFilePosix&& other) noexcept
+      : length_(other.length_), data_(other.data_) {
+    // After transferring ownership of the data pointer and length,
+    // we must reset the other object so its destructor doesn't free
+    // the memory we just took ownership of.
+    other.length_ = 0;
+    other.data_ = nullptr;
+  }
+
+  // Move assignment
+  MemoryMappedFilePosix& operator=(MemoryMappedFilePosix&& other) noexcept {
+    if (this != &other) {
+      // Free existing resource before taking ownership of the new one
+      if (data_ != nullptr) {
+        munmap(data_, length_);
+      }
+
+      // Transfer ownership from the other object
+      length_ = other.length_;
+      data_ = other.data_;
+
+      // Reset the other object
+      other.length_ = 0;
+      other.data_ = nullptr;
+    }
+    return *this;
+  }
+
+  // Disable copy operations.
+  MemoryMappedFilePosix(const MemoryMappedFilePosix&) = delete;
+  MemoryMappedFilePosix& operator=(const MemoryMappedFilePosix&) = delete;
 
   uint64_t length() override { return length_; }
 

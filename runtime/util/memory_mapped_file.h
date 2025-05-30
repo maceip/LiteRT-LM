@@ -29,6 +29,14 @@ namespace litert::lm {
 // object exists and will be cleaned up when it is destroyed.
 class MemoryMappedFile {
  public:
+  // Move constructor and move assignment operator
+  MemoryMappedFile(MemoryMappedFile&&) = default;
+  MemoryMappedFile& operator=(MemoryMappedFile&&) = default;
+
+  // Delete copy operations
+  MemoryMappedFile(const MemoryMappedFile&) = delete;
+  MemoryMappedFile& operator=(const MemoryMappedFile&) = delete;
+
   // Gets the required alignment for a file offset passed to Create().
   static size_t GetOffsetAlignment();
 
@@ -60,6 +68,10 @@ class MemoryMappedFile {
 
   // Returns a pointer to the file data.
   virtual void* data() = 0;
+
+ protected:
+  // Protected default constructor to prevent direct instantiation
+  MemoryMappedFile() = default;
 };
 
 }  // namespace litert::lm
