@@ -32,7 +32,7 @@ namespace {
 TEST(EngineTest, CreateEngine) {
   auto task_path =
       std::filesystem::path(::testing::SrcDir()) /
-      "litert_lm/runtime/testdata/test_lm.task";
+      "litert_lm/runtime/testdata/test_lm_new_metadata.task";
   auto model_assets = ModelAssets::Create(task_path.string());
   ASSERT_OK(model_assets);
   auto engine_settings =

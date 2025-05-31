@@ -22,6 +22,7 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
+#include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/util/litert_lm_loader.h"
 
 namespace litert::lm {
@@ -37,6 +38,8 @@ class ModelResourcesLitertLm : public ModelResources {
   absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>> GetTokenizer()
       override;
 
+  absl::StatusOr<std::shared_ptr<proto::LlmMetadata>> GetLlmMetadata() override;
+
  private:
   explicit ModelResourcesLitertLm(
       std::unique_ptr<LitertLmLoader> litert_lm_loader)
@@ -44,6 +47,7 @@ class ModelResourcesLitertLm : public ModelResources {
 
   std::shared_ptr<litert::Model> model_;
   std::shared_ptr<SentencePieceTokenizer> tokenizer_;
+  std::shared_ptr<proto::LlmMetadata> llm_metadata_;
   // The litert lm loader, used to mmap the tokenizer and tflite model etc from
   // the .litertlm model file.
   std::unique_ptr<LitertLmLoader> litert_lm_loader_;

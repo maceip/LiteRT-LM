@@ -383,3 +383,26 @@ cc_library(
         ":scoped_file",
     ],
 )
+
+cc_library(
+    name = "metadata_util",
+    srcs = ["metadata_util.cc"],
+    hdrs = ["metadata_util.h"],
+    deps = [
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "//runtime/proto:llm_metadata_cc_proto",
+    ],
+)
+
+cc_test(
+    name = "metadata_util_test",
+    srcs = ["metadata_util_test.cc"],
+    deps = [
+        ":metadata_util",
+        "@com_google_googletest//:gtest_main",
+        "//runtime/proto:llm_metadata_cc_proto",
+    ],
+)

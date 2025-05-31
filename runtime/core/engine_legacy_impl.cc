@@ -40,6 +40,7 @@
 #include "runtime/framework/thread_options.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
+#include "runtime/util/metadata_util.h"
 #include "runtime/util/model_asset_bundle_resources.h"
 #include "runtime/util/scoped_file.h"
 #include "util/task/status_macros.h"
@@ -116,9 +117,16 @@ class EngineImpl : public Engine {
       ABSL_CHECK_OK(
           benchmark_info_->TimeInitPhaseEnd("Tokenizer initialization"));
     }
+    auto metadata_buffer = (*resources)->GetFile("METADATA");
+    ABSL_CHECK_OK(metadata_buffer);
+    auto metadata = ExtractOrConvertLlmMetadata(metadata_buffer.value());
+    ABSL_CHECK_OK(metadata);
+    auto llm_metadata = std::make_shared<proto::LlmMetadata>(metadata.value());
+
     // Update and load the parameters from the model file and convert the tokens
     // to ids.
-    ABSL_CHECK_OK(engine_settings_.MaybeUpdateAndValidate(tokenizer_));
+    ABSL_CHECK_OK(
+        engine_settings_.MaybeUpdateAndValidate(tokenizer_, llm_metadata));
 
     auto executor = BuildExecutor(model_resources_, engine_settings_);
     ABSL_QCHECK_OK(executor);

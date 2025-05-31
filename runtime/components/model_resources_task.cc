@@ -19,7 +19,6 @@
 #include <utility>
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
-#include "absl/log/log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
@@ -27,8 +26,9 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
+#include "runtime/util/metadata_util.h"
 #include "runtime/util/model_asset_bundle_resources.h"
-#include "runtime/util/status_macros.h"  //NOLINT
+#include "runtime/util/status_macros.h"  // NOLINT
 
 namespace litert::lm {
 
@@ -70,4 +70,21 @@ ModelResourcesTask::GetTokenizer() {
   tokenizer_ = std::move(tokenizer);
   return tokenizer_;
 }
+
+absl::StatusOr<std::shared_ptr<proto::LlmMetadata>>
+ModelResourcesTask::GetLlmMetadata() {
+  if (llm_metadata_ != nullptr) {
+    return llm_metadata_;
+  }
+  ASSIGN_OR_RETURN(auto string_view,  // NOLINT
+                   model_asset_bundle_resources_->GetFile("METADATA"));
+  ASSIGN_OR_RETURN(auto llm_metadata,  // NOLINT
+                   ExtractOrConvertLlmMetadata(string_view));
+
+  llm_metadata_ = std::make_shared<proto::LlmMetadata>(std::move(llm_metadata));
+
+  ABSL_LOG(INFO) << "The llm metadata: " << llm_metadata_->DebugString();
+  return llm_metadata_;
+};
+
 }  // namespace litert::lm

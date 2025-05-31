@@ -47,14 +47,17 @@ absl::StatusOr<EngineSettings> EngineSettings::CreateDefault(
 }
 
 absl::Status EngineSettings::MaybeUpdateAndValidate(
-    std::shared_ptr<Tokenizer> tokenizer) {
-  // TODO(b/413793273): Load the metadata from the model assets.
-  // Currently pretending the values are hard-coded.
+    std::shared_ptr<Tokenizer> tokenizer,
+    std::shared_ptr<proto::LlmMetadata> metadata_from_file) {
+  if (tokenizer == nullptr) {
+    return absl::InvalidArgumentError("Tokenizer is null.");
+  }
+
   proto::LlmMetadata& metadata = GetMutableLlmMetadata();
-  metadata.mutable_stop_tokens()->Add()->set_token_str("<eos>");
-  metadata.mutable_stop_tokens()->Add()->set_token_str("<end_of_turn>");
-  metadata.mutable_stop_tokens()->Add()->set_token_str("<ctrl100>");
-  metadata.mutable_start_token()->mutable_token_ids()->add_ids(2);
+  // Copy the metadata from the file if it is provided.
+  if (metadata_from_file != nullptr) {
+    metadata.CopyFrom(*metadata_from_file);
+  }
 
   // Convert the start/stop tokens from string to token ids.
   for (auto& stop_token : *metadata.mutable_stop_tokens()) {
@@ -97,6 +100,7 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
           absl::StrCat("Not recognized backend: ", backend));
     }
   }
+  ABSL_LOG(INFO) << "The llm metadata: " << metadata.DebugString();
   ABSL_LOG(INFO) << "The validated engine settings: " << *this;
   return absl::OkStatus();
 }
@@ -174,12 +178,17 @@ SessionConfig SessionConfig::CreateDefault() {
 
 absl::Status SessionConfig::MaybeUpdateAndValidate(
     const EngineSettings& engine_settings) {
+  ABSL_LOG(INFO)
+      << "The GetLlmMetadata: "
+      << (engine_settings.GetLlmMetadata().has_value()
+              ? engine_settings.GetLlmMetadata().value().DebugString()
+              : "Not set");
   if ((start_token_id_ == -1 || stop_token_ids_.empty()) &&
       !engine_settings.GetLlmMetadata().has_value()) {
     return absl::InvalidArgumentError(
-        "Start token and stop tokens are required. Either set the start token "
-        "id or provide a valid start token in the model file/engine settings.");
+        "Required: set start and stop tokens, or provide LlmMetadata.");
   }
+
   // Update the parameters from the engine settings when the LlmMetadata is
   // present.
   if (engine_settings.GetLlmMetadata().has_value()) {
@@ -196,8 +205,10 @@ absl::Status SessionConfig::MaybeUpdateAndValidate(
 
     // Set and validate the start token.
     if (start_token_id_ == -1) {
-      if (llm_metadata.has_start_token() &&
-          llm_metadata.start_token().token_ids().ids_size() == 1) {
+      if (llm_metadata.has_start_token()) {
+        if (llm_metadata.start_token().token_ids().ids_size() > 1) {
+          ABSL_LOG(WARNING) << "The start token has more than one token ids: ";
+        }
         start_token_id_ = llm_metadata.start_token().token_ids().ids(0);
       }
     }

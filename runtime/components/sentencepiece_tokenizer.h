@@ -33,6 +33,12 @@ class SentencePieceTokenizer : public Tokenizer {
   absl::StatusOr<std::string> TokenIdsToText(
       const std::vector<int>& token_ids) override;
 
+  // Returns BOS id.
+  absl::StatusOr<int> BosId() const override;
+
+  // Returns EOS id.
+  absl::StatusOr<int> EosId() const override;
+
  private:
   // Constructor.
   explicit SentencePieceTokenizer(

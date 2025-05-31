@@ -43,6 +43,7 @@
 #include "runtime/executor/llm_litert_npu_compiled_model_executor.h"
 #include "runtime/framework/thread_options.h"
 #include "runtime/framework/threadpool.h"
+#include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/file_format_util.h"
 #include "runtime/util/status_macros.h"  // NOLINT
@@ -117,6 +118,7 @@ class EngineImpl : public Engine {
           break;
         case FileFormat::TASK:
           tokenizer_ = litert_model_resources_->GetTokenizer().value();
+          llm_metadata_ = litert_model_resources_->GetLlmMetadata().value();
           break;
         case FileFormat::LITERT_LM: {
           ABSL_LOG(FATAL) << "Not supported file format in OSS yet.";
@@ -125,7 +127,8 @@ class EngineImpl : public Engine {
       }
       // Update and load the parameters from the model file and convert the
       // tokens to ids.
-      ABSL_CHECK_OK(engine_settings_.MaybeUpdateAndValidate(tokenizer_));
+      ABSL_CHECK_OK(
+          engine_settings_.MaybeUpdateAndValidate(tokenizer_, llm_metadata_));
 
       auto executor = BuildLitertCompiledModelExecutor(
           litert_model_resources_, engine_settings_.GetMainExecutorSettings());
@@ -169,7 +172,8 @@ class EngineImpl : public Engine {
       tokenizer_ = std::move(tokenizer_or.value());
       // Update and load the parameters from the model file and convert the
       // tokens to ids.
-      ABSL_CHECK_OK(engine_settings_.MaybeUpdateAndValidate(tokenizer_));
+      ABSL_CHECK_OK(
+          engine_settings_.MaybeUpdateAndValidate(tokenizer_, nullptr));
 
       auto executor_or = odml::infra::LlmLiteRtNpuCompiledModelExecutor::Create(
           kAllQuantized, model_path, embedder_path, auxiliary_path,
@@ -214,6 +218,8 @@ class EngineImpl : public Engine {
   std::shared_ptr<LlmExecutor> executor_;
   // Shared tokenizer for all sessions.
   std::shared_ptr<Tokenizer> tokenizer_;
+  // Shared llm metadata.
+  std::shared_ptr<proto::LlmMetadata> llm_metadata_;
   // Default stop token ids for all sessions loaded from the model file.
   std::vector<std::vector<int>> stop_token_ids_;
   std::unique_ptr<ModelResources> litert_model_resources_;

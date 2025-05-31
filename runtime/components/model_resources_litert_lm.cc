@@ -55,4 +55,12 @@ ModelResourcesLitertLm::GetTokenizer() {
   ABSL_LOG(FATAL) << "Not supported file format in OSS yet.";
 }
 
+absl::StatusOr<std::shared_ptr<proto::LlmMetadata>>
+ModelResourcesLitertLm::GetLlmMetadata() {
+  if (llm_metadata_ != nullptr) {
+    return llm_metadata_;
+  }
+  ABSL_LOG(FATAL) << "Not supported file format in OSS yet.";
+};
+
 }  // namespace litert::lm

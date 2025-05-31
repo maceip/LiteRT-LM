@@ -22,6 +22,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "litert/cc/litert_model.h"  // from @litert
 #include "runtime/components/sentencepiece_tokenizer.h"
+#include "runtime/proto/llm_metadata.pb.h"
 
 namespace litert::lm {
 
@@ -46,6 +47,10 @@ class ModelResources {
   // Returns the tokenizer.
   virtual absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>>
   GetTokenizer() = 0;
+
+  // Returns the llm metadata.
+  virtual absl::StatusOr<std::shared_ptr<proto::LlmMetadata>>
+  GetLlmMetadata() = 0;
 };
 
 }  // namespace litert::lm

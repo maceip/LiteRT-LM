@@ -21,6 +21,7 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
+#include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/util/model_asset_bundle_resources.h"
 
 namespace litert::lm {
@@ -36,6 +37,8 @@ class ModelResourcesTask : public ModelResources {
   absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>> GetTokenizer()
       override;
 
+  absl::StatusOr<std::shared_ptr<proto::LlmMetadata>> GetLlmMetadata() override;
+
  private:
   explicit ModelResourcesTask(
       std::unique_ptr<ModelAssetBundleResources> model_asset_bundle_resources)
@@ -44,6 +47,7 @@ class ModelResourcesTask : public ModelResources {
 
   std::shared_ptr<litert::Model> model_;
   std::shared_ptr<SentencePieceTokenizer> tokenizer_;
+  std::shared_ptr<proto::LlmMetadata> llm_metadata_;
 
   // The model asset bundle resources produced by reading task bundle. Not null
   // only when the model is provided through .task format. If the model is

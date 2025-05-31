@@ -23,6 +23,21 @@ using ::testing::ElementsAre;
 using ::testing::Eq;
 using ::testing::ContainsRegex;
 
+std::shared_ptr<proto::LlmMetadata> CreateLlmMetadata() {
+  proto::LlmMetadata llm_metadata;
+  llm_metadata.mutable_start_token()->mutable_token_ids()->add_ids(2);
+  llm_metadata.mutable_stop_tokens()->Add()->set_token_str("<eos>");
+  llm_metadata.mutable_stop_tokens()->Add()->set_token_str("<end_of_turn>");
+  llm_metadata.mutable_stop_tokens()->Add()->set_token_str("<ctrl>");
+  llm_metadata.mutable_sampler_params()->set_type(
+      proto::SamplerParameters::TOP_P);
+  llm_metadata.mutable_sampler_params()->set_k(1);
+  llm_metadata.mutable_sampler_params()->set_p(0.95f);
+  llm_metadata.mutable_sampler_params()->set_temperature(1.0f);
+  llm_metadata.mutable_sampler_params()->set_seed(0);
+  return std::make_shared<proto::LlmMetadata>(llm_metadata);
+}
+
 TEST(EngineSettingsTest, GetModelPath) {
   auto model_assets = ModelAssets::Create("test_model_path_1");
   ASSERT_OK(model_assets);
@@ -118,28 +133,32 @@ class FakeTokenizer : public Tokenizer {
       const std::vector<int>& token_ids) override {
     return "fake_text";
   }
+
+  absl::StatusOr<int> BosId() const override { return 2; }
+
+  absl::StatusOr<int> EosId() const override { return 1; }
 };
 
-bool IsExpectedLlmMetadata(const proto::LlmMetadata& llm_metadata) {
+absl::Status IsExpectedLlmMetadata(const proto::LlmMetadata& llm_metadata) {
   if (!llm_metadata.has_start_token() ||
       llm_metadata.start_token().token_ids().ids_size() != 1 ||
       llm_metadata.start_token().token_ids().ids(0) != 2) {
-    return false;
+    return absl::InvalidArgumentError("Start token is not set correctly.");
   }
   if (llm_metadata.stop_tokens_size() != 3) {
-    return false;
+    return absl::InvalidArgumentError("Stop tokens size is not 3.");
   }
   if (llm_metadata.stop_tokens(0).token_ids().ids_size() != 1 ||
       llm_metadata.stop_tokens(0).token_ids().ids(0) != 1) {
-    return false;
+    return absl::InvalidArgumentError("Stop tokens 0 is not set correctly.");
   }
   if (llm_metadata.stop_tokens(1).token_ids().ids_size() != 1 ||
       llm_metadata.stop_tokens(1).token_ids().ids(0) != 1) {
-    return false;
+    return absl::InvalidArgumentError("Stop tokens 1 is not set correctly.");
   }
   if (llm_metadata.stop_tokens(2).token_ids().ids_size() != 1 ||
       llm_metadata.stop_tokens(2).token_ids().ids(0) != 1) {
-    return false;
+    return absl::InvalidArgumentError("Stop tokens 2 is not set correctly.");
   }
   if (!llm_metadata.has_sampler_params() ||
       llm_metadata.sampler_params().type() != proto::SamplerParameters::TOP_P ||
@@ -147,9 +166,9 @@ bool IsExpectedLlmMetadata(const proto::LlmMetadata& llm_metadata) {
       llm_metadata.sampler_params().p() != 0.95f ||
       llm_metadata.sampler_params().temperature() != 1.0f ||
       llm_metadata.sampler_params().seed() != 0) {
-    return false;
+    return absl::InvalidArgumentError("Sampler params is not set correctly.");
   }
-  return true;
+  return absl::OkStatus();
 }
 
 TEST(EngineSettingsTest, MaybeUpdateAndValidate) {
@@ -159,9 +178,10 @@ TEST(EngineSettingsTest, MaybeUpdateAndValidate) {
   EXPECT_OK(settings);
 
   std::shared_ptr<Tokenizer> tokenizer = std::make_shared<FakeTokenizer>();
+  std::shared_ptr<proto::LlmMetadata> llm_metadata = CreateLlmMetadata();
 
-  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer));
-  EXPECT_TRUE(IsExpectedLlmMetadata(settings->GetLlmMetadata().value()));
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, llm_metadata));
+  EXPECT_OK(IsExpectedLlmMetadata(settings->GetLlmMetadata().value()));
 }
 
 TEST(EngineSettingsTest, MaybeUpdateAndValidateQNN) {
@@ -171,10 +191,11 @@ TEST(EngineSettingsTest, MaybeUpdateAndValidateQNN) {
   EXPECT_OK(settings);
 
   std::shared_ptr<Tokenizer> tokenizer = std::make_shared<FakeTokenizer>();
+  std::shared_ptr<proto::LlmMetadata> llm_metadata = CreateLlmMetadata();
 
-  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer));
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, llm_metadata));
   EXPECT_EQ(settings->GetLlmMetadata().value().sampler_params().type(),
-            proto::SamplerParameters::TYPE_UNSPECIFIED);
+            proto::SamplerParameters::TOP_P);
 }
 
 TEST(EngineSettingsTest, PrintOperator) {
@@ -249,7 +270,9 @@ TEST(SessionConfigTest, MaybeUpdateAndValidate) {
               testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
 
   std::shared_ptr<Tokenizer> tokenizer = std::make_shared<FakeTokenizer>();
-  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer));
+  std::shared_ptr<proto::LlmMetadata> llm_metadata = CreateLlmMetadata();
+
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, llm_metadata));
   // The validation should pass now.
   EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
 }

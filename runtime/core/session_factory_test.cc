@@ -32,6 +32,10 @@ class FakeTokenizer : public Tokenizer {
       const std::vector<int>& token_ids) override {
     return "fake_text";
   }
+
+  absl::StatusOr<int> BosId() const override { return 2; }
+
+  absl::StatusOr<int> EosId() const override { return 1; }
 };
 
 TEST(SessionFactoryTest, InitializeSession) {

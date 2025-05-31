@@ -54,4 +54,14 @@ absl::StatusOr<std::string> SentencePieceTokenizer::TokenIdsToText(
   return text;
 }
 
+// Returns BOS id.
+absl::StatusOr<int> SentencePieceTokenizer::BosId() const {
+  return processor_->bos_id();
+};
+
+// Returns EOS id.
+absl::StatusOr<int> SentencePieceTokenizer::EosId() const {
+  return processor_->eos_id();
+};
+
 }  // namespace litert::lm

@@ -58,7 +58,9 @@ class EngineSettings {
   // Updates the EngineSettings fields by loading the metadata from the model
   // assets. The function also validates to check if all of the required fields
   // are set correctly. Returns an error if the validation fails.
-  absl::Status MaybeUpdateAndValidate(std::shared_ptr<Tokenizer> tokenizer);
+  absl::Status MaybeUpdateAndValidate(
+      std::shared_ptr<Tokenizer> tokenizer,
+      std::shared_ptr<proto::LlmMetadata> metadata_from_file);
 
   // Returns the LlmExecutorSettings.
   const LlmExecutorSettings& GetMainExecutorSettings() const;

@@ -22,6 +22,16 @@ class Tokenizer {
   virtual absl::StatusOr<std::vector<int>> TextToTokenIds(
       absl::string_view text) = 0;
 
+  // Returns BOS id.
+  virtual absl::StatusOr<int> BosId() const {
+    return absl::UnimplementedError("BosId is not implemented.");
+  };
+
+  // Returns EOS id.
+  virtual absl::StatusOr<int> EosId() const {
+    return absl::UnimplementedError("EosId is not implemented.");
+  };
+
   // Helper function to convert a vector of token ids into a 1D
   // litert::TensorBuffer of shape [batch_size(==1), num_tokens].
   absl::StatusOr<TensorBuffer> TokenIdsToTensorBuffer(
