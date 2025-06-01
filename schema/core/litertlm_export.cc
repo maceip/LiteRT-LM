@@ -13,8 +13,8 @@
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/strings/str_format.h"  // from @com_google_absl
-#include "third_party/flatbuffers/include/flatbuffers/buffer.h"
-#include "third_party/flatbuffers/include/flatbuffers/flatbuffer_builder.h"
+#include "flatbuffers/buffer.h"  // from @flatbuffers
+#include "flatbuffers/flatbuffer_builder.h"  // from @flatbuffers
 #include "schema/core/litertlm_header.h"
 #include "schema/core/litertlm_header_schema_generated.h"
 #include "schema/core/litertlm_section.h"

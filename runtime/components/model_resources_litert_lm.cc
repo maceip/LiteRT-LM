@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -44,7 +45,14 @@ ModelResourcesLitertLm::GetTFLiteModel() {
   if (model_ != nullptr) {
     return model_;
   }
-  ABSL_LOG(FATAL) << "Not supported file format in OSS yet.";
+  litert::BufferRef<uint8_t> buffer_ref = litert_lm_loader_->GetTFLiteModel();
+  ABSL_LOG(INFO) << "litert model size: " << buffer_ref.Size();
+  // TODO: b/413214239 - This factory function copies the contents of
+  // `buffer_ref`. Ideally we'd create a `Model` backed by a view of mapped
+  // memory.
+  LITERT_ASSIGN_OR_RETURN(auto model, Model::CreateFromBuffer(buffer_ref));
+  model_ = std::make_shared<litert::Model>(std::move(model));
+  return model_;
 }
 
 absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>>
@@ -52,7 +60,12 @@ ModelResourcesLitertLm::GetTokenizer() {
   if (tokenizer_ != nullptr) {
     return tokenizer_;
   }
-  ABSL_LOG(FATAL) << "Not supported file format in OSS yet.";
+  auto buffer_ref = litert_lm_loader_->GetTokenizer();
+  ASSIGN_OR_RETURN(  // NOLINT
+      auto tokenizer,
+      SentencePieceTokenizer::CreateFromBuffer(buffer_ref.StrView()));
+  tokenizer_ = (std::move(tokenizer));
+  return tokenizer_;
 }
 
 absl::StatusOr<std::shared_ptr<proto::LlmMetadata>>
@@ -60,7 +73,10 @@ ModelResourcesLitertLm::GetLlmMetadata() {
   if (llm_metadata_ != nullptr) {
     return llm_metadata_;
   }
-  ABSL_LOG(FATAL) << "Not supported file format in OSS yet.";
+  auto buffer_ref = litert_lm_loader_->GetLlmMetadata();
+  llm_metadata_ = std::make_shared<proto::LlmMetadata>();
+  llm_metadata_->ParseFromString(std::string(buffer_ref.StrView()));  // NOLINT
+  return llm_metadata_;
 };
 
 }  // namespace litert::lm

@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//third_party/flatbuffers:build_defs.bzl", "flatbuffer_cc_library")
+load("@flatbuffers//:build_defs.bzl", "flatbuffer_cc_library")
 
 package(
-    default_applicable_licenses = ["//third_party/odml:license"],
     default_hdrs_check = "strict",
     default_visibility = [
-        "//third_party/odml:__subpackages__",
+        "//visibility:public",
     ],
 )
 
@@ -31,7 +30,7 @@ cc_library(
     deps = [
         ":litertlm_header",
         ":litertlm_header_schema",
-        "//third_party/flatbuffers",
+        "@flatbuffers",
     ],
 )
 
@@ -53,8 +52,6 @@ cc_library(
         "//runtime/util:memory_mapped_file",
         "//runtime/util:scoped_file",
         "@sentencepiece//:sentencepiece_processor",
-        "@org_tensorflow//tensorflow/lite:framework",
-        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
     ],
 )
 
@@ -93,7 +90,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
-        "//third_party/flatbuffers",
+        "@flatbuffers",
         "//runtime/util:litert_status_util",
     ],
 )
@@ -107,7 +104,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "//third_party/flatbuffers",
+        "@flatbuffers",
     ],
 )
 
@@ -119,7 +116,7 @@ cc_library(
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-        "//third_party/flatbuffers",
+        "@flatbuffers",
         "@com_google_protobuf//io",
     ],
 )
@@ -157,7 +154,7 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
-        "//third_party/flatbuffers",
+        "@flatbuffers",
     ],
 )
 
@@ -176,7 +173,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
-        "//third_party/flatbuffers",
+        "@flatbuffers",
     ],
 )
 
@@ -191,7 +188,7 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-        "//third_party/flatbuffers",
+        "@flatbuffers",
         "//runtime/proto:llm_metadata_cc_proto",
     ],
 )

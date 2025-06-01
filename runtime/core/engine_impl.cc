@@ -121,7 +121,8 @@ class EngineImpl : public Engine {
           llm_metadata_ = litert_model_resources_->GetLlmMetadata().value();
           break;
         case FileFormat::LITERT_LM: {
-          ABSL_LOG(FATAL) << "Not supported file format in OSS yet.";
+          tokenizer_ = litert_model_resources_->GetTokenizer().value();
+          llm_metadata_ = litert_model_resources_->GetLlmMetadata().value();
           break;
         }
       }

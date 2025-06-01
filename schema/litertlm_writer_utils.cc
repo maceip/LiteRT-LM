@@ -17,7 +17,7 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/str_split.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
-#include "third_party/flatbuffers/include/flatbuffers/flatbuffer_builder.h"
+#include "flatbuffers/flatbuffer_builder.h"  // from @flatbuffers
 #include "runtime/proto/llm_metadata.pb.h"
 #include "schema/core/litertlm_export.h"
 #include "schema/core/litertlm_header.h"

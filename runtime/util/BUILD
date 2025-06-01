@@ -373,14 +373,16 @@ cc_library(
     srcs = ["litert_lm_loader.cc"],
     hdrs = ["litert_lm_loader.h"],
     deps = [
+        ":memory_mapped_file",
+        ":scoped_file",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@litert//litert/cc:litert_buffer_ref",
-        ":memory_mapped_file",
-        ":scoped_file",
+        "//schema/core:litertlm_header_schema",
+        "//schema/core:litertlm_read",
     ],
 )
 

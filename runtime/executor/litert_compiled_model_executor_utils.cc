@@ -373,8 +373,7 @@ BuildLiteRtCompiledModelResources(const ModelAssets& model_assets) {
     case FileFormat::TASK:
       return BuildModelResourcesFromTaskFormat(std::move(scoped_file));
     case FileFormat::LITERT_LM:
-      return absl::InvalidArgumentError(
-          "Not supported file format in OSS yet.");
+      return BuildModelResourcesFromLitertLmFormat(std::move(*scoped_file));
   }
 }
 

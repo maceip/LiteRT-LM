@@ -25,6 +25,7 @@
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
+#include "schema/core/litertlm_header_schema_generated.h"
 
 namespace litert::lm {
 
@@ -38,6 +39,22 @@ class LitertLmLoader {
       : model_file_(std::move(model_file)) {
     ABSL_CHECK_OK(Initialize());
   }
+  // Returns the tokenizer section buffer.
+  litert::BufferRef<uint8_t> GetTokenizer() {
+    return section_buffers_[litertlm::schema::AnySectionDataType_SP_Tokenizer];
+  }
+
+  // Returns the TFLite model section buffer.
+  litert::BufferRef<uint8_t> GetTFLiteModel() {
+    return section_buffers_[litertlm::schema::AnySectionDataType_TFLiteModel];
+  };
+
+  // Returns the tokenizer section buffer.
+  litert::BufferRef<uint8_t> GetLlmMetadata() {
+    return section_buffers_
+        [litertlm::schema::AnySectionDataType_LlmMetadataProto];
+  }
+
  private:
   // Initializes the LitertLmLoader. Includes reading the model header and
   // mapping the sections to the section buffers.
@@ -49,6 +66,11 @@ class LitertLmLoader {
   ScopedFile model_file_;
   // The model_file_ mapped to a MemoryMappedFile.
   std::unique_ptr<MemoryMappedFile> memory_mapped_file_;
+
+  // TODO (b/413793273): Add the extra names to the key to differentiate
+  // between the TFLite models.
+  std::unordered_map<litertlm::schema::AnySectionDataType, BufferRef<uint8_t>>
+      section_buffers_;
 };
 
 }  // namespace litert::lm

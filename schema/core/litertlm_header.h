@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <string>
 
-#include "third_party/flatbuffers/include/flatbuffers/buffer.h"
-#include "third_party/flatbuffers/include/flatbuffers/flatbuffer_builder.h"
+#include "flatbuffers/buffer.h"  // from @flatbuffers
+#include "flatbuffers/flatbuffer_builder.h"  // from @flatbuffers
 #include "schema/core/litertlm_header_schema_generated.h"
 
 namespace litert {

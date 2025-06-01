@@ -28,6 +28,8 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "schema/core/litertlm_header_schema_generated.h"
+#include "schema/core/litertlm_read.h"
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
@@ -51,6 +53,36 @@ constexpr uint64_t kLitertLmHeaderMaxSize = 16 * 1024;
 }  // namespace
 
 absl::Status LitertLmLoader::MapSections() {
+  litertlm::schema::LitertlmHeader header;
+  int major_version, minor_version, patch_version;
+
+  // Read the header information.
+  absl::Status status = ReadHeaderFromLiteRTLM(
+      memory_mapped_file_->data(),
+      std::min(kLitertLmHeaderMaxSize, memory_mapped_file_->length()), &header,
+      &major_version, &minor_version, &patch_version);
+  ABSL_LOG(INFO) << "status: " << status;
+  ABSL_LOG(INFO) << "major_version: " << major_version;
+  ABSL_LOG(INFO) << "minor_version: " << minor_version;
+  ABSL_LOG(INFO) << "patch_version: " << patch_version;
+
+  if (!status.ok()) {
+    return status;
+  }
+
+  // Loop through the sections and map them to the section buffers.
+  auto sections = header.metadata->section_metadata()->objects();
+  for (size_t i = 0; i < sections->size(); ++i) {
+    const litertlm::schema::SectionObject* section = sections->Get(i);
+    section_buffers_[section->data_type()] =
+        BufferRef<uint8_t>(static_cast<uint8_t*>(memory_mapped_file_->data()),
+                           section->end_offset(), section->begin_offset());
+    ABSL_LOG(INFO) << "section_index: " << i;
+    ABSL_LOG(INFO) << "section_data_type: "
+                   << EnumNameAnySectionDataType(section->data_type());
+    ABSL_LOG(INFO) << "section_begin_offset: " << section->begin_offset();
+    ABSL_LOG(INFO) << "section_end_offset: " << section->end_offset();
+  }
   return absl::OkStatus();
 }
 
