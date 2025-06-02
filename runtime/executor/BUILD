@@ -22,6 +22,30 @@ package(
 licenses(["notice"])
 
 cc_library(
+    name = "executor_settings_base",
+    srcs = ["executor_settings_base.cc"],
+    hdrs = ["executor_settings_base.h"],
+    deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "//runtime/util:file_util",
+        "//runtime/util:litert_status_util",
+        "//runtime/util:scoped_file",
+    ],
+)
+
+cc_test(
+    name = "executor_settings_base_test",
+    srcs = ["executor_settings_base_test.cc"],
+    deps = [
+        ":executor_settings_base",
+        "@com_google_googletest//:gtest_main",
+        "//runtime/util:test_utils",
+    ],
+)
+
+cc_library(
     name = "litert_compiled_model_executor_utils",
     srcs = ["litert_compiled_model_executor_utils.cc"],
     hdrs = ["litert_compiled_model_executor_utils.h"],
@@ -253,13 +277,12 @@ cc_library(
     srcs = ["llm_executor_settings.cc"],
     hdrs = ["llm_executor_settings.h"],
     deps = [
-        "@com_google_absl//absl/log:absl_log",
+        ":executor_settings_base",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "//runtime/util:file_util",
+        "//runtime/util:litert_status_util",
         "//runtime/util:logging",
-        "//runtime/util:scoped_file",
     ],
 )
 
