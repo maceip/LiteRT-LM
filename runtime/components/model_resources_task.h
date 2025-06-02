@@ -32,7 +32,8 @@ class ModelResourcesTask : public ModelResources {
   static absl::StatusOr<std::unique_ptr<ModelResources>> Create(
       std::unique_ptr<ModelAssetBundleResources> model_asset_bundle_resources);
 
-  absl::StatusOr<std::shared_ptr<litert::Model>> GetTFLiteModel() override;
+  absl::StatusOr<std::shared_ptr<litert::Model>> GetTFLiteModel(
+      ModelType model_type) override;
 
   absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>> GetTokenizer()
       override;

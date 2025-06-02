@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "runtime/components/model_resources.h"
+
 #include <filesystem>  // NOLINT: Required for path manipulation.
 #include <memory>
 #include <string>
@@ -32,7 +34,10 @@ using ::litert::lm::LitertLmLoader;
 using ::litert::lm::ModelAssetBundleResources;
 using ::litert::lm::ModelResourcesLitertLm;
 using ::litert::lm::ModelResourcesTask;
+using ::litert::lm::ModelType;
+using ::litert::lm::ModelTypeToString;
 using ::litert::lm::ScopedFile;
+using ::litert::lm::StringToModelType;
 
 TEST(ModelResourcesTest, InitializeWithValidLitertLmLoader) {
   const std::string model_path =
@@ -42,13 +47,14 @@ TEST(ModelResourcesTest, InitializeWithValidLitertLmLoader) {
   ASSERT_TRUE(model_file.ok());
   LitertLmLoader loader(std::move(model_file.value()));
   ASSERT_GT(loader.GetTokenizer().Size(), 0);
-  ASSERT_GT(loader.GetTFLiteModel().Size(), 0);
+  ASSERT_GT(loader.GetTFLiteModel(ModelType::kTfLitePrefillDecode).Size(), 0);
 
   auto model_resources = ModelResourcesLitertLm::Create(
       std::make_unique<LitertLmLoader>(std::move(loader)));
   ASSERT_OK(model_resources);
 
-  auto tflite_model = model_resources.value()->GetTFLiteModel();
+  auto tflite_model =
+      model_resources.value()->GetTFLiteModel(ModelType::kTfLitePrefillDecode);
   ASSERT_OK(tflite_model);
   ASSERT_GT(tflite_model.value()->GetNumSignatures(), 0);
 
@@ -71,13 +77,52 @@ TEST(ModelResourcesTest, InitializeWithValidModelAssetBundleResources) {
       std::move(model_asset_bundle_resources.value()));
   ASSERT_OK(model_resources);
 
-  auto tflite_model = model_resources.value()->GetTFLiteModel();
+  auto tflite_model =
+      model_resources.value()->GetTFLiteModel(ModelType::kTfLitePrefillDecode);
   ASSERT_OK(tflite_model);
   ASSERT_GT(tflite_model.value()->GetNumSignatures(), 0);
 
   auto tokenizer = model_resources.value()->GetTokenizer();
   ASSERT_OK(tokenizer);
   ASSERT_NE(tokenizer.value(), nullptr);
+}
+
+TEST(ModelTypeConversionTest, StringToModelType) {
+  auto result = StringToModelType("tf_lite_prefill_decode");
+  ASSERT_OK(result);
+  EXPECT_EQ(result.value(), ModelType::kTfLitePrefillDecode);
+
+  result = StringToModelType("TF_LITE_PREFILL_DECODE");
+  ASSERT_OK(result);
+  EXPECT_EQ(result.value(), ModelType::kTfLitePrefillDecode);
+
+  result = StringToModelType("tf_lite_embedder");
+  ASSERT_OK(result);
+  EXPECT_EQ(result.value(), ModelType::kTfLiteEmbedder);
+
+  result = StringToModelType("TF_LITE_EMBEDDER");
+  ASSERT_OK(result);
+  EXPECT_EQ(result.value(), ModelType::kTfLiteEmbedder);
+
+  result = StringToModelType("tf_lite_per_layer_embedder");
+  ASSERT_OK(result);
+  EXPECT_EQ(result.value(), ModelType::kTfLitePerLayerEmbedder);
+
+  result = StringToModelType("TF_LITE_PER_LAYER_EMBEDDER");
+  ASSERT_OK(result);
+  EXPECT_EQ(result.value(), ModelType::kTfLitePerLayerEmbedder);
+
+  result = StringToModelType("unknown");
+  EXPECT_FALSE(result.ok());
+}
+
+TEST(ModelTypeConversionTest, ModelTypeToString) {
+  EXPECT_EQ(ModelTypeToString(ModelType::kTfLitePrefillDecode),
+            "TF_LITE_PREFILL_DECODE");
+  EXPECT_EQ(ModelTypeToString(ModelType::kTfLiteEmbedder), "TF_LITE_EMBEDDER");
+  EXPECT_EQ(ModelTypeToString(ModelType::kTfLitePerLayerEmbedder),
+            "TF_LITE_PER_LAYER_EMBEDDER");
+  EXPECT_EQ(ModelTypeToString(ModelType::kUnknown), "UNKNOWN");
 }
 
 }  // namespace

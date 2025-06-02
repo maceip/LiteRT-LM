@@ -20,6 +20,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "runtime/components/model_resources.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/test_utils.h"  // NOLINT
@@ -41,7 +42,7 @@ TEST(LlmLiteRTCompiledModelExecutorUtilsTest,
   ASSERT_OK_AND_ASSIGN(auto model_resources,
                        BuildLiteRtCompiledModelResources(*model_assets));
   ASSERT_NE(model_resources, nullptr);
-  ASSERT_OK(model_resources->GetTFLiteModel());
+  ASSERT_OK(model_resources->GetTFLiteModel(ModelType::kTfLitePrefillDecode));
 }
 
 TEST(LlmLiteRTCompiledModelExecutorUtilsTest,
@@ -58,7 +59,7 @@ TEST(LlmLiteRTCompiledModelExecutorUtilsTest,
   ASSERT_OK_AND_ASSIGN(auto model_resources,
                        BuildLiteRtCompiledModelResources(*model_assets));
   ASSERT_NE(model_resources, nullptr);
-  ASSERT_OK(model_resources->GetTFLiteModel());
+  ASSERT_OK(model_resources->GetTFLiteModel(ModelType::kTfLitePrefillDecode));
 }
 
 }  // namespace

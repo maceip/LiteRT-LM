@@ -67,6 +67,7 @@ cc_test(
         ":litert_compiled_model_executor_utils",
         ":llm_executor_settings",
         "@com_google_googletest//:gtest_main",
+        "//runtime/components:model_resources_task",
         "//runtime/util:scoped_file",
         "//runtime/util:test_utils",
     ],

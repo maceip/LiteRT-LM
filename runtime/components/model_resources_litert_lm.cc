@@ -20,7 +20,6 @@
 #include <utility>
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
-#include "absl/log/log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
@@ -41,11 +40,12 @@ absl::StatusOr<std::unique_ptr<ModelResources>> ModelResourcesLitertLm::Create(
 };
 
 absl::StatusOr<std::shared_ptr<litert::Model>>
-ModelResourcesLitertLm::GetTFLiteModel() {
+ModelResourcesLitertLm::GetTFLiteModel(ModelType model_type) {
   if (model_ != nullptr) {
     return model_;
   }
-  litert::BufferRef<uint8_t> buffer_ref = litert_lm_loader_->GetTFLiteModel();
+  litert::BufferRef<uint8_t> buffer_ref =
+      litert_lm_loader_->GetTFLiteModel(model_type);
   ABSL_LOG(INFO) << "litert model size: " << buffer_ref.Size();
   // TODO: b/413214239 - This factory function copies the contents of
   // `buffer_ref`. Ideally we'd create a `Model` backed by a view of mapped

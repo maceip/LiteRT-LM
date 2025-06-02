@@ -19,6 +19,7 @@
 #include <utility>
 
 #include <gtest/gtest.h>
+#include "runtime/components/model_resources.h"
 #include "runtime/util/scoped_file.h"
 
 namespace litert::lm {
@@ -33,7 +34,7 @@ TEST(LitertLmLoaderTest, InitializeWithValidFile) {
   ASSERT_TRUE(model_file.ok());
   LitertLmLoader loader(std::move(model_file.value()));
   ASSERT_GT(loader.GetTokenizer().Size(), 0);
-  ASSERT_GT(loader.GetTFLiteModel().Size(), 0);
+  ASSERT_GT(loader.GetTFLiteModel(ModelType::kTfLitePrefillDecode).Size(), 0);
   ASSERT_EQ(loader.GetLlmMetadata().Size(), 0);
 }
 

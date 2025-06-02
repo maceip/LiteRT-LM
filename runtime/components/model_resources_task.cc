@@ -16,11 +16,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
@@ -42,12 +44,12 @@ absl::StatusOr<std::unique_ptr<ModelResources>> ModelResourcesTask::Create(
 }
 
 absl::StatusOr<std::shared_ptr<litert::Model>>
-ModelResourcesTask::GetTFLiteModel() {
+ModelResourcesTask::GetTFLiteModel(ModelType model_type) {
   if (model_ != nullptr) {
     return model_;
   }
-  auto buffer =
-      model_asset_bundle_resources_->GetFile("TF_LITE_PREFILL_DECODE");
+  std::string model_file = litert::lm::ModelTypeToString(model_type);
+  auto buffer = model_asset_bundle_resources_->GetFile(model_file);
   ABSL_LOG(INFO) << "litert model size: " << buffer->size();
   auto buffer_ref = BufferRef<uint8_t>(buffer->data(), buffer->size());
   // TODO: b/413214239 - This factory function copies the contents of

@@ -27,12 +27,14 @@
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/ascii.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
-#include "schema/core/litertlm_header_schema_generated.h"
-#include "schema/core/litertlm_read.h"
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
+#include "runtime/components/model_resources.h"
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
+#include "schema/core/litertlm_header_schema_generated.h"
+#include "schema/core/litertlm_read.h"
 
 namespace litert::lm {
 
@@ -74,7 +76,36 @@ absl::Status LitertLmLoader::MapSections() {
   auto sections = header.metadata->section_metadata()->objects();
   for (size_t i = 0; i < sections->size(); ++i) {
     const litertlm::schema::SectionObject* section = sections->Get(i);
-    section_buffers_[section->data_type()] =
+    auto items = section->items();
+    BufferKey buffer_key(section->data_type());
+    // Extract the specific model type from the section items KeyValuePairs.
+    if (section->data_type() ==
+        litertlm::schema::AnySectionDataType_TFLiteModel) {
+      bool found_model_type = false;
+      std::string model_type;
+      for (size_t j = 0; j < items->size(); ++j) {
+        auto item = items->Get(j);
+        if (item->key() &&
+            absl::AsciiStrToLower(item->key()->str()) == "model_type" &&
+            item->value()) {
+          found_model_type = true;
+          model_type = *(item->value_as_StringValue()->value());
+          break;
+        }
+      }
+      if (found_model_type) {
+        ABSL_LOG(INFO) << "model_type: " << model_type;
+        buffer_key = BufferKey(section->data_type(),
+                               StringToModelType(model_type).value());
+      } else {
+        ABSL_LOG(WARNING) << "model_type not found, use kTfLitePrefillDecode";
+        // For backward compatibility, we will use the default model type if
+        // model_type is not found.
+        buffer_key =
+            BufferKey(section->data_type(), ModelType::kTfLitePrefillDecode);
+      }
+    }
+    section_buffers_[buffer_key] =
         BufferRef<uint8_t>(static_cast<uint8_t*>(memory_mapped_file_->data()),
                            section->end_offset(), section->begin_offset());
     ABSL_LOG(INFO) << "section_index: " << i;

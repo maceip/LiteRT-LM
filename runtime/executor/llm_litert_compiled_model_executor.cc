@@ -477,7 +477,8 @@ absl::StatusOr<std::unique_ptr<LlmLiteRtCompiledModelExecutor>>
 LlmLiteRtCompiledModelExecutor::Create(
     const LlmExecutorSettings& executor_settings,
     const std::unique_ptr<ModelResources>& resources) {
-  ASSIGN_OR_RETURN(auto litert_model, resources->GetTFLiteModel());
+  ASSIGN_OR_RETURN(auto litert_model,
+                   resources->GetTFLiteModel(ModelType::kTfLitePrefillDecode));
   // For the LlmLiteRtCompiledModelExecutor, ML_DRIFT backend is used by
   // default.
   // TODO(b/405424188): - Add support for NPU backends.
