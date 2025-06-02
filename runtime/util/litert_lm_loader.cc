@@ -56,17 +56,14 @@ constexpr uint64_t kLitertLmHeaderMaxSize = 16 * 1024;
 
 absl::Status LitertLmLoader::MapSections() {
   schema::LitertlmHeader header;
-  int major_version, minor_version, patch_version;
-
   // Read the header information.
   absl::Status status = ReadHeaderFromLiteRTLM(
       memory_mapped_file_->data(),
-      std::min(kLitertLmHeaderMaxSize, memory_mapped_file_->length()), &header,
-      &major_version, &minor_version, &patch_version);
+      std::min(kLitertLmHeaderMaxSize, memory_mapped_file_->length()), &header);
   ABSL_LOG(INFO) << "status: " << status;
-  ABSL_LOG(INFO) << "major_version: " << major_version;
-  ABSL_LOG(INFO) << "minor_version: " << minor_version;
-  ABSL_LOG(INFO) << "patch_version: " << patch_version;
+  ABSL_LOG(INFO) << "major_version: " << header.major_version;
+  ABSL_LOG(INFO) << "minor_version: " << header.minor_version;
+  ABSL_LOG(INFO) << "patch_version: " << header.patch_version;
 
   if (!status.ok()) {
     return status;

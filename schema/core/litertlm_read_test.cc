@@ -25,10 +25,8 @@ TEST(LiteRTLMReadTest, HeaderReadFile) {
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   LitertlmHeader header;
-  int major_version, minor_version, patch_version;
 
-  absl::Status status = ReadHeaderFromLiteRTLM(
-      input_filename, &header, &major_version, &minor_version, &patch_version);
+  absl::Status status = ReadHeaderFromLiteRTLM(input_filename, &header);
 
   ASSERT_TRUE(status.ok());
   const LiteRTLMMetaData* metadata = header.metadata;
@@ -45,13 +43,10 @@ TEST(LiteRTLMReadTest, HeaderReadIstream) {
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   LitertlmHeader header;
-  int major_version, minor_version, patch_version;
 
   std::ifstream input_file_stream(input_filename, std::ios::binary);
   ASSERT_TRUE(input_file_stream.is_open());
-  absl::Status status =
-      ReadHeaderFromLiteRTLM(input_file_stream, &header, &major_version,
-                             &minor_version, &patch_version);
+  absl::Status status = ReadHeaderFromLiteRTLM(input_file_stream, &header);
   ASSERT_TRUE(status.ok());
   const LiteRTLMMetaData* metadata = header.metadata;
   auto system_metadata = metadata->system_metadata();

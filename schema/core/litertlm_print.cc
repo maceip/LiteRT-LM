@@ -89,18 +89,16 @@ void PrintKeyValuePair(const KeyValuePair* kvp, std::ostream& output_stream,
 absl::Status ProcessLiteRTLMFile(const std::string& litertlm_file,
                                  std::ostream& output_stream) {
   LitertlmHeader header;
-  int major_version, minor_version, patch_version;
-
-  absl::Status status = ReadHeaderFromLiteRTLM(
-      litertlm_file, &header, &major_version, &minor_version, &patch_version);
+  absl::Status status = ReadHeaderFromLiteRTLM(litertlm_file, &header);
 
   if (!status.ok()) {
     return status;
   }
 
   // Print version information
-  output_stream << "LiteRT-LM Version: " << major_version << "."
-                << minor_version << "." << patch_version << "\n\n";
+  output_stream << "LiteRT-LM Version: " << header.major_version << "."
+                << header.minor_version << "." << header.patch_version
+                << "\n\n";
 
   if (header.metadata == nullptr) {
     ABSL_LOG(ERROR) << "header metadata is null ";

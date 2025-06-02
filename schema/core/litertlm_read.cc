@@ -17,7 +17,7 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
-#include "runtime/util/status_macros.h"  //NOLINT
+#include "runtime/util/status_macros.h" // NOLINT
 #include "schema/core/litertlm_header.h"
 #include "schema/core/litertlm_header_schema_generated.h"
 #include "schema/core/litertlm_utils.h"
@@ -31,8 +31,7 @@ namespace schema {
 using litert::lm::proto::LlmMetadata;
 
 absl::Status ReadHeaderFromLiteRTLM(std::istream& litertlm_stream,
-                                    LitertlmHeader* header, int* major_version,
-                                    int* minor_version, int* patch_version) {
+                                    LitertlmHeader* header) {
   // 0. Read magic number and version.
   char magic_number[8];
   litertlm_stream.read(magic_number, 8);
@@ -56,17 +55,17 @@ absl::Status ReadHeaderFromLiteRTLM(std::istream& litertlm_stream,
   }
 
   // Store the version as ints.
-  *major_version = static_cast<int>(major_version_u8);
-  *minor_version = static_cast<int>(minor_version_u8);
-  *patch_version = static_cast<int>(patch_version_u8);
+  header->major_version = static_cast<int>(major_version_u8);
+  header->minor_version = static_cast<int>(minor_version_u8);
+  header->patch_version = static_cast<int>(patch_version_u8);
 
   // If major version doesn't match our current major version,
   // bail out for now
-  if (*major_version != LITERTLM_MAJOR_VERSION) {
+  if (header->major_version != LITERTLM_MAJOR_VERSION) {
     return absl::UnimplementedError(
         absl::StrFormat("Unimplemented Error: This reader doesn't support "
                         "version %d, expected version %d.",
-                        *major_version, LITERTLM_MAJOR_VERSION));
+                        header->major_version, LITERTLM_MAJOR_VERSION));
   }
 
   // 1. Skip 5 bytes of padding.
@@ -118,32 +117,28 @@ absl::Status ReadHeaderFromLiteRTLM(std::istream& litertlm_stream,
 
 // The public function that takes a file path.
 absl::Status ReadHeaderFromLiteRTLM(const std::string& litertlm_path,
-                                    LitertlmHeader* header, int* major_version,
-                                    int* minor_version, int* patch_version) {
+                                    LitertlmHeader* header) {
   std::ifstream input_file_stream(litertlm_path, std::ios::binary);
   if (!input_file_stream.is_open()) {
     return absl::InternalError(
         absl::StrFormat("Could not open file: %s", litertlm_path));
   }
 
-  absl::Status status = ReadHeaderFromLiteRTLM(
-      input_file_stream, header, major_version, minor_version, patch_version);
+  absl::Status status = ReadHeaderFromLiteRTLM(input_file_stream, header);
 
   return status;
 }
 
 // The public function that takes a pointer and a length.
 absl::Status ReadHeaderFromLiteRTLM(void* data, std::size_t length,
-                                    LitertlmHeader* header, int* major_version,
-                                    int* minor_version, int* patch_version) {
+                                    LitertlmHeader* header) {
   char* char_data = static_cast<char*>(data);
   // Create a streambuf instance based on the given buffer info.
   MemoryStreamBuf sbuf(char_data, length);
   // Create an istream using the custom streambuf.
   std::istream input_stream(&sbuf);
 
-  absl::Status status = ReadHeaderFromLiteRTLM(
-      input_stream, header, major_version, minor_version, patch_version);
+  absl::Status status = ReadHeaderFromLiteRTLM(input_stream, header);
   // Cleanup of the streambuf and istream is automatic upon exit.
   return status;
 }
@@ -156,11 +151,9 @@ absl::Status ReadValueTFromSection(
         read_section_into_t,
     Args&&... additional_args) {
   LitertlmHeader header;
-  int major_version, minor_version, patch_version;
 
   // Read the header information.
-  RETURN_IF_ERROR(ReadHeaderFromLiteRTLM(
-      litertlm_path, &header, &major_version, &minor_version, &patch_version));
+  RETURN_IF_ERROR(ReadHeaderFromLiteRTLM(litertlm_path, &header)); // NOLINT
 
   auto sections = header.metadata->section_metadata()->objects();
   // Check if the section_idx is valid.
@@ -342,11 +335,9 @@ absl::Status ReadAnyT(
         read_data_from_section,
     Args&&... additional_args) {
   LitertlmHeader header;
-  int major_version, minor_version, patch_version;
 
   // Read the header information.
-  RETURN_IF_ERROR(ReadHeaderFromLiteRTLM(
-      litertlm_path, &header, &major_version, &minor_version, &patch_version));
+  RETURN_IF_ERROR(ReadHeaderFromLiteRTLM(litertlm_path, &header)); // NOLINT
 
   // Search for the first section with the specified type.
   auto sections = header.metadata->section_metadata()->objects();

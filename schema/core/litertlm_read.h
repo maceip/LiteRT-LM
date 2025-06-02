@@ -26,6 +26,9 @@ using litert::lm::proto::LlmMetadata;
 struct LitertlmHeader {
   std::unique_ptr<uint8_t[]> buffer;
   const LiteRTLMMetaData* metadata;
+  int major_version = -1;
+  int minor_version = -1;
+  int patch_version = -1;
 
   // Default constructor
   LitertlmHeader() : buffer(nullptr), metadata(nullptr) {}
@@ -71,16 +74,12 @@ struct LitertlmHeader {
 //   length: The number of bytes that it is valid to read from starting at
 //           `data`
 //   header: The LitertlmHeader struct with populated schema data.
-//   major_version: The major version of the LiteRTLM file.
-//   minor_version: The minor version of the LiteRTLM file.
-//   patch_version: The patch version of the LiteRTLM file.
 //
 // Returns:
 //   absl::OkStatus() if the file was read successfully, or an error status
 //   otherwise.
 absl::Status ReadHeaderFromLiteRTLM(void* data, size_t length,
-                                    LitertlmHeader* header, int* major_version,
-                                    int* minor_version, int* patch_version);
+                                    LitertlmHeader* header);
 
 // Reads the LiteRTLM file from the given path and populates a header
 // data structure (allocating and owning data for the header).
@@ -88,16 +87,12 @@ absl::Status ReadHeaderFromLiteRTLM(void* data, size_t length,
 // Args:
 //   litertlm_path: The path to the LiteRTLM file.
 //   header: The LitertlmHeader struct with populated schema data.
-//   major_version: The major version of the LiteRTLM file.
-//   minor_version: The minor version of the LiteRTLM file.
-//   patch_version: The patch version of the LiteRTLM file.
 //
 // Returns:
 //   absl::OkStatus() if the file was read successfully, or an error status
 //   otherwise.
 absl::Status ReadHeaderFromLiteRTLM(const std::string& litertlm_path,
-                                    LitertlmHeader* header, int* major_version,
-                                    int* minor_version, int* patch_version);
+                                    LitertlmHeader* header);
 
 // Reads the LiteRTLM file from the given istream and populates a header
 // data structure (allocating and owning data for the header).
@@ -105,16 +100,12 @@ absl::Status ReadHeaderFromLiteRTLM(const std::string& litertlm_path,
 // Args:
 //   litertlm_stream: The input stream to the LiteRTLM file.
 //   header: The LitertlmHeader struct with populated schema data.
-//   major_version: The major version of the LiteRTLM file.
-//   minor_version: The minor version of the LiteRTLM file.
-//   patch_version: The patch version of the LiteRTLM file.
 //
 // Returns:
 //   absl::OkStatus() if the file was read successfully, or an error status
 //   otherwise.
 absl::Status ReadHeaderFromLiteRTLM(std::istream& litertlm_stream,
-                                    LitertlmHeader* header, int* major_version,
-                                    int* minor_version, int* patch_version);
+                                    LitertlmHeader* header);
 
 
 // Read a TF Lite from the specified section in the LiteRT-LM file.
