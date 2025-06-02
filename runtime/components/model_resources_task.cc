@@ -52,9 +52,6 @@ ModelResourcesTask::GetTFLiteModel(ModelType model_type) {
   auto buffer = model_asset_bundle_resources_->GetFile(model_file);
   ABSL_LOG(INFO) << "litert model size: " << buffer->size();
   auto buffer_ref = BufferRef<uint8_t>(buffer->data(), buffer->size());
-  // TODO: b/413214239 - This factory function copies the contents of
-  // `buffer_ref`. Ideally we'd create a `Model` backed by a view of mapped
-  // memory.
   LITERT_ASSIGN_OR_RETURN(auto model, Model::CreateFromBuffer(buffer_ref));
   model_ = std::make_shared<Model>(std::move(model));
   return model_;

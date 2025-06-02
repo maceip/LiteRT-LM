@@ -47,9 +47,6 @@ ModelResourcesLitertLm::GetTFLiteModel(ModelType model_type) {
   litert::BufferRef<uint8_t> buffer_ref =
       litert_lm_loader_->GetTFLiteModel(model_type);
   ABSL_LOG(INFO) << "litert model size: " << buffer_ref.Size();
-  // TODO: b/413214239 - This factory function copies the contents of
-  // `buffer_ref`. Ideally we'd create a `Model` backed by a view of mapped
-  // memory.
   LITERT_ASSIGN_OR_RETURN(auto model, Model::CreateFromBuffer(buffer_ref));
   model_ = std::make_shared<litert::Model>(std::move(model));
   return model_;

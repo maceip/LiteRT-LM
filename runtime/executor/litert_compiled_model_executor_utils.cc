@@ -185,9 +185,6 @@ BuildModelResourcesFromTaskFormat(std::shared_ptr<ScopedFile> model_file) {
                    resources->GetFile(kPrefilDecodeModelNameInTaskBundle));
   litert::BufferRef<uint8_t> buffer_ref(buffer.data(), buffer.size());
 
-  // TODO: b/413214239 - This factory function copies the contents of
-  // `buffer_ref`. Ideally we'd create a `Model` backed by a view of mapped
-  // memory.
   Expected<Model> litert_model = Model::CreateFromBuffer(buffer_ref);
   RET_CHECK(litert_model) << "Failed to build "  // NOLINT
                           << kPrefilDecodeModelNameInTaskBundle << " model.";
