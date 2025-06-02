@@ -76,19 +76,19 @@ ABSL_FLAG(std::string, section_metadata, "",
 
 namespace {
 
-using ::litert::litertlm::schema::AnySectionDataType;
-using ::litert::litertlm::schema::AnySectionDataType_GenericBinaryData;
-using ::litert::litertlm::schema::AnySectionDataType_LlmMetadataProto;
-using ::litert::litertlm::schema::AnySectionDataType_SP_Tokenizer;
-using ::litert::litertlm::schema::AnySectionDataType_TFLiteModel;
-using ::litert::litertlm::schema::CreateKeyValuePair;
-using ::litert::litertlm::schema::CreateStringValue;
-using ::litert::litertlm::schema::FileBackedSectionStream;
-using ::litert::litertlm::schema::KVPair;
-using ::litert::litertlm::schema::MakeLiteRTLMFromSections;
-using ::litert::litertlm::schema::ProtoBufSectionStream;
-using ::litert::litertlm::schema::SectionStreamBase;
 using ::litert::lm::proto::LlmMetadata;
+using ::litert::lm::schema::AnySectionDataType;
+using ::litert::lm::schema::AnySectionDataType_GenericBinaryData;
+using ::litert::lm::schema::AnySectionDataType_LlmMetadataProto;
+using ::litert::lm::schema::AnySectionDataType_SP_Tokenizer;
+using ::litert::lm::schema::AnySectionDataType_TFLiteModel;
+using ::litert::lm::schema::CreateKeyValuePair;
+using ::litert::lm::schema::CreateStringValue;
+using ::litert::lm::schema::FileBackedSectionStream;
+using ::litert::lm::schema::KVPair;
+using ::litert::lm::schema::MakeLiteRTLMFromSections;
+using ::litert::lm::schema::ProtoBufSectionStream;
+using ::litert::lm::schema::SectionStreamBase;
 
 // Helper function to parse a single key-value pair.
 absl::Status ParseKeyValuePair(absl::string_view kv_str, std::string& key,

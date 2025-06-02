@@ -21,7 +21,7 @@ ABSL_FLAG(std::string, litertlm_file, "",
 
 namespace {
 
-using litert::litertlm::schema::ProcessLiteRTLMFile;
+using litert::lm::schema::ProcessLiteRTLMFile;
 
 absl::Status MainHelper(int argc, char** argv) {
   InitGoogle(argv[0], &argc, &argv, false);

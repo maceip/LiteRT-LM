@@ -38,21 +38,21 @@ namespace litert::lm {
 // Each buffer is keyed by the data type as the major key and the model type
 // as the optional secondary key when the data type is TFLITE_MODEL_DATA.
 struct BufferKey {
-  litertlm::schema::AnySectionDataType data_type;
+  schema::AnySectionDataType data_type;
   std::optional<ModelType> model_type;  // This can be nullopt for data types
                                         // other than TFLITE_MODEL_DATA!
 
   // Constructor for common cases (no ModelType needed)
-  explicit BufferKey(litertlm::schema::AnySectionDataType type)
+  explicit BufferKey(schema::AnySectionDataType type)
       : data_type(type), model_type(std::nullopt) {}
 
   // Constructor for TFLITE_MODEL_DATA case
-  explicit BufferKey(litertlm::schema::AnySectionDataType type,
+  explicit BufferKey(schema::AnySectionDataType type,
                      ModelType model_type)
       : data_type(type), model_type(model_type) {
     // Optional: Add an assertion here if 'type' MUST be TFLITE_MODEL_DATA for
     // model_t to be set
-    ABSL_CHECK(type == litertlm::schema::AnySectionDataType_TFLiteModel &&
+    ABSL_CHECK(type == schema::AnySectionDataType_TFLiteModel &&
                "ModelType should only be provided for TFLITE_MODEL_DATA");
   }
 
@@ -65,7 +65,7 @@ struct BufferKey {
 // Hash function for BufferKey
 struct BufferKeyHash {
   size_t operator()(const BufferKey& k) const {
-    size_t h1 = std::hash<litertlm::schema::AnySectionDataType>{}(k.data_type);
+    size_t h1 = std::hash<schema::AnySectionDataType>{}(k.data_type);
     size_t h2 = 0;
     if (k.model_type.has_value()) {
       h2 = std::hash<ModelType>{}(k.model_type.value());
@@ -89,19 +89,19 @@ class LitertLmLoader {
   // Returns the tokenizer section buffer.
   litert::BufferRef<uint8_t> GetTokenizer() {
     return section_buffers_[BufferKey(
-        litertlm::schema::AnySectionDataType_SP_Tokenizer)];
+        schema::AnySectionDataType_SP_Tokenizer)];
   }
 
   // Returns the TFLite model section buffer.
   litert::BufferRef<uint8_t> GetTFLiteModel(ModelType model_type) {
     return section_buffers_[BufferKey(
-        litertlm::schema::AnySectionDataType_TFLiteModel, model_type)];
+        schema::AnySectionDataType_TFLiteModel, model_type)];
   };
 
   // Returns the tokenizer section buffer.
   litert::BufferRef<uint8_t> GetLlmMetadata() {
     return section_buffers_[BufferKey(
-        litertlm::schema::AnySectionDataType_LlmMetadataProto)];
+        schema::AnySectionDataType_LlmMetadataProto)];
   }
 
  private:

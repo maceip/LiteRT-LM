@@ -14,7 +14,7 @@
 #include "schema/core/litertlm_header_schema_generated.h"
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 namespace {
 
@@ -182,5 +182,5 @@ TEST(LitertlmHeaderTest, RoundTripHeader) {
 
 }  // namespace
 }  // namespace schema
-}  // namespace litertlm
+}  // namespace lm
 }  // namespace litert

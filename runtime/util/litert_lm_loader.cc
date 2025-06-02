@@ -55,7 +55,7 @@ constexpr uint64_t kLitertLmHeaderMaxSize = 16 * 1024;
 }  // namespace
 
 absl::Status LitertLmLoader::MapSections() {
-  litertlm::schema::LitertlmHeader header;
+  schema::LitertlmHeader header;
   int major_version, minor_version, patch_version;
 
   // Read the header information.
@@ -75,12 +75,12 @@ absl::Status LitertLmLoader::MapSections() {
   // Loop through the sections and map them to the section buffers.
   auto sections = header.metadata->section_metadata()->objects();
   for (size_t i = 0; i < sections->size(); ++i) {
-    const litertlm::schema::SectionObject* section = sections->Get(i);
+    const schema::SectionObject* section = sections->Get(i);
     auto items = section->items();
     BufferKey buffer_key(section->data_type());
     // Extract the specific model type from the section items KeyValuePairs.
     if (section->data_type() ==
-        litertlm::schema::AnySectionDataType_TFLiteModel) {
+        schema::AnySectionDataType_TFLiteModel) {
       bool found_model_type = false;
       std::string model_type;
       for (size_t j = 0; j < items->size(); ++j) {

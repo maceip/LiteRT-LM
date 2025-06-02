@@ -8,7 +8,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 namespace {
 
@@ -31,5 +31,5 @@ TEST(LiteRTLMPrintTest, ProcessLiteRTLMFileTest) {
 
 }  // namespace
 }  // namespace schema
-}  // namespace litertlm
+}  // namespace lm
 }  // namespace litert

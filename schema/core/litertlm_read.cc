@@ -24,7 +24,7 @@
 #include "sentencepiece_processor.h"  // from @sentencepiece
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 
 using litert::lm::proto::LlmMetadata;
@@ -148,5 +148,5 @@ absl::Status ReadHeaderFromLiteRTLM(void* data, std::size_t length,
 }
 
 }  // namespace schema
-}  // namespace litertlm
+}  // namespace lm
 }  // namespace litert

@@ -16,7 +16,7 @@
 
 namespace litert {
 
-namespace litertlm {
+namespace lm {
 
 namespace schema {
 
@@ -115,7 +115,7 @@ absl::Status ReadHeaderFromLiteRTLM(std::istream& litertlm_stream,
                                     LitertlmHeader* header, int* major_version,
                                     int* minor_version, int* patch_version);
 }  // end namespace schema
-}  // end namespace litertlm
+}  // end namespace lm
 }  // end namespace litert
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_SCHEMA_CORE_LITERTLM_READ_H_

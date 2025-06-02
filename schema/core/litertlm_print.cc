@@ -10,7 +10,7 @@
 #include "schema/core/litertlm_utils.h"
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 
 // --- ANSI Escape Code Definitions ---
@@ -169,5 +169,5 @@ absl::Status ProcessLiteRTLMFile(const std::string& litertlm_file,
 }
 
 }  // namespace schema
-}  // namespace litertlm
+}  // namespace lm
 }  // namespace litert

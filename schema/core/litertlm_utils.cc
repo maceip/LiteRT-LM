@@ -5,7 +5,7 @@
 #include "schema/core/litertlm_header_schema_generated.h"
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 
 std::string AnySectionDataTypeToString(AnySectionDataType value) {
@@ -29,5 +29,5 @@ std::string AnySectionDataTypeToString(AnySectionDataType value) {
 }
 
 }  // namespace schema
-}  // namespace litertlm
+}  // namespace lm
 }  // namespace litert

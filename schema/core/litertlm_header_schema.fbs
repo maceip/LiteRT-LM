@@ -17,7 +17,7 @@
 // The metadata includes information about the system that the LiteRTLM file
 // was generated for, as well as information about the sections of the file.
 
-namespace litert.litertlm.schema;
+namespace litert.lm.schema;
 
 // Structs for primitive types
 struct UInt8 { value: ubyte; }

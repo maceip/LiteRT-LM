@@ -97,8 +97,8 @@ absl::Status MainHelper(int argc, char** argv) {
     ABSL_LOG(INFO) << ca;
   }
 
-  return ::litert::litertlm::schema::LitertLmWrite(
-      command_args, section_metadata_str, output_path);
+  return ::litert::lm::schema::LitertLmWrite(command_args, section_metadata_str,
+                                             output_path);
 }
 
 }  // namespace

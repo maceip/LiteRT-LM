@@ -16,7 +16,7 @@
 
 namespace litert {
 
-namespace litertlm {
+namespace lm {
 
 namespace schema {
 
@@ -44,7 +44,7 @@ absl::Status MakeLiteRTLMFromSections(
     const std::string& out_path);
 
 }  // end namespace schema
-}  // end namespace litertlm
+}  // end namespace lm
 }  // end namespace litert
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_SCHEMA_CORE_LITERTLM_EXPORT_H_

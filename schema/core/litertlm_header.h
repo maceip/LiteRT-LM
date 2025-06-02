@@ -10,7 +10,7 @@
 
 namespace litert {
 
-namespace litertlm {
+namespace lm {
 
 namespace schema {
 
@@ -118,7 +118,7 @@ inline KVPair CreateKeyValuePair(
 }
 
 }  // end namespace schema
-}  // end namespace litertlm
+}  // end namespace lm
 }  // end namespace litert
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_SCHEMA_CORE_LITERTLM_HEADER_H_

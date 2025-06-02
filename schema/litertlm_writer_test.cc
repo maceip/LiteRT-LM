@@ -20,7 +20,7 @@
 #include "google/protobuf/text_format.h"  // from @com_google_protobuf  // For TextFormat::PrintToString
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 namespace {
 
@@ -333,5 +333,5 @@ TEST_F(LiteRTLMWriteTest, MetadataCountMismatchTest) {
 
 }  // namespace
 }  // namespace schema
-}  // namespace litertlm
+}  // namespace lm
 }  // namespace litert

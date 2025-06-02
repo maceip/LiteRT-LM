@@ -13,7 +13,7 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 
 // Abstract base class for section streams
@@ -229,7 +229,7 @@ class ProtoBufSectionStream : public SectionStreamBase {
 };
 
 }  // end namespace schema
-}  // end namespace litertlm
+}  // end namespace lm
 }  // end namespace litert
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_SCHEMA_CORE_LITERTLM_SECTION_H

@@ -15,7 +15,7 @@
 #include "tensorflow/lite/model_builder.h"  // from @org_tensorflow
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 namespace {
 
@@ -88,7 +88,7 @@ TEST(LiteRTLMReadTest, TFLiteRead) {
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::unique_ptr<tflite::FlatBufferModel> model;
-  std::unique_ptr<lm::MemoryMappedFile> mapped_file;
+  std::unique_ptr<MemoryMappedFile> mapped_file;
   absl::Status result =
       ReadTFLiteFromSection(input_filename, 1, &model, &mapped_file);
   ASSERT_TRUE(result.ok());
@@ -113,7 +113,7 @@ TEST(LiteRTLMReadTest, TFLiteReadAny) {
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::unique_ptr<tflite::FlatBufferModel> tflite_model;
-  std::unique_ptr<lm::MemoryMappedFile> mapped_file;
+  std::unique_ptr<MemoryMappedFile> mapped_file;
   absl::Status result =
       ReadAnyTFLite(input_filename, &tflite_model, &mapped_file);
   ASSERT_TRUE(result.ok());
@@ -125,7 +125,7 @@ TEST(LiteRTLMReadTest, TFLiteRead_InvalidSection) {
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::unique_ptr<tflite::FlatBufferModel> tflite_model;
-  std::unique_ptr<lm::MemoryMappedFile> mapped_file;
+  std::unique_ptr<MemoryMappedFile> mapped_file;
   absl::Status result =
       ReadTFLiteFromSection(input_filename, 0, &tflite_model, &mapped_file);
   ASSERT_FALSE(result.ok());
@@ -134,5 +134,5 @@ TEST(LiteRTLMReadTest, TFLiteRead_InvalidSection) {
 
 }  // namespace
 }  // namespace schema
-}  // namespace litertlm
+}  // namespace lm
 }  // namespace litert

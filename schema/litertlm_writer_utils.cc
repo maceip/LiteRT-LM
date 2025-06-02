@@ -25,7 +25,7 @@
 #include "schema/core/litertlm_section.h"
 #include "google/protobuf/text_format.h"  // from @com_google_protobuf
 
-namespace litert::litertlm::schema {
+namespace litert::lm::schema {
 
 // Section names used in the section_metadata flag.
 constexpr char kTokenizerSectionName[] = "tokenizer";
@@ -245,4 +245,4 @@ absl::Status LitertLmWrite(const std::vector<std::string>& command_args,
                                   section_items_list, output_path);
 }
 
-}  // namespace litert::litertlm::schema
+}  // namespace litert::lm::schema

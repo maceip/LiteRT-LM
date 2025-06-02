@@ -14,7 +14,7 @@
 #include "runtime/proto/llm_metadata.pb.h"
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 namespace {
 
@@ -138,5 +138,5 @@ TEST(LiteRTLMSectionTest, TestProtoSectionStream) {
 
 }  // namespace
 }  // namespace schema
-}  // namespace litertlm
+}  // namespace lm
 }  // namespace litert

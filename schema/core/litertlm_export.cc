@@ -22,7 +22,7 @@
 #include "runtime/util/status_macros.h" //NOLINT
 
 namespace litert {
-namespace litertlm {
+namespace lm {
 namespace schema {
 
 constexpr int kHeaderBeginByteOffset = 32;
@@ -180,5 +180,5 @@ absl::Status MakeLiteRTLMFromSections(
 }
 
 }  // namespace schema
-}  // namespace litertlm
+}  // namespace lm
 }  // namespace litert
