@@ -7,12 +7,14 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/cc/litert_compiled_model.h"  // from @litert
+#include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/embedding_lookup.h"
@@ -86,13 +88,20 @@ class EmbeddingLookupText : public EmbeddingLookup {
   }
 
  protected:
+  EmbeddingLookupText(litert::Environment env, litert::Model model)
+      : env_(std::move(env)), model_(std::move(model)) {}
+
   // Loads the provided model. This must be called before Lookup.
-  absl::Status Initialize(litert::Model& model);
+  absl::Status Initialize();
 
   // Internal implementation of Lookup for both the single and multiple token
   // cases.
   absl::Status LookupInternal(int token, absl::Span<uint8_t> buffer);
 
+  // The environment for the embedding lookup.
+  litert::Environment env_;
+  // The model for the embedding lookup.
+  litert::Model model_;
   // The compiled model for the embedding model.
   std::optional<litert::CompiledModel> compiled_model_;
 

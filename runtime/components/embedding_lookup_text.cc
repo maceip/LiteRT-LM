@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "absl/status/status.h"  // from @com_google_absl
@@ -226,22 +227,22 @@ absl::Status EmbeddingLookupText::LookupPrefill(absl::Span<const int> tokens,
 
 absl::StatusOr<std::unique_ptr<EmbeddingLookupText>>
 EmbeddingLookupText::Create(litert::Model& model) {
-  auto handler = std::make_unique<EmbeddingLookupText>();
-  RETURN_IF_ERROR(handler->Initialize(model));
+  LITERT_ASSIGN_OR_RETURN(auto env, ::litert::Environment::Create({}));
+  auto handler = std::unique_ptr<EmbeddingLookupText>(
+      new EmbeddingLookupText(std::move(env), std::move(model)));
+  RETURN_IF_ERROR(handler->Initialize());
   return handler;
 }
 
-absl::Status EmbeddingLookupText::Initialize(litert::Model& model) {
-  LITERT_ASSIGN_OR_RETURN(auto lrt_env, ::litert::Environment::Create({}));
+absl::Status EmbeddingLookupText::Initialize() {
   LITERT_ASSIGN_OR_RETURN(auto options, Options::Create());
   options.SetHardwareAccelerators(kLiteRtHwAcceleratorCpu);
 
-  LITERT_ASSIGN_OR_RETURN(
-      compiled_model_, litert::CompiledModel::Create(lrt_env, model, options));
+  LITERT_ASSIGN_OR_RETURN(compiled_model_,
+                          litert::CompiledModel::Create(env_, model_, options));
 
-  LITERT_ASSIGN_OR_RETURN(auto signatures, model.GetSignatures());
+  LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
 
-  // TODO test case?
   if (signatures.size() != 1) {
     return absl::InvalidArgumentError(absl::StrCat(
         "The Embedding model must have exactly one signature but got ",

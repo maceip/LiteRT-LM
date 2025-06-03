@@ -29,6 +29,7 @@
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/embedding_lookup_text.h"
 #include "runtime/components/sampler.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
@@ -99,7 +100,9 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
           output_kv_cache_buffers,
       SortedPrefillSignatureMap prefill_signature_map,
-      ModelSignatures signatures, int batch_size, std::string weight_cache_path)
+      ModelSignatures signatures, int batch_size, std::string weight_cache_path,
+      std::unique_ptr<EmbeddingLookupText> embedding_lookup = nullptr,
+      std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup = nullptr)
       : env_(std::move(env)),
         model_(std::move(model)),
         compiled_model_(std::move(compiled_model)),
@@ -114,7 +117,10 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
         prefill_signature_map_(std::move(prefill_signature_map)),
         signatures_(signatures),
         output_batch_size_(batch_size),
-        weight_cache_path_(weight_cache_path) {}
+        weight_cache_path_(weight_cache_path),
+        embedding_lookup_(std::move(embedding_lookup)),
+        per_layer_embedding_lookup_(
+            std::move(per_layer_embedding_lookup)) {}
 
  private:
   // Samples output logits on CPU and get tokens.
@@ -188,6 +194,11 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   // The path to the weight cache directory. Executor will take the ownership of
   // this path to maintain the path lifecycle.
   std::string weight_cache_path_;
+
+  // The embedding lookup for the optional embedder model.
+  std::unique_ptr<EmbeddingLookupText> embedding_lookup_;
+  // The embedding lookup for the optional per layer embedder model.
+  std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup_;
 };
 
 }  // namespace litert::lm
