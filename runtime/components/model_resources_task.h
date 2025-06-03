@@ -46,7 +46,7 @@ class ModelResourcesTask : public ModelResources {
       : model_asset_bundle_resources_(std::move(model_asset_bundle_resources)) {
   }
 
-  std::shared_ptr<litert::Model> model_;
+  std::unordered_map<ModelType, std::shared_ptr<litert::Model>> model_map_;
   std::shared_ptr<SentencePieceTokenizer> tokenizer_;
   std::shared_ptr<proto::LlmMetadata> llm_metadata_;
 

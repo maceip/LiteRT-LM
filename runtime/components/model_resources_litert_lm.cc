@@ -41,15 +41,16 @@ absl::StatusOr<std::unique_ptr<ModelResources>> ModelResourcesLitertLm::Create(
 
 absl::StatusOr<std::shared_ptr<litert::Model>>
 ModelResourcesLitertLm::GetTFLiteModel(ModelType model_type) {
-  if (model_ != nullptr) {
-    return model_;
+  if (model_map_.find(model_type) != model_map_.end()) {
+    return model_map_[model_type];
   }
   litert::BufferRef<uint8_t> buffer_ref =
       litert_lm_loader_->GetTFLiteModel(model_type);
+  ABSL_LOG(INFO) << "model_type: " << ModelTypeToString(model_type);
   ABSL_LOG(INFO) << "litert model size: " << buffer_ref.Size();
   LITERT_ASSIGN_OR_RETURN(auto model, Model::CreateFromBuffer(buffer_ref));
-  model_ = std::make_shared<litert::Model>(std::move(model));
-  return model_;
+  model_map_[model_type] = std::make_shared<litert::Model>(std::move(model));
+  return model_map_[model_type];
 }
 
 absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>>

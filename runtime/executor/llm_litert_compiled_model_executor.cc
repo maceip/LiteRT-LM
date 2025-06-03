@@ -784,30 +784,22 @@ LlmLiteRtCompiledModelExecutor::Create(
                        /*input_positions_name=*/signatures.input_positions));
   RET_CHECK(!prefill_runner_set.empty()) << "No prefill runner available.";
 
-  // TODO: b/413793273 - Remove the hardcoded paths once the model files are
-  // available in the model assets.
-  // To use push the models to the device:
-  // adb push <model_path> /data/local/tmp/embedder.tflite
-  // adb push <model_path> /data/local/tmp/per_layer_embedder.tflite
-  // And set the paths to "/data/local/tmp/embedder.tflite" and
-  // "/data/local/tmp/per_layer_embedder.tflite"
+  // Create embedding lookups from the resources.
   std::unique_ptr<EmbeddingLookupText> embedding_lookup;
-  std::string embedder_path = "";
-  if (!embedder_path.empty()) {
-    LITERT_ASSIGN_OR_RETURN(auto embedder_model,
-                            Model::CreateFromFile(embedder_path));
-    ASSIGN_OR_RETURN(embedding_lookup,
-                     EmbeddingLookupText::Create(embedder_model));
+  auto embedder_model = resources->GetTFLiteModel(ModelType::kTfLiteEmbedder);
+  if (embedder_model.ok()) {
+    ASSIGN_OR_RETURN(embedding_lookup,  // NOLINT
+                     EmbeddingLookupText::Create(*embedder_model.value()));
   }
 
+  // Create per layer embedding lookups from the resources.
   std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup;
-  std::string per_layer_embedder_path = "";
-  if (!per_layer_embedder_path.empty()) {
-    LITERT_ASSIGN_OR_RETURN(
-        auto per_layer_embedder_model,
-        Model::CreateFromFile(per_layer_embedder_path));
-    ASSIGN_OR_RETURN(per_layer_embedding_lookup,
-                     EmbeddingLookupText::Create(per_layer_embedder_model));
+  auto per_layer_embedder_model =
+      resources->GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder);
+  if (per_layer_embedder_model.ok()) {
+    ASSIGN_OR_RETURN(  // NOLINT
+        per_layer_embedding_lookup,
+        EmbeddingLookupText::Create(*per_layer_embedder_model.value()));
   }
 
   return absl::WrapUnique(new LlmLiteRtCompiledModelExecutor(

@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_MODEL_RESOURCES_LITERT_LM_H_
 
 #include <memory>
+#include <unordered_map>
 #include <utility>
 
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -46,7 +47,7 @@ class ModelResourcesLitertLm : public ModelResources {
       std::unique_ptr<LitertLmLoader> litert_lm_loader)
       : litert_lm_loader_(std::move(litert_lm_loader)) {}
 
-  std::shared_ptr<litert::Model> model_;
+  std::unordered_map<ModelType, std::shared_ptr<litert::Model>> model_map_;
   std::shared_ptr<SentencePieceTokenizer> tokenizer_;
   std::shared_ptr<proto::LlmMetadata> llm_metadata_;
   // The litert lm loader, used to mmap the tokenizer and tflite model etc from

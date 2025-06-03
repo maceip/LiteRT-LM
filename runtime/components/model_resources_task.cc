@@ -21,7 +21,9 @@
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
@@ -34,6 +36,9 @@
 
 namespace litert::lm {
 
+using ::litert::BufferRef;
+using ::litert::Model;
+
 // static
 absl::StatusOr<std::unique_ptr<ModelResources>> ModelResourcesTask::Create(
     std::unique_ptr<ModelAssetBundleResources> model_asset_bundle_resources) {
@@ -45,16 +50,21 @@ absl::StatusOr<std::unique_ptr<ModelResources>> ModelResourcesTask::Create(
 
 absl::StatusOr<std::shared_ptr<litert::Model>>
 ModelResourcesTask::GetTFLiteModel(ModelType model_type) {
-  if (model_ != nullptr) {
-    return model_;
+  if (model_map_.find(model_type) != model_map_.end()) {
+    return model_map_[model_type];
   }
   std::string model_file = litert::lm::ModelTypeToString(model_type);
   auto buffer = model_asset_bundle_resources_->GetFile(model_file);
+  if (!buffer.ok()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Failed to get model file: ", model_file,
+                     "for model type: ", model_type));
+  }
   ABSL_LOG(INFO) << "litert model size: " << buffer->size();
   auto buffer_ref = BufferRef<uint8_t>(buffer->data(), buffer->size());
   LITERT_ASSIGN_OR_RETURN(auto model, Model::CreateFromBuffer(buffer_ref));
-  model_ = std::make_shared<Model>(std::move(model));
-  return model_;
+  model_map_[model_type] = std::make_shared<Model>(std::move(model));
+  return model_map_[model_type];
 }
 
 absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>>
