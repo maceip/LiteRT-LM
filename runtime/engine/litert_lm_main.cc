@@ -141,18 +141,11 @@ absl::Status MainHelper(int argc, char** argv) {
   }
 
   if (absl::GetFlag(FLAGS_report_peak_memory_footprint)) {
-#if defined(_WIN32)
-    PROCESS_MEMORY_COUNTERS pmc;
-    ABSL_CHECK(
-        ::GetProcessMemoryInfo(::GetCurrentProcess(), &pmc, sizeof(pmc)));
-    float peak_mem_mb = pmc.PeakWorkingSetSize / (1024.f * 1024);
-#else
     float peak_mem_mb = 0.0f;
     if (mem_monitor != nullptr) {
       mem_monitor->Stop();
       peak_mem_mb = mem_monitor->GetPeakMemUsageInMB();
     }
-#endif
     ABSL_LOG(INFO) << "Peak system ram usage: " << peak_mem_mb << "MB.";
   }
   return absl::OkStatus();

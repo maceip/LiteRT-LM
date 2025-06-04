@@ -315,9 +315,11 @@ build:macos --host_cxxopt=-std=c++20
 build:windows --cxxopt=/std:c++20
 build:windows --host_cxxopt=/std:c++20
 
-# On Windows, set /std:c11 explicitly
+# On Windows, set /std:c11 and /experimental:c11atomics for pthreadpool.
 build:windows --conlyopt=/std:c11
 build:windows --host_conlyopt=/std:c11
+build:windows --conlyopt=/experimental:c11atomics
+build:windows --host_conlyopt=/experimental:c11atomics
 
 # On windows, we still link everything into a single DLL.
 build:windows --config=monolithic
