@@ -154,21 +154,21 @@ class EngineImpl : public Engine {
 
       std::filesystem::path path(model_path);
       ABSL_CHECK(std::filesystem::exists(path));
-      const std::string embedder_path =
+      auto embedder_path =
           std::filesystem::path(model_path).parent_path() /
           std::string(kEmbedderName);
       ABSL_CHECK(std::filesystem::exists(embedder_path));
-      const std::string auxiliary_path =
+      auto auxiliary_path =
           std::filesystem::path(model_path).parent_path() /
           std::string(kAuxiliaryModelName);
       ABSL_CHECK(std::filesystem::exists(auxiliary_path));
-      const std::string vocab_path =
+      auto vocab_path =
           std::filesystem::path(model_path).parent_path() /
           std::string(kVocabName);
 
       ABSL_CHECK(std::filesystem::exists(vocab_path));
-      auto tokenizer_or =
-          litert::lm::SentencePieceTokenizer::CreateFromFile(vocab_path);
+      auto tokenizer_or = litert::lm::SentencePieceTokenizer::CreateFromFile(
+          vocab_path.string());
       ABSL_CHECK_OK(tokenizer_or);
       tokenizer_ = std::move(tokenizer_or.value());
       // Update and load the parameters from the model file and convert the
@@ -177,8 +177,8 @@ class EngineImpl : public Engine {
           engine_settings_.MaybeUpdateAndValidate(tokenizer_, nullptr));
 
       auto executor_or = odml::infra::LlmLiteRtNpuCompiledModelExecutor::Create(
-          kAllQuantized, model_path, embedder_path, auxiliary_path,
-          std::string(path.parent_path()));
+          kAllQuantized, model_path, embedder_path.string(),
+          auxiliary_path.string(), path.parent_path().string());
       ABSL_CHECK_OK(executor_or);
       executor_ = std::move(executor_or.value());
       if (benchmark_info_.has_value()) {

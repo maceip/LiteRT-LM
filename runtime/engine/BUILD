@@ -73,6 +73,7 @@ cc_binary(
         # Export LiteRt* symbols for LiteRt accelerator shlibs.
         "@platforms//os:macos": ["-Wl,-exported_symbol,_LiteRt*"],
         "@platforms//os:ios": ["-Wl,-exported_symbol,_LiteRt*"],
+        "@platforms//os:windows": [],
         "//conditions:default": ["-Wl,--export-dynamic-symbol=LiteRt*"],
     }) + select({
         "@platforms//os:android": ["-lEGL", "-lGLESv3"],
