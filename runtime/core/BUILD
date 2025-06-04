@@ -149,7 +149,6 @@ cc_library(
         "//runtime/engine:engine_settings",
         "//runtime/engine:io_types",
         "//runtime/executor:llm_executor",
-        "//runtime/executor:llm_executor_settings",
         "//runtime/framework:threadpool",
         "//runtime/proto:sampler_params_cc_proto",
         "//runtime/util:convert_tensor_buffer",

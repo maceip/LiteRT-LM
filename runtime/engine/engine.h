@@ -27,6 +27,38 @@
 
 namespace litert::lm {
 
+// Engine is the interface for the LLM runtime. It is responsible for
+// - Initializing the LLM model and related resources, e.g. tokenizer,
+//   embedder, etc.
+// - Providing the APIs to create the Session.
+//
+// The Session is responsible for hosting the internal state (e.g. conversation
+// history) of each separate interaction with LLM. It is created by the Engine
+// and is responsible for:
+// - Generating content from the input prompt/query.
+// - Running the prefill and decode processes.
+//
+// Example usage:
+//   // Create the model assets.
+//   auto model_assets = ModelAssets::Create(model_path);
+//   CHECK_OK(model_assets);
+//
+//   // Create the engine.
+//   auto engine = Engine::CreateEngine(EngineSettings::CreateDefault(
+//       model_assets, litert::lm::Backend::CPU));
+//   CHECK_OK(engine);
+//
+//   // Create the session.
+//   auto session = engine->CreateSession(SessionConfig::CreateDefault());
+//   CHECK_OK(session);
+//
+//   // Run generate content.
+//   auto responses = (*session)->GenerateContent({InputText("What's the tallest
+//   building in the world?")});
+//   CHECK_OK(responses);
+//
+//   // Print the response.
+//   std::cout << *responses << std::endl;
 class Engine {
  public:
   virtual ~Engine() = default;
@@ -36,6 +68,16 @@ class Engine {
   class Session {
    public:
     virtual ~Session() = default;
+
+    // High-level API to generate content from the input prompt/query. This
+    // function will handle the prefill and decode processes internally and
+    // the usage is similar to the Gemini Text Generation API
+    // (https://ai.google.dev/gemini-api/docs/text-generation).
+    virtual absl::StatusOr<Responses> GenerateContent(
+        const std::vector<InputData>& contents) = 0;
+    virtual absl::Status GenerateContentStream(
+        const std::vector<InputData>& contents,
+        InferenceObservable* observer) = 0;
 
     // Adds the input prompt/query to the model for starting the prefilling
     // process. Note that the user can break down their prompt/query into

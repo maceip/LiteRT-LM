@@ -56,6 +56,12 @@ class SessionBasic : public Engine::Session {
 
   virtual ~SessionBasic() = default;
 
+  absl::StatusOr<Responses> GenerateContent(
+      const std::vector<InputData>& contents) override;
+  absl::Status GenerateContentStream(
+      const std::vector<InputData>& contents,
+      InferenceObservable* observer) override;
+
   absl::Status RunPrefill(const std::vector<InputData>& contents) override;
   absl::Status RunPrefillAsync(const std::vector<InputData>& contents,
                                InferenceObservable* observer) override;

@@ -20,7 +20,6 @@
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/llm_executor.h"
-#include "runtime/executor/llm_executor_settings.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/convert_tensor_buffer.h"
@@ -150,6 +149,18 @@ absl::Status SessionBasic::RunDecodeAsync(InferenceObservable* observer) {
   return worker_thread_pool_.Schedule([this, observer]() {
     this->DecodeInternalStreaming(observer).IgnoreError();
   });
+}
+
+absl::StatusOr<Responses> SessionBasic::GenerateContent(
+    const std::vector<InputData>& contents) {
+  RETURN_IF_ERROR(RunPrefill(contents));
+  return RunDecode();
+}
+
+absl::Status SessionBasic::GenerateContentStream(
+    const std::vector<InputData>& contents, InferenceObservable* observer) {
+  RETURN_IF_ERROR(RunPrefillAsync(contents, observer));
+  return RunDecodeAsync(observer);
 }
 
 absl::StatusOr<BenchmarkInfo> SessionBasic::GetBenchmarkInfo() {

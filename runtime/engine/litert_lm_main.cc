@@ -123,15 +123,12 @@ absl::Status MainHelper(int argc, char** argv) {
   const std::string input_prompt = absl::GetFlag(FLAGS_input_prompt);
   if (absl::GetFlag(FLAGS_async)) {
     InferenceObservable observable;
-    absl::Status status =
-        (*session)->RunPrefillAsync({InputText(input_prompt)}, &observable);
-    ABSL_CHECK_OK(status);
-    status = (*session)->RunDecodeAsync(&observable);
+    absl::Status status = (*session)->GenerateContentStream(
+        {InputText(input_prompt)}, &observable);
     ABSL_CHECK_OK(status);
     ABSL_CHECK_OK((*llm)->WaitUntilDone(kWaitUntilDoneTimeout));
   } else {
-    absl::Status status = (*session)->RunPrefill({InputText(input_prompt)});
-    auto responses = (*session)->RunDecode();
+    auto responses = (*session)->GenerateContent({InputText(input_prompt)});
     ABSL_CHECK_OK(responses);
     ABSL_LOG(INFO) << "Responses: " << *responses;
   }
