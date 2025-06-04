@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   presubmit:
-    name: "Presubmit"
+    name: "Presubmit-Mac"
     runs-on: macos-latest
     steps:
       - name: Checkout code
