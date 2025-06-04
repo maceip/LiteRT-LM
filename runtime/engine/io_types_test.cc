@@ -23,6 +23,16 @@ std::string FloatToString(float val) {
   return oss.str();
 }
 
+TEST(InputTextTest, GetText) {
+  InputText input_text("Hello World!");
+  EXPECT_EQ(input_text.GetData(), "Hello World!");
+}
+
+TEST(InputTextTest, ToString) {
+  InputData input_data = InputText("Hello World!");
+  EXPECT_EQ(ToString(input_data), "Hello World!");
+}
+
 TEST(ResponsesTest, GetResponseTextAt) {
   Responses responses(/*num_output_candidates=*/2);
   responses.GetMutableResponseTexts()[0] = "Hello World!";

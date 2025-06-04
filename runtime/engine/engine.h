@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_H_
 
 #include <memory>
+#include <vector>
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -42,11 +43,11 @@ class Engine {
     //
     // This is a blocking call and the function will return when the prefill
     // process is done.
-    virtual absl::Status RunPrefill(absl::string_view input) = 0;
+    virtual absl::Status RunPrefill(const std::vector<InputData>& contents) = 0;
 
     // This is a not blocking call and the function will return right away. The
     // processing status will be signaled through the observer.
-    virtual absl::Status RunPrefillAsync(absl::string_view input,
+    virtual absl::Status RunPrefillAsync(const std::vector<InputData>& contents,
                                          InferenceObservable* observer) {
       return absl::UnimplementedError("Not implemented.");
     }

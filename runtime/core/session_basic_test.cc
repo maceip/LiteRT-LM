@@ -68,7 +68,7 @@ TEST_F(SessionBasicTest, RunPrefill) {
   auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
                                       /*benchmark_info=*/std::nullopt,
                                       worker_thread_pool_.get());
-  EXPECT_OK((*session)->RunPrefill("Hello World!"));
+  EXPECT_OK((*session)->RunPrefill({InputText("Hello World!")}));
 }
 
 TEST_F(SessionBasicTest, RunDecode) {
@@ -78,7 +78,7 @@ TEST_F(SessionBasicTest, RunDecode) {
   session_config.GetMutableStopTokenIds() = stop_token_ids;
   auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
                                       std::nullopt, worker_thread_pool_.get());
-  EXPECT_OK((*session)->RunPrefill("Hello World!"));
+  EXPECT_OK((*session)->RunPrefill({InputText("Hello World!")}));
   auto responses = (*session)->RunDecode();
   EXPECT_OK(responses);
   EXPECT_EQ(responses->GetNumOutputCandidates(), 1);
@@ -103,7 +103,8 @@ TEST_F(SessionBasicTest, RunPrefillAsync) {
   auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
                                       std::nullopt, worker_thread_pool_.get());
   TestObserver observer;
-  EXPECT_OK((*session)->RunPrefillAsync("Hello World!", &observer));
+  EXPECT_OK(
+      (*session)->RunPrefillAsync({InputText("Hello World!")}, &observer));
   // Wait for the async call to finish.
   EXPECT_OK(worker_thread_pool_->WaitUntilDone(absl::Seconds(100)));
   EXPECT_TRUE(observer.IsDone());
@@ -117,7 +118,8 @@ TEST_F(SessionBasicTest, RunDecodeAsync) {
   auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
                                       std::nullopt, worker_thread_pool_.get());
   TestObserver observer;
-  EXPECT_OK((*session)->RunPrefillAsync("Hello World!", &observer));
+  EXPECT_OK(
+      (*session)->RunPrefillAsync({InputText("Hello World!")}, &observer));
   EXPECT_OK((*session)->RunDecodeAsync(&observer));
   EXPECT_OK(worker_thread_pool_->WaitUntilDone(absl::Seconds(100)));
   EXPECT_TRUE(observer.IsDone());

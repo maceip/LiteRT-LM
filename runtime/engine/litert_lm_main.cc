@@ -66,6 +66,7 @@ namespace {
 using ::litert::lm::Backend;
 using ::litert::lm::EngineSettings;
 using ::litert::lm::InferenceObservable;
+using ::litert::lm::InputText;
 using ::litert::lm::LlmExecutorSettings;
 using ::litert::lm::ModelAssets;
 
@@ -123,13 +124,13 @@ absl::Status MainHelper(int argc, char** argv) {
   if (absl::GetFlag(FLAGS_async)) {
     InferenceObservable observable;
     absl::Status status =
-        (*session)->RunPrefillAsync(input_prompt, &observable);
+        (*session)->RunPrefillAsync({InputText(input_prompt)}, &observable);
     ABSL_CHECK_OK(status);
     status = (*session)->RunDecodeAsync(&observable);
     ABSL_CHECK_OK(status);
     ABSL_CHECK_OK((*llm)->WaitUntilDone(kWaitUntilDoneTimeout));
   } else {
-    absl::Status status = (*session)->RunPrefill(input_prompt);
+    absl::Status status = (*session)->RunPrefill({InputText(input_prompt)});
     auto responses = (*session)->RunDecode();
     ABSL_CHECK_OK(responses);
     ABSL_LOG(INFO) << "Responses: " << *responses;

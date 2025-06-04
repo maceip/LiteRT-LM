@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
@@ -55,8 +56,8 @@ class SessionBasic : public Engine::Session {
 
   virtual ~SessionBasic() = default;
 
-  absl::Status RunPrefill(absl::string_view input) override;
-  absl::Status RunPrefillAsync(absl::string_view input,
+  absl::Status RunPrefill(const std::vector<InputData>& contents) override;
+  absl::Status RunPrefillAsync(const std::vector<InputData>& contents,
                                InferenceObservable* observer) override;
 
   absl::StatusOr<Responses> RunDecode() override;

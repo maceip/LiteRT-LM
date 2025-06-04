@@ -22,6 +22,8 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
+#include "runtime/engine/io_types.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/test_utils.h"  // NOLINT
@@ -48,7 +50,7 @@ TEST(EngineTest, CreateEngine) {
       (*llm)->CreateSession(SessionConfig::CreateDefault());
   ABSL_CHECK_OK(session);
 
-  absl::Status status = (*session)->RunPrefill("Hello world!");
+  absl::Status status = (*session)->RunPrefill({InputText("Hello world!")});
   ABSL_CHECK_OK(status);
 
   auto responses = (*session)->RunDecode();

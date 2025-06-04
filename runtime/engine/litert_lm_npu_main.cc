@@ -20,6 +20,7 @@
 #include "runtime/components/tokenizer.h"
 #include "runtime/core/session_basic.h"
 #include "runtime/engine/engine_settings.h"
+#include "runtime/engine/io_types.h"
 #include "runtime/executor/llm_litert_npu_compiled_model_executor.h"
 #include "runtime/framework/thread_options.h"
 #include "runtime/framework/threadpool.h"
@@ -39,14 +40,13 @@ ABSL_FLAG(int, num_runs, 1, "Number of times to run the benchmark.");
 
 using odml::infra::LlmLiteRtNpuCompiledModelExecutor;
 
+using litert::lm::InputText;
 using litert::lm::ThreadOptions;
 using litert::lm::ThreadPool;
 using odml::infra::LlmLiteRtNpuCompiledModelExecutor::ModelQuantization::
     kAllQuantized;
 using odml::infra::LlmLiteRtNpuCompiledModelExecutor::ModelQuantization::
     kTransformerStackOnlyQuantized;
-using litert::lm::ThreadPool;
-using litert::lm::ThreadOptions;
 
 odml::infra::LlmLiteRtNpuCompiledModelExecutor::ModelQuantization
 GetQuantizationSchema() {
@@ -290,7 +290,7 @@ RunStats CreateAndRun(const std::string& prompt) {
   // Run the session.
   ABSL_LOG(INFO) << "Prompt: " << prompt;
   start = absl::Now();
-  auto status = (*session)->RunPrefill(prompt);
+  auto status = (*session)->RunPrefill({InputText(prompt)});
   end = absl::Now();
   ABSL_LOG(INFO) << "RunPrefill took " << absl::ToInt64Microseconds(end - start)
                  << " us";

@@ -17,8 +17,10 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <ostream>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "absl/status/status.h"  // from @com_google_absl
@@ -28,6 +30,25 @@
 #include "runtime/proto/engine.pb.h"
 
 namespace litert::lm {
+
+// A container to host the input text.
+class InputText {
+ public:
+  explicit InputText(absl::string_view text) : text_(text) {}
+
+  // Returns the input text.
+  absl::string_view GetData() const { return text_; }
+
+ private:
+  std::string text_;
+};
+
+// A container to host the input data. Will be extended to support more input
+// types in the future.
+using InputData = std::variant<InputText>;
+// Converts the input data to a string. It returns nullopt if the input data
+// is not an InputText.
+std::optional<std::string> ToString(const InputData& input_data);
 
 // A container to host the model responses.
 class Responses {

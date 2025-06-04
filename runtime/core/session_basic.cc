@@ -61,31 +61,41 @@ absl::Status SessionBasic::PrefillInternal(absl::string_view input,
   return absl::OkStatus();
 }
 
-absl::Status SessionBasic::RunPrefill(absl::string_view input) {
-  ABSL_LOG(INFO) << "RunPrefillSync: " << input;
+absl::Status SessionBasic::RunPrefill(const std::vector<InputData>& contents) {
+  if (contents.empty()) {
+    return absl::InvalidArgumentError("Input is empty.");
+  }
   absl::Status status;
-  RETURN_IF_ERROR(worker_thread_pool_.Schedule(
-      [this, input_copy = std::string(input), &status]() {
-        status =
-            this->PrefillInternal(input_copy, /*wait_for_completion=*/true);
-      }));
+  for (const auto& input : contents) {
+    RETURN_IF_ERROR(worker_thread_pool_.Schedule(
+        [this, input_copy = ToString(input).value(), &status]() {
+          status =
+              this->PrefillInternal(input_copy, /*wait_for_completion=*/true);
+        }));
+  }
   RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
   return status;
 }
 
-absl::Status SessionBasic::RunPrefillAsync(absl::string_view input,
-                                           InferenceObservable* observer) {
-  return worker_thread_pool_.Schedule(
-      [this, input_copy = std::string(input), observer]() {
-        absl::Status status =
-            this->PrefillInternal(input_copy, /*wait_for_completion=*/false);
-        ABSL_LOG(INFO) << "RunPrefillAsync status: " << status;
-        if (status.ok()) {
-          observer->OnDone();
-        } else {
-          observer->OnError(status);
-        }
-      });
+absl::Status SessionBasic::RunPrefillAsync(
+    const std::vector<InputData>& contents, InferenceObservable* observer) {
+  if (contents.empty()) {
+    return absl::InvalidArgumentError("Input is empty.");
+  }
+  for (const auto& input : contents) {
+    RETURN_IF_ERROR(worker_thread_pool_.Schedule(
+        [this, input_copy = ToString(input).value(), observer]() {
+          absl::Status status =
+              this->PrefillInternal(input_copy, /*wait_for_completion=*/false);
+          ABSL_LOG(INFO) << "RunPrefillAsync status: " << status;
+          if (status.ok()) {
+            observer->OnDone();
+          } else {
+            observer->OnError(status);
+          }
+        }));
+  }
+  return absl::OkStatus();
 }
 
 absl::StatusOr<Responses> SessionBasic::DecodeInternal() {

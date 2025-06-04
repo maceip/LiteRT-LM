@@ -7,8 +7,10 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <optional>
 #include <ostream>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "absl/status/status.h"  // from @com_google_absl
@@ -19,6 +21,13 @@
 #include "absl/time/time.h"  // from @com_google_absl
 
 namespace litert::lm {
+
+std::optional<std::string> ToString(const InputData& input_data) {
+  if (const auto* input_text = std::get_if<InputText>(&input_data)) {
+    return std::string(input_text->GetData());
+  }
+  return std::nullopt;
+}
 
 // A container to host the model responses.
 Responses::Responses(int num_output_candidates)
