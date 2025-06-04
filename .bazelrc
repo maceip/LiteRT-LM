@@ -323,7 +323,6 @@ build:windows --python_path="C:/Program Files/Python311/python.exe"
 # On Windows, set /std:c11 and /experimental:c11atomics for pthreadpool.
 build:windows --conlyopt=/std:c11
 build:windows --host_conlyopt=/std:c11
-build:windows --copt=/experimental:c11atomics
 build:windows --conlyopt=/experimental:c11atomics
 build:windows --host_conlyopt=/experimental:c11atomics
 build:windows --per_file_copt=external/pthreadpool/.*@-std=c11
