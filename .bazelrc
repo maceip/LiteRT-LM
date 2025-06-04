@@ -315,11 +315,19 @@ build:macos --host_cxxopt=-std=c++20
 build:windows --cxxopt=/std:c++20
 build:windows --host_cxxopt=/std:c++20
 
+# TensorFlow configuration for Windows build
+build:windows --repo_env=HERMETIC_PYTHON_VERSION=3.11
+build:windows --action_env=PYTHON_BIN_PATH="C:/Program Files/Python311/python.exe"
+build:windows --python_path="C:/Program Files/Python311/python.exe"
+
 # On Windows, set /std:c11 and /experimental:c11atomics for pthreadpool.
 build:windows --conlyopt=/std:c11
 build:windows --host_conlyopt=/std:c11
+build:windows --copt=/experimental:c11atomics
 build:windows --conlyopt=/experimental:c11atomics
 build:windows --host_conlyopt=/experimental:c11atomics
+build:windows --per_file_copt=external/pthreadpool/.*@-std=c11
+build:windows --per_file_copt=external/pthreadpool/_*@/D_CRT_SECURE_NO_WARNINGS
 
 # On windows, we still link everything into a single DLL.
 build:windows --config=monolithic
@@ -345,6 +353,14 @@ build:windows --linkopt=/OPT:REF
 build:windows --host_linkopt=/OPT:REF
 build:windows --linkopt=/OPT:ICF
 build:windows --host_linkopt=/OPT:ICF
+
+# Force local execution for genrules on Windows
+build:windows --strategy=Genrule=local
+build:windows -genrule_strategy=local
+build:windows --spawn_strategy=local
+
+# Use Git Bash for genrules
+build:windows --shell_executable="C:/Program Files/Git/bin/bash.exe"
 
 # Verbose failure logs when something goes wrong
 build:windows --verbose_failures
