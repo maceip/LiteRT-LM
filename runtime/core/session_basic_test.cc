@@ -65,6 +65,7 @@ TEST_F(SessionBasicTest, RunPrefill) {
   SessionConfig session_config = SessionConfig::CreateDefault();
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetStartTokenId(2);
   auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
                                       /*benchmark_info=*/std::nullopt,
                                       worker_thread_pool_.get());
@@ -76,6 +77,7 @@ TEST_F(SessionBasicTest, RunDecode) {
   SessionConfig session_config = SessionConfig::CreateDefault();
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetStartTokenId(2);
   auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
                                       std::nullopt, worker_thread_pool_.get());
   EXPECT_OK((*session)->RunPrefill({InputText("Hello World!")}));
@@ -99,6 +101,7 @@ TEST_F(SessionBasicTest, RunPrefillAsync) {
   const std::vector<std::vector<int>> stop_token_ids = {{2294}};
   SessionConfig session_config = SessionConfig::CreateDefault();
   session_config.GetMutableSamplerParams() = sampler_params_;
+  session_config.SetStartTokenId(2);
   session_config.GetMutableStopTokenIds() = stop_token_ids;
   auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
                                       std::nullopt, worker_thread_pool_.get());

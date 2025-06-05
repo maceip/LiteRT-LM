@@ -137,6 +137,11 @@ class SessionConfig {
   Backend GetSamplerBackend() const;
   void SetSamplerBackend(Backend sampler_backend);
 
+  // Prompt templates:
+  // Getters for the prompt templates.
+  const proto::PromptTemplates& GetPromptTemplates() const;
+  proto::PromptTemplates& GetMutablePromptTemplates();
+
  private:
   // Private constructor for the SessionConfig. The user should use the
   // CreateDefault() method to create a SessionConfig.
@@ -153,6 +158,10 @@ class SessionConfig {
 
   // Start token id for the session.
   int start_token_id_;
+
+  // Prompt templates for the session. This is loaded from the model assets (if
+  // present).
+  proto::PromptTemplates prompt_templates_;
 
   // The number of output candidates to generate. Default value is 1 and setting
   // it to a value greater than 1 will require the model to support batching.

@@ -227,6 +227,11 @@ absl::Status SessionConfig::MaybeUpdateAndValidate(
         }
       }
     }
+
+    // Set the prompt template.
+    if (llm_metadata.has_prompt_templates()) {
+      prompt_templates_ = llm_metadata.prompt_templates();
+    }
   }
 
   // Validating the required fields are set correctly.
@@ -285,6 +290,14 @@ void SessionConfig::SetNumOutputCandidates(int num_output_candidates) {
   num_output_candidates_ = num_output_candidates;
 }
 
+const proto::PromptTemplates& SessionConfig::GetPromptTemplates() const {
+  return prompt_templates_;
+}
+
+proto::PromptTemplates& SessionConfig::GetMutablePromptTemplates() {
+  return prompt_templates_;
+}
+
 std::ostream& operator<<(std::ostream& os, const SessionConfig& config) {
   os << "SessionConfig: " << std::endl;
   os << "  SamplerParams: " << config.GetSamplerParams().DebugString()
@@ -295,6 +308,8 @@ std::ostream& operator<<(std::ostream& os, const SessionConfig& config) {
     os << "    " << stop_token_ids << std::endl;
   }
   os << "  NumOutputCandidates: " << config.GetNumOutputCandidates()
+     << std::endl;
+  os << "  PromptTemplates: " << config.GetPromptTemplates().DebugString()
      << std::endl;
   return os;
 }

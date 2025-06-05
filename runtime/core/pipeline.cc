@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_replace.h"  // from @com_google_absl
@@ -37,7 +38,7 @@
 #include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/litert_status_util.h"
-#include "runtime/util/status_macros.h"
+#include "runtime/util/status_macros.h"  //NOLINT
 
 namespace litert::lm {
 namespace {
@@ -194,6 +195,7 @@ absl::StatusOr<int> Prefill(std::shared_ptr<LlmExecutor> executor,
                             absl::string_view prompt, int bos_token_id,
                             bool wait_for_completion,
                             std::optional<BenchmarkInfo>& benchmark_info) {
+  ABSL_LOG(INFO) << "Prefill: " << prompt << " bos_token_id: " << bos_token_id;
   int benchmark_prefill_token_count = 0;
   if (benchmark_info.has_value()) {
     benchmark_prefill_token_count =

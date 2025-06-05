@@ -67,8 +67,15 @@ absl::Status SessionBasic::PrefillInternal(absl::string_view input,
                                            bool wait_for_completion) {
   // TODO(b/397975034): Consider to utilize a prompt formatting logic in a
   // separate library/class.
+  // Update the input with prompt formatting.
+  std::string formatted_input =
+      absl::StrCat(session_config_.GetPromptTemplates().user().prefix(), input,
+                   session_config_.GetPromptTemplates().user().suffix(),
+                   session_config_.GetPromptTemplates().model().prefix());
+
   ASSIGN_OR_RETURN(last_prefill_token_id_,
-                   Prefill(executor_, tokenizer_, input, /*bos_token_id=*/2,
+                   Prefill(executor_, tokenizer_, formatted_input,
+                           session_config_.GetStartTokenId(),
                            wait_for_completion, benchmark_info_));
   return absl::OkStatus();
 }
