@@ -38,7 +38,8 @@ adb shell /data/local/tmp/litert_lm_main \
     --model_path=<model .litertlm or .task file>
 ```
 
-To run on GPU, `libLiteRtGpuAccelerator.so` is required.
+To run on GPU, `libLiteRtGpuAccelerator.so` and `libLiteRtTopKOpenClSampler.so`
+are required.
 
 ```
 adb push prebuilt/android_arm64/*.so /data/local/tmp
