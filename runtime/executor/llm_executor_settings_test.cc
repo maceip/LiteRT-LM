@@ -23,6 +23,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
@@ -262,11 +263,11 @@ TEST(GetWeightCacheFileTest, ModelPathAndSuffix) {
 }
 
 TEST(GetWeightCacheFileTest, PreferScopedCacheFileToCacheDir) {
-  const std::string cache_path =
+  const auto cache_path =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/runtime/testdata/test_lm.cache";
 
-  ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path));
+  ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path.string()));
   auto shared_cache_file = std::make_shared<ScopedFile>(std::move(cache_file));
 
   auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
@@ -282,15 +283,15 @@ TEST(GetWeightCacheFileTest, PreferScopedCacheFileToCacheDir) {
 }
 
 TEST(GetWeightCacheFileTest, PreferScopedCacheFileToScopedModelFile) {
-  const std::string model_path =
+  const auto model_path =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/runtime/testdata/test_lm.litertlm";
-  const std::string cache_path =
+  const auto cache_path =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/runtime/testdata/test_lm.cache";
 
-  ASSERT_OK_AND_ASSIGN(auto model_file, ScopedFile::Open(model_path));
-  ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path));
+  ASSERT_OK_AND_ASSIGN(auto model_file, ScopedFile::Open(model_path.string()));
+  ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path.string()));
   auto shared_cache_file = std::make_shared<ScopedFile>(std::move(cache_file));
 
   auto model_assets =
@@ -317,11 +318,11 @@ TEST(GetWeightCacheFileTest, EmptyModelPath) {
 }
 
 TEST(GetWeightCacheFileTest, CacheDisabled) {
-  const std::string cache_path =
+  const auto cache_path =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/runtime/testdata/test_lm.cache";
 
-  ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path));
+  ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path.string()));
 
   auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
   ASSERT_OK(model_assets);

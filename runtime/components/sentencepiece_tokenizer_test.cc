@@ -1,7 +1,6 @@
 #include "runtime/components/sentencepiece_tokenizer.h"
 
 #include <fcntl.h>
-#include <unistd.h>
 
 #include <cstdint>
 #include <cstdio>

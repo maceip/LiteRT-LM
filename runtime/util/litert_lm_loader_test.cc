@@ -15,7 +15,6 @@
 #include "runtime/util/litert_lm_loader.h"
 
 #include <filesystem>  // NOLINT: Required for path manipulation.
-#include <string>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -27,10 +26,10 @@ namespace litert::lm {
 namespace {
 
 TEST(LitertLmLoaderTest, InitializeWithValidFile) {
-  const std::string model_path =
+  const auto model_path =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/runtime/testdata/test_lm.litertlm";
-  auto model_file = ScopedFile::Open(model_path);
+  auto model_file = ScopedFile::Open(model_path.string());
   ASSERT_TRUE(model_file.ok());
   LitertLmLoader loader(std::move(model_file.value()));
   ASSERT_GT(loader.GetTokenizer().Size(), 0);

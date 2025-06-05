@@ -29,7 +29,7 @@ TEST(LiteRTLMSectionTest, TestFileBackedSectionStream) {
   EXPECT_TRUE(output_file.is_open());
 
   // Create the file-backed Section stream object
-  FileBackedSectionStream fbss(file_path);
+  FileBackedSectionStream fbss(file_path.string());
   absl::Status result = fbss.Prepare();
   ASSERT_TRUE(result.ok());
 

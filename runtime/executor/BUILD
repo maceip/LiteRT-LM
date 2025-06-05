@@ -295,6 +295,7 @@ cc_test(
     srcs = ["llm_executor_settings_test.cc"],
     data = ["//runtime/testdata"],
     deps = [
+        ":executor_settings_base",
         ":llm_executor_settings",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",

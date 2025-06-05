@@ -13,12 +13,12 @@ namespace schema {
 namespace {
 
 TEST(LiteRTLMPrintTest, ProcessLiteRTLMFileTest) {
-  const std::string input_filename =
+  const auto input_filename =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::stringstream output_ss;
-  absl::Status result = ProcessLiteRTLMFile(input_filename, output_ss);
+  absl::Status result = ProcessLiteRTLMFile(input_filename.string(), output_ss);
   ASSERT_TRUE(result.ok());
   ASSERT_GT(output_ss.str().size(), 0);
   ASSERT_NE(output_ss.str().find("AnySectionDataType_TFLiteModel"),

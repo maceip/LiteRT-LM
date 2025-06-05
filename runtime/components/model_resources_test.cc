@@ -40,10 +40,10 @@ using ::litert::lm::ScopedFile;
 using ::litert::lm::StringToModelType;
 
 TEST(ModelResourcesTest, InitializeWithValidLitertLmLoader) {
-  const std::string model_path =
+  const auto model_path =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/runtime/testdata/test_lm.litertlm";
-  auto model_file = ScopedFile::Open(model_path);
+  auto model_file = ScopedFile::Open(model_path.string());
   ASSERT_TRUE(model_file.ok());
   LitertLmLoader loader(std::move(model_file.value()));
   ASSERT_GT(loader.GetTokenizer().Size(), 0);
@@ -64,10 +64,10 @@ TEST(ModelResourcesTest, InitializeWithValidLitertLmLoader) {
 }
 
 TEST(ModelResourcesTest, InitializeWithValidModelAssetBundleResources) {
-  const std::string model_path =
+  const auto model_path =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/runtime/testdata/test_lm.task";
-  auto model_file = ScopedFile::Open(model_path);
+  auto model_file = ScopedFile::Open(model_path.string());
   ASSERT_TRUE(model_file.ok());
   auto model_asset_bundle_resources =
       ModelAssetBundleResources::Create("tag", std::move(model_file.value()));

@@ -1,6 +1,4 @@
-#include <cerrno>
 #include <cstdint>
-#include <cstring>
 #include <filesystem>  // NOLINT: Required for path manipulation.
 #include <fstream>
 #include <ios>
@@ -10,10 +8,7 @@
 
 #include <gmock/gmock.h>  // For matchers like HasSubstr
 #include <gtest/gtest.h>
-#include "absl/log/absl_check.h"  // from @com_google_absl
-#include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
-#include "absl/status/statusor.h"  // from @com_google_absl
 #include "runtime/proto/llm_metadata.pb.h"  // For LlmMetadata
 #include "schema/core/litertlm_print.h"
 #include "schema/litertlm_writer_utils.h"
@@ -27,37 +22,8 @@ namespace {
 // Test fixture for LiteRTLMWrite tests, managing temporary resources.
 class LiteRTLMWriteTest : public ::testing::Test {
  protected:
-  std::string
-      temp_dir_path_;  // Path to the unique temporary directory for the test.
-
-  void SetUp() override {
-    // Create a unique temporary directory using mkdtemp.
-    // mkdtemp requires a C-style string template ending in XXXXXX.
-    std::string temp_dir_template_str = "/tmp/litertlm_write_test_XXXXXX";
-
-    // mkdtemp modifies the template string, so we need a writable buffer.
-    std::vector<char> temp_dir_template_vec(temp_dir_template_str.begin(),
-                                            temp_dir_template_str.end());
-    temp_dir_template_vec.push_back('\0');  // Null-terminate
-    char* temp_dir_c_str = temp_dir_template_vec.data();
-    char* created_temp_dir_name = mkdtemp(temp_dir_c_str);
-
-    if (created_temp_dir_name == nullptr) {
-      FAIL() << "Failed to create temporary directory using mkdtemp. Template "
-                "was: "
-             << temp_dir_template_str << ". Error: " << strerror(errno);
-    }
-    temp_dir_path_ = created_temp_dir_name;
-    ABSL_LOG(INFO) << "Temporary directory created: " << temp_dir_path_;
-  }
-
-  void TearDown() override {
-    // Clean up the temporary directory and its contents using std::filesystem.
-    ASSERT_TRUE(std::filesystem::exists(temp_dir_path_))
-        << "Dir does not exist: " << temp_dir_path_;
-    ASSERT_TRUE(std::filesystem::remove_all(temp_dir_path_))
-        << "Unable to remove temp dir: " << temp_dir_path_;
-  }
+  // Path to the unique temporary directory for the test.
+  std::string temp_dir_path_ = ::testing::TempDir();
 
   void VerifyFile(const std::string& file_path) {
     // Check if the file exists.

@@ -20,13 +20,14 @@ namespace schema {
 namespace {
 
 TEST(LiteRTLMReadTest, HeaderReadFile) {
-  const std::string input_filename =
+  const auto input_filename =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   LitertlmHeader header;
 
-  absl::Status status = ReadHeaderFromLiteRTLM(input_filename, &header);
+  absl::Status status =
+      ReadHeaderFromLiteRTLM(input_filename.string(), &header);
 
   ASSERT_TRUE(status.ok());
   const LiteRTLMMetaData* metadata = header.metadata;
@@ -38,7 +39,7 @@ TEST(LiteRTLMReadTest, HeaderReadFile) {
 }
 
 TEST(LiteRTLMReadTest, HeaderReadIstream) {
-  const std::string input_filename =
+  const auto input_filename =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
@@ -57,72 +58,75 @@ TEST(LiteRTLMReadTest, HeaderReadIstream) {
 }
 
 TEST(LiteRTLMReadTest, TokenizerRead) {
-  const std::string input_filename =
+  const auto input_filename =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   sentencepiece::SentencePieceProcessor sp_proc;
-  absl::Status result = ReadSPTokenizerFromSection(input_filename, 0, &sp_proc);
+  absl::Status result =
+      ReadSPTokenizerFromSection(input_filename.string(), 0, &sp_proc);
   ASSERT_TRUE(result.ok());
 }
 
 TEST(LiteRTLMReadTest, LlmMetadataRead) {
   using litert::lm::proto::LlmMetadata;
-  const std::string input_filename =
+  const auto input_filename =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   LlmMetadata params;
-  absl::Status result = ReadLlmMetadataFromSection(input_filename, 2, &params);
+  absl::Status result =
+      ReadLlmMetadataFromSection(input_filename.string(), 2, &params);
   ASSERT_TRUE(result.ok());
 }
 
 TEST(LiteRTLMReadTest, TFLiteRead) {
-  const std::string input_filename =
+  const auto input_filename =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::unique_ptr<tflite::FlatBufferModel> model;
   std::unique_ptr<MemoryMappedFile> mapped_file;
-  absl::Status result =
-      ReadTFLiteFileFromSection(input_filename, 1, &model, &mapped_file);
+  absl::Status result = ReadTFLiteFileFromSection(
+      input_filename.string(), 1, &model, &mapped_file);
   ASSERT_TRUE(result.ok());
   // Verify that buffer backing TFLite is still valid and reading data works.
   ASSERT_EQ(model->GetModel()->subgraphs()->size(), 1);
 }
 
 TEST(LiteRTLMReadTest, TFLiteReadBinaryData) {
-  const std::string input_filename =
+  const auto input_filename =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::string data;
-  absl::Status result = ReadBinaryDataFromSection(input_filename, 3, &data);
+  absl::Status result =
+      ReadBinaryDataFromSection(input_filename.string(), 3, &data);
   ASSERT_TRUE(result.ok());
   EXPECT_EQ(data, "Dummy Binary Data Content");
 }
 
 TEST(LiteRTLMReadTest, TFLiteReadAny) {
-  const std::string input_filename =
+  const auto input_filename =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::unique_ptr<tflite::FlatBufferModel> tflite_model;
   std::unique_ptr<MemoryMappedFile> mapped_file;
   absl::Status result =
-      ReadAnyTFLiteFile(input_filename, &tflite_model, &mapped_file);
+      ReadAnyTFLiteFile(input_filename.string(), &tflite_model, &mapped_file);
   ASSERT_TRUE(result.ok());
 }
 
 TEST(LiteRTLMReadTest, TFLiteRead_InvalidSection) {
-  const std::string input_filename =
+  const auto input_filename =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
 
   std::unique_ptr<tflite::FlatBufferModel> tflite_model;
   std::unique_ptr<MemoryMappedFile> mapped_file;
-  absl::Status result =
-      ReadTFLiteFileFromSection(input_filename, 0, &tflite_model, &mapped_file);
+  absl::Status result = ReadTFLiteFileFromSection(
+      input_filename.string(), 0, &tflite_model, &mapped_file);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), absl::StatusCode::kInvalidArgument);
 }

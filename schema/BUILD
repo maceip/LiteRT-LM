@@ -59,6 +59,10 @@ cc_binary(
 cc_binary(
     name = "litertlm_export_main",
     srcs = ["litertlm_export_main.cc"],
+    target_compatible_with = select({
+        "@platforms//os:android": ["//third_party/bazel_platforms:incompatible"],
+        "//conditions:default": [],
+    }),
     deps = [
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/flags:parse",
@@ -106,10 +110,7 @@ cc_test(
     deps = [
         ":litertlm_writer_utils",
         "@com_google_googletest//:gtest_main",
-        "@com_google_absl//absl/log:absl_check",
-        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@flatbuffers",
         "//runtime/proto:llm_metadata_cc_proto",
@@ -128,6 +129,10 @@ cc_library(
     name = "litertlm_writer_utils",
     srcs = ["litertlm_writer_utils.cc"],
     hdrs = ["litertlm_writer_utils.h"],
+    target_compatible_with = select({
+        "@platforms//os:android": ["//third_party/bazel_platforms:incompatible"],
+        "//conditions:default": [],
+    }),
     deps = [
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
