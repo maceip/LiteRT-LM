@@ -9,6 +9,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/proto/engine.pb.h"
 #include "runtime/proto/llm_metadata.pb.h"
@@ -131,6 +132,11 @@ class SessionConfig {
   int GetNumOutputCandidates() const;
   void SetNumOutputCandidates(int num_output_candidates);
 
+  // Sampler backend:
+  // Getters for the backend of the sampler.
+  Backend GetSamplerBackend() const;
+  void SetSamplerBackend(Backend sampler_backend);
+
  private:
   // Private constructor for the SessionConfig. The user should use the
   // CreateDefault() method to create a SessionConfig.
@@ -151,6 +157,9 @@ class SessionConfig {
   // The number of output candidates to generate. Default value is 1 and setting
   // it to a value greater than 1 will require the model to support batching.
   int num_output_candidates_;
+
+  // Backend to use for sampling.
+  Backend sampler_backend_;
 };
 std::ostream& operator<<(std::ostream& os, const SessionConfig& config);
 

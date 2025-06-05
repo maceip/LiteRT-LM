@@ -30,6 +30,7 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/c/litert_common.h"  // from @litert
+#include "litert/c/litert_environment_options.h"  // from @litert
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_expected.h"  // from @litert
@@ -43,13 +44,14 @@
 #include "runtime/components/embedding_lookup_text.h"
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sampler_factory.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/file_util.h"
 #include "runtime/util/litert_status_util.h"
-#include "runtime/util/status_macros.h"  //NOLINT
+#include "runtime/util/status_macros.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {
@@ -278,12 +280,7 @@ absl::Status LlmLiteRtCompiledModelExecutor::Decode(
   if (decoded_logits_vector_.empty()) {
     decoded_logits_vector_ = std::vector<float>(size / sizeof(float));
   }
-  // ReferTensorBufferAsSpan() does not work here. Because when output buffer
-  // type is not host memory it will return an error. And for GPU we are using
-  // OpenCL buffer for output logits.
-  decoded_logits_.Read<float>(absl::MakeSpan(decoded_logits_vector_));
-  ASSIGN_OR_RETURN(std::vector<int> output_ids,
-                   SampleLogits(decoded_logits_vector_));
+  ASSIGN_OR_RETURN(std::vector<int> output_ids, SampleLogits(decoded_logits_));
   next_input_token_id_ = output_ids[0];
   return ToAbslStatus(output_tokens.Write(absl::MakeConstSpan(output_ids)));
 }
@@ -521,10 +518,17 @@ LlmLiteRtCompiledModelExecutor::DecodeLogits(const ExecutorInputs& inputs) {
 }
 
 absl::StatusOr<std::vector<int>> LlmLiteRtCompiledModelExecutor::SampleLogits(
-    Span<const float> logits) {
+    const TensorBuffer& logits) {
+  ASSIGN_OR_RETURN(auto vocab_size, GetVocabSize());
+
   if (sampler_ == nullptr) {
+    LITERT_ASSIGN_OR_RETURN_ABSL(auto env_options, env_.GetOptions());
+    Backend sampler_backend = Backend::CPU;
+    if (env_options.GetOption(kLiteRtEnvOptionTagOpenClDeviceId)) {
+      sampler_backend = Backend::GPU;
+    }
     LITERT_ASSIGN_OR_RETURN_ABSL(const auto decoded_logits_tensor_type,
-                                 decoded_logits_.TensorType());
+                                 logits.TensorType());
     proto::SamplerParameters sampler_params;
     sampler_params.set_type(proto::SamplerParameters::TOP_P);
     sampler_params.set_k(1);
@@ -534,14 +538,13 @@ absl::StatusOr<std::vector<int>> LlmLiteRtCompiledModelExecutor::SampleLogits(
     ASSIGN_OR_RETURN(
         sampler_,
         CreateSampler(
-            Backend::CPU,
+            sampler_backend,
             /*batch_size=*/decoded_logits_tensor_type.Layout().Dimensions()[0],
-            std::move(sampler_params)));
+            std::move(sampler_params), env_.Get(), vocab_size,
+            /*activation_data_type=*/ActivationDataType::FLOAT32));
   }
-  ASSIGN_OR_RETURN(auto vocab_size, GetVocabSize());
   LITERT_ASSIGN_OR_RETURN_ABSL(auto logits_tensor,
                                CreateTensorBuffer<float>({1, vocab_size}));
-  logits_tensor.Write(absl::MakeConstSpan(logits.data(), logits.size()));
 
   std::vector<int> ids_vector(output_batch_size_);
   // Construct a tensor buffer with the shape of [output_batch_size_] and
@@ -550,7 +553,7 @@ absl::StatusOr<std::vector<int>> LlmLiteRtCompiledModelExecutor::SampleLogits(
   auto ids_tensor = litert::lm::CopyToTensorBuffer<int>(
       absl::MakeConstSpan(ids_vector), {output_batch_size_});
   RETURN_IF_ERROR(sampler_->SampleToIdAndScoreBuffer(
-      logits_tensor, *ids_tensor, /*scores_tensor=*/nullptr));
+      logits, *ids_tensor, /*scores_tensor=*/nullptr));
   auto ids = litert::lm::CopyFromTensorBuffer<int>(*ids_tensor);
   return *ids;
 }
@@ -589,8 +592,15 @@ LlmLiteRtCompiledModelExecutor::Create(
       gpu_compilation_options.EnableConstantTensorSharing(true);
       gpu_compilation_options.EnableInfiniteFloatCapping(true);
       gpu_compilation_options.EnableAllowSrcQuantizedFcConvOps(true);
-      gpu_compilation_options.SetDelegatePrecision(
-          LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp16);
+      if (auto activation_data_type = executor_settings.GetActivationDataType();
+          activation_data_type.has_value() &&
+          activation_data_type.value() == ActivationDataType::FLOAT32) {
+        gpu_compilation_options.SetDelegatePrecision(
+            LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp32);
+      } else {
+        gpu_compilation_options.SetDelegatePrecision(
+            LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp16);
+      }
       gpu_compilation_options.SetPreferTextureWeights(true);
       if (!weight_cache_path.empty()) {
         gpu_compilation_options.SetSerializationDir(weight_cache_path.c_str());

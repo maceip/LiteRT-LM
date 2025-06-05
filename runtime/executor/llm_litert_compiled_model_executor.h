@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_INFRA_GENAI_INFERENCE_EXECUTOR_LLM_TFLITE_GPU_EXECUTOR_H_
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -30,6 +31,7 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/embedding_lookup_text.h"
+#include "runtime/components/model_resources.h"
 #include "runtime/components/sampler.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
@@ -123,8 +125,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
             std::move(per_layer_embedding_lookup)) {}
 
  private:
-  // Samples output logits on CPU and get tokens.
-  absl::StatusOr<std::vector<int>> SampleLogits(absl::Span<const float> logits);
+  // Samples output logits and get tokens.
+  absl::StatusOr<std::vector<int>> SampleLogits(const TensorBuffer& logits);
 
   // Prefill internal implementation, for one prefill call to the Interpreter
   // with a certain length.

@@ -25,10 +25,11 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/components/model_resources.h"
 #include "runtime/components/model_resources_task.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/util/model_asset_bundle_resources.h"
 #include "runtime/util/scoped_file.h"
-#include "runtime/util/test_utils.h"  // NOLINT
+#include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {

@@ -10,8 +10,10 @@
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "runtime/components/sampler.h"
 #include "runtime/components/sampler_factory.h"
 #include "runtime/components/stop_token_detector.h"
 #include "runtime/components/tokenizer.h"
@@ -19,11 +21,12 @@
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/convert_tensor_buffer.h"
-#include "runtime/util/status_macros.h"
+#include "runtime/util/status_macros.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 
@@ -32,10 +35,20 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
     const SessionConfig& session_config,
     std::optional<BenchmarkInfo> benchmark_info,
     ThreadPool* worker_thread_pool) {
-  ASSIGN_OR_RETURN(
-      auto sampler,
-      CreateSampler(Backend::CPU, session_config.GetNumOutputCandidates(),
-                    session_config.GetSamplerParams()));
+  auto sampler_backend = session_config.GetSamplerBackend();
+  std::unique_ptr<Sampler> sampler;
+  // If use CPU sampling, we create it here; For GPU sampling, we let executor
+  // create it internally.
+  if (sampler_backend == Backend::CPU) {
+    ASSIGN_OR_RETURN(
+        sampler,
+        CreateSampler(sampler_backend, session_config.GetNumOutputCandidates(),
+                      session_config.GetSamplerParams()));
+  } else if (sampler_backend != Backend::GPU) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unsupported sampler backend: ", sampler_backend));
+  }
+
   if (benchmark_info.has_value()) {
     ABSL_LOG(INFO) << "Benchmark is enabled.";
   }

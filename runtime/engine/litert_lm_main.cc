@@ -39,7 +39,7 @@
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor_settings.h"
-#include "runtime/util/status_macros.h"  // NOLINT
+#include "runtime/util/status_macros.h"  // IWYU pragma: keep
 #include "tflite/profiling/memory_usage_monitor.h"  // from @litert
 
 ABSL_FLAG(std::optional<std::string>, backend, "gpu",

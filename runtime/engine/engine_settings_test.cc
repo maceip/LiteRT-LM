@@ -11,9 +11,9 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
-#include "runtime/executor/llm_executor_settings.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/proto/engine.pb.h"
-#include "runtime/util/test_utils.h"  // NOLINT
+#include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {
@@ -287,6 +287,13 @@ TEST(SessionConfigTest, PrintOperator) {
   session_config.SetNumOutputCandidates(2);
   std::stringstream oss;
   oss << session_config;
+}
+
+TEST(SessionConfigTest, SetAndGetSamplerBackend) {
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  EXPECT_EQ(session_config.GetSamplerBackend(), Backend::CPU);
+  session_config.SetSamplerBackend(Backend::GPU);
+  EXPECT_EQ(session_config.GetSamplerBackend(), Backend::GPU);
 }
 
 }  // namespace

@@ -11,11 +11,12 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/proto/engine.pb.h"
 #include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/proto/sampler_params.pb.h"
-#include "runtime/util/status_macros.h"  //NOLINT
+#include "runtime/util/status_macros.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {
@@ -173,6 +174,7 @@ SessionConfig SessionConfig::CreateDefault() {
   // Default to -1 to indicate the start token is not set. This is to be
   // overridden by the EngineSettings.
   config.SetStartTokenId(-1);
+  config.SetSamplerBackend(Backend::CPU);
   return config;
 }
 
@@ -244,6 +246,10 @@ absl::Status SessionConfig::MaybeUpdateAndValidate(
         "Number of output candidates need to be at least 1, but got: ",
         num_output_candidates_));
   }
+
+  if (engine_settings.GetMainExecutorSettings().GetBackend() == Backend::GPU) {
+    sampler_backend_ = Backend::GPU;
+  }
   ABSL_LOG(INFO) << "The validated session config: " << *this;
   return absl::OkStatus();
 }
@@ -291,6 +297,11 @@ std::ostream& operator<<(std::ostream& os, const SessionConfig& config) {
   os << "  NumOutputCandidates: " << config.GetNumOutputCandidates()
      << std::endl;
   return os;
+}
+
+Backend SessionConfig::GetSamplerBackend() const { return sampler_backend_; }
+void SessionConfig::SetSamplerBackend(Backend sampler_backend) {
+  sampler_backend_ = sampler_backend;
 }
 
 }  // namespace litert::lm

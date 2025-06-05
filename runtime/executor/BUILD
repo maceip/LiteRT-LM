@@ -102,6 +102,7 @@ cc_library(
     srcs = ["llm_litert_compiled_model_executor.cc"],
     hdrs = ["llm_litert_compiled_model_executor.h"],
     deps = [
+        ":executor_settings_base",
         ":litert_compiled_model_executor_utils",
         ":llm_executor",
         ":llm_executor_io_types",
@@ -115,6 +116,7 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
         "@litert//litert/c:litert_common",
+        "@litert//litert/c:litert_environment_options",
         "@litert//litert/cc:litert_expected",
         "@litert//litert/cc:litert_macros",
         "@litert//litert/cc:litert_model",
@@ -154,6 +156,7 @@ cc_test(
     data = ["//runtime/testdata"],
     tags = ["requires-gpu-nvidia"],
     deps = [
+        ":executor_settings_base",
         ":llm_executor_settings",
         ":llm_litert_compiled_model_executor",
         "@com_google_googletest//:gtest_main",
