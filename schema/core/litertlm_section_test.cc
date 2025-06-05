@@ -13,19 +13,19 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "runtime/proto/llm_metadata.pb.h"
 
-namespace litert {
-namespace lm {
-namespace schema {
+namespace litert::lm::schema {
 namespace {
 
 TEST(LiteRTLMSectionTest, TestFileBackedSectionStream) {
   // Get the file path
-  const std::string file_path =
+  const auto file_path =
       std::filesystem::path(::testing::SrcDir()) /
       "litert_lm/schema/testdata/attention.tflite";
+  const auto output_file_path =
+      std::filesystem::path(::testing::TempDir()) / "attention_copy.tflite";
 
   // Define an output file path
-  std::ofstream output_file("/tmp/attention_copy.tflite", std::ios::binary);
+  std::ofstream output_file(output_file_path, std::ios::binary);
   EXPECT_TRUE(output_file.is_open());
 
   // Create the file-backed Section stream object
@@ -41,7 +41,7 @@ TEST(LiteRTLMSectionTest, TestFileBackedSectionStream) {
   output_file.close();
 
   // Read the file back and check contents.
-  std::ifstream input_file("/tmp/attention_copy.tflite", std::ios::binary);
+  std::ifstream input_file(output_file_path, std::ios::binary);
   ASSERT_TRUE(input_file.is_open());
 
   // Read the original file into a buffer
@@ -64,15 +64,14 @@ TEST(LiteRTLMSectionTest, TestFileBackedSectionStream) {
                          copied_buffer.begin(), copied_buffer.end()));
 }
 
-#if 0
-// Disabled since it crashes on Linux in OSS.
 TEST(LiteRTLMSectionTest, TestProtoSectionStream) {
   using litert::lm::proto::LlmMetadata;
 
   // Constants for the Token Generation Data
   const std::string start_token = "<start>";
   const std::vector<std::string> stop_tokens = {"<stop>", "<eos>"};
-  const std::string output_filename = "/tmp/llm_metadata.pb";
+  const auto output_file_path =
+      std::filesystem::path(::testing::TempDir()) / "llm_metadata.pb";
 
   // Create an LlmMetadata protocol buffer
   LlmMetadata metadata;
@@ -91,7 +90,7 @@ TEST(LiteRTLMSectionTest, TestProtoSectionStream) {
   std::vector<unsigned char> buffer(serialized_params.begin(),
                                     serialized_params.end());
   // Write the buffer to a file
-  std::ofstream output_file(output_filename, std::ios::binary);
+  std::ofstream output_file(output_file_path, std::ios::binary);
   ASSERT_TRUE(output_file.is_open());
   output_file.write(reinterpret_cast<const char*>(buffer.data()),
                     buffer.size());
@@ -106,17 +105,18 @@ TEST(LiteRTLMSectionTest, TestProtoSectionStream) {
 
   size_t pbss_size = pbss.BufferSize();
   auto& pbss_stream = pbss.GetStream();
-  const std::string output_filename_streamed = "/tmp/llm_metadata_streamed.pb";
-  std::ofstream output_streamed(output_filename_streamed, std::ios::binary);
+  const auto output_file_streamed_path =
+      std::filesystem::path(::testing::TempDir()) / "llm_metadata_streamed.pb";
+  std::ofstream output_streamed(output_file_streamed_path, std::ios::binary);
   ASSERT_TRUE(output_streamed.is_open());
 
   output_streamed << pbss_stream.rdbuf();
   EXPECT_EQ(output_streamed.tellp(), pbss_size);
 
-  output_file.close();
+  output_streamed.close();
 
   // ** Read the file back in and check the contents **
-  std::ifstream input_streamed(output_filename_streamed, std::ios::binary);
+  std::ifstream input_streamed(output_file_streamed_path, std::ios::binary);
   ASSERT_TRUE(input_streamed.is_open());
   std::stringstream ss;
   ss << input_streamed.rdbuf();  // Read the entire file into a stringstream
@@ -136,9 +136,6 @@ TEST(LiteRTLMSectionTest, TestProtoSectionStream) {
               params_read_back.stop_tokens(i).token_str());
   }
 }
-#endif
 
 }  // namespace
-}  // namespace schema
-}  // namespace lm
-}  // namespace litert
+}  // namespace litert::lm::schema
