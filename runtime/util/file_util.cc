@@ -38,7 +38,7 @@ std::pair<absl::string_view, absl::string_view> SplitPath(
   if (pos == 0)
     return std::make_pair(path.substr(0, 1), absl::ClippedSubstr(path, 1));
 
-  return std::make_pair(path.substr(0, pos + 1),
+  return std::make_pair(path.substr(0, pos),
                         absl::ClippedSubstr(path, pos + 1));
 }
 
@@ -62,10 +62,6 @@ absl::StatusOr<std::string> JoinPath(absl::string_view path1,
 
 absl::string_view Basename(absl::string_view path) {
   return SplitPath(path).second;
-}
-
-absl::string_view Dirname(absl::string_view path) {
-  return SplitPath(path).first;
 }
 
 }  // namespace litert::lm

@@ -33,8 +33,6 @@ absl::StatusOr<std::string> JoinPath(absl::string_view path1,
 // TODO: b/419286976 - Support Windows. This currently assumes POSIX paths.
 absl::string_view Basename(absl::string_view path);
 
-absl::string_view Dirname(absl::string_view path);
-
 }  // namespace litert::lm
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_UTIL_FILE_UTIL_H_

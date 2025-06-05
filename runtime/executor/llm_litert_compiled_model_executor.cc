@@ -592,16 +592,10 @@ LlmLiteRtCompiledModelExecutor::Create(
       gpu_compilation_options.SetDelegatePrecision(
           LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp16);
       gpu_compilation_options.SetPreferTextureWeights(true);
-      if (weight_cache_path != ":nocache") {
+      if (!weight_cache_path.empty()) {
+        gpu_compilation_options.SetSerializationDir(weight_cache_path.c_str());
         ASSIGN_OR_RETURN(auto model_path,
                          executor_settings.GetModelAssets().GetPath());
-        if (weight_cache_path.empty()) {
-          weight_cache_path = Dirname(model_path);
-        } else {
-          ASSIGN_OR_RETURN(weight_cache_path,
-                           JoinPath(weight_cache_path, Basename(model_path)));
-        }
-        gpu_compilation_options.SetSerializationDir(weight_cache_path.c_str());
         absl::string_view model_name = Basename(model_path);
         gpu_compilation_options.SetModelCacheKey(model_name.data());
         gpu_compilation_options.SetSerializeProgramCache(false);
