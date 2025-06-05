@@ -5,6 +5,7 @@
 #include <optional>
 #include <utility>
 
+#include "absl/base/attributes.h"  // from @com_google_absl
 #include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/cleanup/cleanup.h"  // from @com_google_absl
 #include "absl/log/absl_check.h"  // from @com_google_absl
@@ -188,15 +189,29 @@ absl::StatusOr<std::unique_ptr<Sampler>> CreateSampler(
     LiteRtEnvironment env, std::optional<int> vocab_size,
     std::optional<ActivationDataType> activation_data_type) {
   switch (backend) {
-    case Backend::CPU:
-      return CreateCpuSampler(batch_size, sampler_params);
-    case Backend::GPU:
+    case Backend::GPU: {
       RET_CHECK(env != nullptr)
           << "LiteRT environment is needed for GPU sampling.";
       RET_CHECK(vocab_size.has_value())
           << "Vocabulary size is needed for GPU sampling.";
-      return CreateOpenClSampler(batch_size, sampler_params, env,
-                                 vocab_size.value(), activation_data_type);
+      auto sampler_or =
+          CreateOpenClSampler(batch_size, sampler_params, env,
+                              vocab_size.value(), activation_data_type);
+      if (sampler_or.ok() ||
+          sampler_or.status().code() != absl::StatusCode::kUnavailable) {
+        // For a normal failure or success, return the result.
+        return sampler_or;
+      }
+    }
+      // For a failure due to GPU sampler unavailable, fall back to CPU.
+      ABSL_LOG(WARNING)
+          << "GPU sampler unavailable. Falling back to CPU sampling. To use "
+             "GPU sampling, please make sure libLiteRtTopKOpenClSampler.so is "
+             "available at LD_LIBRARY_PATH on device. You can find the shared "
+             "library under prebuilt/";
+      ABSL_FALLTHROUGH_INTENDED;
+    case Backend::CPU:
+      return CreateCpuSampler(batch_size, sampler_params);
     default:
       return absl::InvalidArgumentError(
           absl::StrCat("Unsupported backend: ", backend));

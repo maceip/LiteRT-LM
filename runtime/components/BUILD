@@ -268,6 +268,7 @@ cc_library(
     deps = [
         ":sampler",
         ":top_p_cpu_sampler",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/log:absl_check",
@@ -324,6 +325,27 @@ cc_test(
             "@litert//litert/cc/internal:litert_environment",
             "@litert//litert/cc/internal:litert_gpu_options",
             "@litert//litert/cc/internal:litert_options",
+        ],
+    }),
+)
+
+cc_test(
+    name = "sampler_factory_failed_dlopen_test",
+    srcs = ["sampler_factory_failed_dlopen_test.cc"],
+    deps = [
+        ":sampler_factory",
+        ":top_p_cpu_sampler",
+        "@com_google_googletest//:gtest_main",
+        "@litert//litert/test:matchers",
+        "//runtime/executor:executor_settings_base",
+        "//runtime/proto:sampler_params_cc_proto",
+        "//runtime/util:test_utils",
+    ] + select({
+        "//:litert_lm_link_capi_so": [
+            "@litert//litert/cc:litert_environment",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc/internal:litert_environment",
         ],
     }),
 )
