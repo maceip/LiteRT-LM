@@ -2,6 +2,12 @@
 
 workspace(name = "litert_lm")
 
+# UPDATED = 2025-06-06
+LITERT_REF = "4b46a6d404b6834015f8e247c7770ba78d27ea78"
+LITERT_SHA256 = "7dea199a1c3ba9be47cc9975607728a0cce58c11979e47bcc7674d5187c9ea42"
+TENSORFLOW_REF = "f453f998822fb73a62a8b84f36be22cc7c8faed4"
+TENSORFLOW_SHA256 = "b0a2ba818445bb44a87245d6ab7f39d112a78e1336a902c03ae08173586ac300"
+
 # buildifier: disable=load-on-top
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
@@ -29,9 +35,9 @@ http_archive(
 # Tensorflow
 http_archive(
     name = "org_tensorflow",
-    sha256 = "b0a2ba818445bb44a87245d6ab7f39d112a78e1336a902c03ae08173586ac300",
-    strip_prefix = "tensorflow-f453f998822fb73a62a8b84f36be22cc7c8faed4",
-    url = "https://github.com/tensorflow/tensorflow/archive/f453f998822fb73a62a8b84f36be22cc7c8faed4.tar.gz",  # 2025-06-06
+    sha256 = TENSORFLOW_SHA256,
+    strip_prefix = "tensorflow-" + TENSORFLOW_REF,
+    url = "https://github.com/tensorflow/tensorflow/archive/" + TENSORFLOW_REF + ".tar.gz",
 )
 
 # Initialize the TensorFlow repository and all dependencies.
@@ -221,9 +227,9 @@ http_archive(
         # Replace @//third_party with @litert//third_party in files under third_party/.
         "sed -i -e 's|\"@//third_party/|\"@litert//third_party/|g' third_party/*/*",
     ],
-    sha256 = "7dea199a1c3ba9be47cc9975607728a0cce58c11979e47bcc7674d5187c9ea42",
-    strip_prefix = "LiteRT-4b46a6d404b6834015f8e247c7770ba78d27ea78",
-    url = "https://github.com/google-ai-edge/LiteRT/archive/4b46a6d404b6834015f8e247c7770ba78d27ea78.tar.gz",  # 2025-06-06
+    sha256 = LITERT_SHA256,
+    strip_prefix = "LiteRT-" + LITERT_REF,
+    url = "https://github.com/google-ai-edge/LiteRT/archive/" + LITERT_REF + ".tar.gz",
 )
 
 # Android rules. Need latest rules_android_ndk to use NDK 26+.
