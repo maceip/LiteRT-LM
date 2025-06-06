@@ -62,6 +62,10 @@ TEST(LlmLiteRTCompiledModelExecutorTest, CreateExecutorTest) {
   ASSERT_OK(model_assets);
   auto executor_settings =
       LlmExecutorSettings::CreateDefault(*model_assets, Backend::CPU);
+#if defined(_WIN32)
+  // TODO: b/422888217 - Disable weight caching on Windows temporarily.
+  executor_settings->SetCacheDir(":nocache");
+#endif  // _WIN32
   executor_settings->SetMaxNumTokens(kMaxNumTokens);
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;

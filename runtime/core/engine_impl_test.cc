@@ -41,6 +41,10 @@ TEST(EngineTest, CreateEngine) {
       EngineSettings::CreateDefault(*model_assets, Backend::CPU);
   ASSERT_OK(engine_settings);
   engine_settings->GetMutableMainExecutorSettings().SetMaxNumTokens(160);
+#if defined(_WIN32)
+  // TODO: b/422888217 - Disable weight caching on Windows temporarily.
+  engine_settings->GetMutableMainExecutorSettings().SetCacheDir(":nocache");
+#endif  // _WIN32
 
   absl::StatusOr<std::unique_ptr<Engine>> llm =
       Engine::CreateEngine(*engine_settings);
