@@ -40,24 +40,11 @@ jobs:
 
       - name: Run bazel build on MacOS
         run: |
-          bazel build --disk_cache=~/.cache/bazel-macos \
-            //runtime/engine:litert_lm_main \
-            //schema:litertlm_writer \
-            //schema:litertlm_peek \
-            //schema:litertlm_export_main
+          bazel build --disk_cache=~/.cache/bazel-macos //...
 
       - name: Run bazel test on MacOS
         run: |
-          bazel test --disk_cache=~/.cache/bazel-macos \
-            //runtime/components:all \
-            //runtime/core:all \
-            //runtime/engine:all \
-            //runtime/executor:all \
-            //runtime/framework:all \
-            //runtime/util:all \
-            //schema:all \
-            //schema/core:all \
-            --test_output=errors
+          bazel test --disk_cache=~/.cache/bazel-macos --test_output=errors //...
 
       - name: Save bazel cache if new or changed on push.
         uses: actions/cache/save@v4

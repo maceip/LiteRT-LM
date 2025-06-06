@@ -41,11 +41,7 @@ jobs:
 
       - name: Run bazel build on Linux
         run: |
-          bazel build --disk_cache=~/.cache/bazel-linux \
-            //runtime/engine:litert_lm_main \
-            //schema:litertlm_writer \
-            //schema:litertlm_peek \
-            //schema:litertlm_export_main
+          bazel build --disk_cache=~/.cache/bazel-linux //...
 
       - name: Check if litert_lm_main doesn't link libLiteRtRuntimeCApi.so
         # Return exit code 1 if libLiteRtRuntimeCApi.so is required.
@@ -54,16 +50,7 @@ jobs:
 
       - name: Run bazel test on Linux
         run: |
-          bazel test --disk_cache=~/.cache/bazel-linux \
-            //runtime/components:all \
-            //runtime/core:all \
-            //runtime/engine:all \
-            //runtime/executor:all \
-            //runtime/framework:all \
-            //runtime/util:all \
-            //schema:all \
-            //schema/core:all \
-            --test_output=errors
+          bazel test --disk_cache=~/.cache/bazel-linux --test_output=errors //...
 
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
@@ -74,9 +61,7 @@ jobs:
 
       - name: Run bazel build on Android
         run: |
-          bazel build --disk_cache=~/.cache/bazel-android \
-            --config=android_arm64 \
-            //runtime/engine:litert_lm_main
+          bazel build --disk_cache=~/.cache/bazel-android --config=android_arm64 //...
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
