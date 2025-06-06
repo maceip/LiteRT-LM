@@ -58,7 +58,7 @@ ABSL_FLAG(int, benchmark_decode_tokens, 0,
           "If benchmark is true and the value is larger than 0, the benchmark "
           "will use this number to set the number of decode steps (regardless "
           "of the input prompt).");
-ABSL_FLAG(bool, async, false, "Run the LLM execution asynchronously.");
+ABSL_FLAG(bool, async, true, "Run the LLM execution asynchronously.");
 ABSL_FLAG(bool, report_peak_memory_footprint, false,
           "Report peak memory footprint.");
 
