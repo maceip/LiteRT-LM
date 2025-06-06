@@ -217,6 +217,10 @@ http_archive(
 
 http_archive(
     name = "litert",
+    patch_cmds = [
+        # Replace @//third_party with @litert//third_party in files under third_party/.
+        "sed -i -e 's|\"@//third_party/|\"@litert//third_party/|g' third_party/*/*",
+    ],
     sha256 = "f7c6eb2fc71263f16e1c1bf475c0dc2a66e4a35a5c42d1a333100c713c0771b4",
     strip_prefix = "LiteRT-17d354263aea07809b9df052c8112bb1ec57c0c6",
     url = "https://github.com/google-ai-edge/LiteRT/archive/17d354263aea07809b9df052c8112bb1ec57c0c6.tar.gz",  # 2025-06-04
@@ -246,3 +250,24 @@ load("@android_ndk_env//:current_android_ndk_env.bzl", "ANDROID_NDK_HOME_IS_SET"
 # Use "@android_ndk_env//:all" as a dummy toolchain target as register_toolchains() does not take
 # an empty string.
 register_toolchains("@androidndk//:all" if ANDROID_NDK_HOME_IS_SET else "@android_ndk_env//:all")
+
+# VENDOR SDKS ######################################################################################
+
+# QUALCOMM ---------------------------------------------------------------------------------------
+
+# The actual macro call will be set during configure for now.
+load("@litert//third_party/qairt:workspace.bzl", "qairt")
+
+qairt()
+
+# MEDIATEK ---------------------------------------------------------------------------------------
+
+# Currently only works with local sdk
+load("@litert//third_party/neuro_pilot:workspace.bzl", "neuro_pilot")
+
+neuro_pilot()
+
+# GOOGLE TENSOR ----------------------------------------------------------------------------------
+load("@litert//third_party/google_tensor:workspace.bzl", "google_tensor")
+
+google_tensor()
