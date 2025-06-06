@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
+#include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -284,8 +285,13 @@ absl::Status LlmLiteRtCompiledModelExecutor::Decode(
   RETURN_IF_ERROR(SampleLogits(decoded_logits_, output_tokens));
   LITERT_ASSIGN_OR_RETURN_ABSL(
       auto lock_and_addr, ::litert::TensorBufferScopedLock::Create(
-                              output_tokens, TensorBuffer::LockMode::kRead));
+                              output_tokens, TensorBuffer::LockMode::kWrite));
   auto output_tokens_ptr = static_cast<int32_t*>(lock_and_addr.second);
+  if (output_tokens_ptr[0] < 0) {
+    ABSL_LOG(WARNING) << "Invalid decode and sample result. The sampled token "
+                         "is casted to 0 to avoid crash.";
+    output_tokens_ptr[0] = 0;
+  }
   next_input_token_id_ = output_tokens_ptr[0];
   return absl::OkStatus();
 }
