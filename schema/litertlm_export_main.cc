@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -195,7 +196,7 @@ absl::Status MainHelper(int argc, char** argv) {
 
     if (!llm_metadata_file.empty()) {
       // Read binary proto from file.
-      std::ifstream ifs(llm_metadata_file);
+      std::ifstream ifs(llm_metadata_file, std::ios::binary);
       if (!ifs.is_open()) {
         return absl::NotFoundError(absl::StrCat(
             "Could not open llm_metadata file: ", llm_metadata_file));
@@ -210,7 +211,7 @@ absl::Status MainHelper(int argc, char** argv) {
 #if !defined(__ANDROID__)
     } else {  // llm_metadata_text_file is not empty
               // Read text proto from file.
-      std::ifstream ifs(llm_metadata_text_file);
+      std::ifstream ifs(llm_metadata_text_file, std::ios::binary);
       if (!ifs.is_open()) {
         return absl::NotFoundError(absl::StrCat(
             "Could not open llm_metadata text file: ", llm_metadata_text_file));

@@ -130,7 +130,7 @@ absl::Status LitertLmWrite(const std::vector<std::string>& command_args,
 #if !defined(__ANDROID__)
     } else if (extension == ".pbtext" || extension == ".prototext") {
       LlmMetadata llm_metadata_proto;
-      std::ifstream ifs(filename);
+      std::ifstream ifs(filename, std::ios::binary);
       if (!ifs.is_open()) {
         return absl::NotFoundError(
             absl::StrCat("Could not open llm_metadata text file: ", filename));
