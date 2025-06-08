@@ -1,0 +1,56 @@
+name: "CI-Win"
+on:
+  schedule:
+    - cron: "0 10 * * *"  # Run at 2am PST (10am UTC) every day
+  workflow_dispatch:  # Manual trigger
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nightly-check:
+    name: "Nightly-Win"
+    runs-on: windows-latest
+    env:
+      # Clear ANDROID_NDK_HOME as windows-latest has NDK where jobs don't have permission for
+      # androidndk rulesto create symlinks.
+      ANDROID_NDK_HOME:
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Restore bazel cache
+        uses: actions/cache/restore@v4
+        id: bazel-cache
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazel-windows
+          key: ${{ github.workflow }}-${{ hashFiles('**/WORKSPACE') }}-${{ hashFiles('**/BUILD*') }}
+          restore-keys: |
+            ${{ github.workflow }}-${{ hashFiles('**/WORKSPACE') }}-
+            ${{ github.workflow }}-
+
+      - name: Check cache hit
+        run: |
+          echo "Cache Hit: ${{ steps.bazel-cache.outputs.cache-hit }}"
+          echo "Cache Primary Key: ${{ steps.bazel-cache.outputs.cache-primary-key }}"
+          echo "Cache Matched Key: ${{ steps.bazel-cache.outputs.cache-matched-key }}"
+
+      - name: Run bazel build on Windows
+        run: |
+          bazel build --disk_cache=~/.cache/bazel-windows //...
+
+      - name: Run bazel test on Windows
+        run: |
+          bazel test --disk_cache=~/.cache/bazel-windows --test_output=errors //...
+
+      - name: Save bazel cache if new or changed on push.
+        uses: actions/cache/save@v4
+        if: ${{ steps.bazel-cache.outputs.cache-hit }} != 'true'
+        with:
+          path: |
+            ~/.cache/bazel
+            ~/.cache/bazel-windows
+          key: ${{ github.workflow }}-${{ hashFiles('**/WORKSPACE') }}-${{ hashFiles('**/BUILD*') }}
