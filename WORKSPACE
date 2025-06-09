@@ -233,13 +233,6 @@ http_archive(
 )
 
 # Android rules. Need latest rules_android_ndk to use NDK 26+.
-http_archive(
-    name = "rules_android_ndk",
-    sha256 = "89bf5012567a5bade4c78eac5ac56c336695c3bfd281a9b0894ff6605328d2d5",
-    strip_prefix = "rules_android_ndk-0.1.3",
-    url = "https://github.com/bazelbuild/rules_android_ndk/releases/download/v0.1.3/rules_android_ndk-v0.1.3.tar.gz",
-)
-
 load("@rules_android_ndk//:rules.bzl", "android_ndk_repository")
 
 android_ndk_repository(name = "androidndk")

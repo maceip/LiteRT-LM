@@ -146,40 +146,31 @@ build:macos --features=archive_param_file
 build:macos --linkopt=-Wl,-undefined,dynamic_lookup
 build:macos --host_linkopt=-Wl,-undefined,dynamic_lookup
 
-# Use the Apple toolchain for MacOS builds.
-build:macos --config=apple-toolchain
-
-# Use cc toolchains from apple_support for Apple builds (ios, macos, etc).
-# https://github.com/bazelbuild/apple_support/tree/master?tab=readme-ov-file#bazel-6-setup
-build:apple-toolchain --apple_crosstool_top=@local_config_apple_cc//:toolchain
-build:apple-toolchain --crosstool_top=@local_config_apple_cc//:toolchain
-build:apple-toolchain --host_crosstool_top=@local_config_apple_cc//:toolchain
-
 # Settings for MacOS on ARM CPUs.
 build:macos_arm64 --cpu=darwin_arm64
 build:macos_arm64 --macos_minimum_os=11.0
-build:macos_arm64 --platforms=@build_bazel_apple_support//configs/platforms:darwin_arm64
+build:macos_arm64 --platforms=@build_bazel_apple_support//platforms:darwin_arm64
 
 # iOS configs for each architecture and the fat binary builds.
 build:ios --apple_platform_type=ios
 build:ios --copt=-fembed-bitcode
 build:ios --copt=-Wno-c++11-narrowing
-build:ios --config=apple-toolchain
+build:ios --ios_minimum_os=13.0
 build:ios_armv7 --config=ios
 build:ios_armv7 --cpu=ios_armv7
 build:ios_armv7 --platforms=@org_tensorflow//tensorflow/tools/toolchains/ios:ios_armv7
 build:ios_arm64 --config=ios
 build:ios_arm64 --cpu=ios_arm64
-build:ios_arm64 --platforms=@build_bazel_apple_support//configs/platforms:ios_arm64
+build:ios_arm64 --platforms=@build_bazel_apple_support//platforms:ios_arm64
 build:ios_arm64e --config=ios
 build:ios_arm64e --cpu=ios_arm64e
-build:ios_arm64e --platforms=@build_bazel_apple_support//configs/platforms:ios_arm64e
+build:ios_arm64e --platforms=@build_bazel_apple_support//platforms:ios_arm64e
 build:ios_sim_arm64 --config=ios
 build:ios_sim_arm64 --cpu=ios_sim_arm64
-build:ios_sim_arm64 --platforms=@build_bazel_apple_support//configs/platforms:ios_sim_arm64
+build:ios_sim_arm64 --platforms=@build_bazel_apple_support//platforms:ios_sim_arm64
 build:ios_x86_64 --config=ios
 build:ios_x86_64 --cpu=ios_x86_64
-build:ios_x86_64 --platforms=@build_bazel_apple_support//configs/platforms:ios_x86_64
+build:ios_x86_64 --platforms=@build_bazel_apple_support//platforms:ios_x86_64
 build:ios_fat --config=ios
 build:ios_fat --ios_multi_cpus=armv7,arm64,i386,x86_64
 
@@ -249,14 +240,12 @@ build:linux --copt="-Werror=switch"
 # See https://github.com/protocolbuffers/upb/blob/9effcbcb27f0a665f9f345030188c0b291e32482/upb/upb.c#L183.
 build:linux --copt=-Wno-gnu-offsetof-extensions
 
-
 # Toolchain and CUDA options for Linux CPU builds
 build:release_cpu_linux --crosstool_top="@local_config_cuda//crosstool:toolchain"
 build:release_cpu_linux --repo_env=TF_SYSROOT="/dt9"
 
 # Linux ARM64 specific options
 build:linux_arm64 --copt="-mtune=generic" --copt="-march=armv8-a" --copt="-O3"
-
 
 # On Windows, `__cplusplus` is wrongly defined without this switch
 # See https://devblogs.microsoft.com/cppblog/msvc-now-correctly-reports-__cplusplus/
