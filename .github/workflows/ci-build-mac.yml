@@ -27,6 +27,7 @@ jobs:
           path: |
             ~/.cache/bazel
             ~/.cache/bazel-macos
+            ~/.cache/bazel-ios
           key: ${{ github.workflow }}-${{ hashFiles('**/WORKSPACE') }}-${{ hashFiles('**/BUILD*') }}
           restore-keys: |
             ${{ github.workflow }}-${{ hashFiles('**/WORKSPACE') }}-
@@ -46,6 +47,10 @@ jobs:
         run: |
           bazel test --disk_cache=~/.cache/bazel-macos --test_output=errors //...
 
+      - name: Run bazel build for iOS Simulator
+        run: |
+          bazel build --disk_cache=~/.cache/bazel-ios --config=ios_sim_arm64 //...
+
       - name: Save bazel cache if new or changed on push.
         uses: actions/cache/save@v4
         if: ${{ steps.bazel-cache.outputs.cache-hit }} != 'true' || ${{ github.event_name }} == 'push'
@@ -53,4 +58,5 @@ jobs:
           path: |
             ~/.cache/bazel
             ~/.cache/bazel-macos
+            ~/.cache/bazel-ios
           key: ${{ github.workflow }}-${{ hashFiles('**/WORKSPACE') }}-${{ hashFiles('**/BUILD*') }}

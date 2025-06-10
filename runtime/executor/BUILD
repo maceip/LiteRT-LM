@@ -368,7 +368,7 @@ cc_library(
             "@litert//litert/cc:litert_tensor_buffer",
         ],
         "//conditions:default": [
-            "@litert//litert/cc:litert_tensor_buffer",  # copybara:comment_replace "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc/internal:litert_tensor_buffer",
         ],
     }),
 )
@@ -385,6 +385,12 @@ cc_library(
     deps = [
         ":llm_executor_io_types",
         "@com_google_absl//absl/status:statusor",
-        "@litert//litert/cc:litert_tensor_buffer",  # copybara:comment_replace "@litert//litert/cc/internal:litert_tensor_buffer",
-    ],
+    ] + select({
+        "//:litert_lm_link_capi_so": [
+            "@litert//litert/cc:litert_tensor_buffer",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc/internal:litert_tensor_buffer",
+        ],
+    }),
 )

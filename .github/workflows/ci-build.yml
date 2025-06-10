@@ -59,7 +59,7 @@ jobs:
           ndk-version: r28b
           add-to-path: false
 
-      - name: Run bazel build on Android
+      - name: Run bazel build for Android
         run: |
           bazel build --disk_cache=~/.cache/bazel-android --config=android_arm64 //...
         env:
