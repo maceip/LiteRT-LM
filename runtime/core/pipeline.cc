@@ -47,7 +47,7 @@ namespace {
 // TODO(b/423364170): all LLM Executors should respect the max number of tokens
 // returned by the model. We should remove this default value once all Executors
 // are compliant with the max number of tokens.
-constexpr int kDeafultMaxNumTokens = 4096;
+constexpr int kDefaultMaxNumTokens = 4096;
 int TryGetMaxNumTokens(std::shared_ptr<LlmExecutor> executor) {
   auto settings = executor->GetExecutorSettings();
   if (!settings.ok()) {
@@ -55,7 +55,7 @@ int TryGetMaxNumTokens(std::shared_ptr<LlmExecutor> executor) {
     // value.
     ABSL_LOG(WARNING) << "Failed to get executor settings: "
                       << settings.status();
-    return kDeafultMaxNumTokens;
+    return kDefaultMaxNumTokens;
   }
   return settings->GetMaxNumTokens();
 }
