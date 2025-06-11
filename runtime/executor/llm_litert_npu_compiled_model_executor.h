@@ -108,6 +108,10 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
 
   absl::StatusOr<int> GetVocabSize() override;
 
+  absl::StatusOr<litert::lm::LlmExecutorSettings> GetExecutorSettings()
+      const override {
+    return executor_settings_;
+  };
   // Prints the latency stats for the executor.  Intended to be used for
   // profiling.
   LatencyStats GetLatencyStats() const;
@@ -164,6 +168,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
 
  protected:
   LlmLiteRtNpuCompiledModelExecutor(
+      litert::lm::LlmExecutorSettings executor_settings,
       ModelQuantization model_quantization, EmbedderContext embedder_context,
       NpuAuxiliaryContext npu_auxiliary_context, InferenceContext mask_context,
       InferenceContext rope_context, ::litert::Environment llm_env,
@@ -171,7 +176,8 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
       InferenceContext llm_inference_context,
       InferenceContext cache_update_inference_context,
       ::litert::lm::SortedPrefillSignatureMap prefill_signature_map)
-      : model_quantization_(model_quantization),
+      : executor_settings_(executor_settings),
+        model_quantization_(model_quantization),
         embedder_context_(std::move(embedder_context)),
         npu_auxiliary_context_(std::move(npu_auxiliary_context)),
         mask_context_(std::move(mask_context)),
@@ -326,6 +332,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
       const InferenceContext& mask_inference_context,
       const InferenceContext& cache_update_inference_context);
 
+  litert::lm::LlmExecutorSettings executor_settings_;
   LatencyStats latency_stats_;
   ModelQuantization model_quantization_;
   EmbedderContext embedder_context_;

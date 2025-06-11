@@ -283,6 +283,8 @@ RunStats CreateAndRun(const std::string& prompt) {
   session_config.GetMutableSamplerParams().set_type(
       litert::lm::proto::SamplerParameters::TYPE_UNSPECIFIED);
   session_config.GetMutableStopTokenIds() = {{stop_token_ids}};
+  constexpr int kBeginOfTurnTokenId = 2;
+  session_config.SetStartTokenId(kBeginOfTurnTokenId);
   auto session = litert::lm::SessionBasic::Create(executor_shared, tokenizer,
                                                   session_config, std::nullopt,
                                                   &worker_thread_pool);

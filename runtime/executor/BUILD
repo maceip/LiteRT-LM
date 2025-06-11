@@ -248,6 +248,11 @@ cc_library(
     srcs = ["llm_litert_npu_compiled_model_executor.cc"],
     hdrs = ["llm_litert_npu_compiled_model_executor.h"],
     deps = [
+        ":executor_settings_base",
+        ":litert_compiled_model_executor_utils",
+        ":llm_executor",
+        ":llm_executor_io_types",
+        ":llm_executor_settings",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
@@ -262,10 +267,6 @@ cc_library(
         "@litert//litert/cc:litert_layout",
         "@litert//litert/cc:litert_macros",
         "@litert//litert/cc:litert_model",
-        "//runtime/executor:litert_compiled_model_executor_utils",
-        "//runtime/executor:llm_executor",
-        "//runtime/executor:llm_executor_io_types",
-        "//runtime/executor:llm_executor_settings",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:litert_status_util",
     ] + select({

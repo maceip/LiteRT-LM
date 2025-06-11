@@ -29,8 +29,10 @@
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
+#include "runtime/executor/llm_executor_settings.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/litert_status_util.h"
 #include "runtime/util/status_macros.h"
@@ -941,12 +943,20 @@ LlmLiteRtNpuCompiledModelExecutor::CreateInternalAllQuantized(
   // For now we only support one prefill length in the model.
   SortedPrefillSignatureMap prefill_runner_set;
   prefill_runner_set[kPrefillSize] = kPrefillSignatureRunner;
-
+  // TODO(b/423997573): Support litertlm file format for NPU. Then we can
+  // remove the dummy model path.
+  auto executor_settings =
+      litert::lm::LlmExecutorSettings::CreateDefault(
+          litert::lm::ModelAssets::Create("dummy_model_path").value(),
+          litert::lm::Backend::QNN)
+          .value();
+  executor_settings.SetMaxNumTokens(kPrefillSize);
   return absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
-      ModelQuantization::kAllQuantized, std::move(embedder_context),
-      std::move(npu_auxiliary_context), std::move(mask_context),
-      std::move(rope_context), std::move(env), std::move(lrt_model_llm),
-      std::move(compiled_model_llm), std::move(llm_inference_context),
+      executor_settings, ModelQuantization::kAllQuantized,
+      std::move(embedder_context), std::move(npu_auxiliary_context),
+      std::move(mask_context), std::move(rope_context), std::move(env),
+      std::move(lrt_model_llm), std::move(compiled_model_llm),
+      std::move(llm_inference_context),
       std::move(cache_update_inference_context),
       std::move(prefill_runner_set)));
 }
@@ -1722,9 +1732,16 @@ LlmLiteRtNpuCompiledModelExecutor::CreateInternalGemmaOnlyQuantized(
   // For now we only support one prefill length in the model.
   SortedPrefillSignatureMap prefill_runner_set;
   prefill_runner_set[kPrefillSize] = kPrefillSignatureRunner;
-
+  // TODO(b/423997573): Support litertlm file format for NPU. Then we can
+  // remove the dummy model path.
+  auto executor_settings =
+      litert::lm::LlmExecutorSettings::CreateDefault(
+          litert::lm::ModelAssets::Create("dummy_model_path").value(),
+          litert::lm::Backend::QNN)
+          .value();
+  executor_settings.SetMaxNumTokens(kPrefillSize);
   return absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
-      ModelQuantization::kTransformerStackOnlyQuantized,
+      executor_settings, ModelQuantization::kTransformerStackOnlyQuantized,
       std::move(embedder_context), std::move(npu_auxiliary_context),
       std::move(mask_context), std::move(rope_context), std::move(env),
       std::move(lrt_model_llm), std::move(compiled_model_llm),
