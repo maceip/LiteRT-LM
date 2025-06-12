@@ -51,6 +51,9 @@ constexpr char kLlmMetadataSectionName[] = "llm_metadata";
 ABSL_FLAG(std::string, tokenizer_file, "",
           "The path to the file that contains the SP tokenizer.");
 
+ABSL_FLAG(std::string, hf_tokenizer_json_file, "",
+          "The path to the file that contains the HF tokenizer JSON config.");
+
 ABSL_FLAG(std::string, tflite_file, "", "The path to the TFLite model file.");
 
 ABSL_FLAG(
@@ -80,6 +83,7 @@ namespace {
 using ::litert::lm::proto::LlmMetadata;
 using ::litert::lm::schema::AnySectionDataType;
 using ::litert::lm::schema::AnySectionDataType_GenericBinaryData;
+using ::litert::lm::schema::AnySectionDataType_HF_Tokenizer_Zlib;
 using ::litert::lm::schema::AnySectionDataType_LlmMetadataProto;
 using ::litert::lm::schema::AnySectionDataType_SP_Tokenizer;
 using ::litert::lm::schema::AnySectionDataType_TFLiteModel;
@@ -90,6 +94,7 @@ using ::litert::lm::schema::KVPair;
 using ::litert::lm::schema::MakeLiteRTLMFromSections;
 using ::litert::lm::schema::ProtoBufSectionStream;
 using ::litert::lm::schema::SectionStreamBase;
+using ::litert::lm::schema::ZlibBackendedSectionStream;
 
 // Helper function to parse a single key-value pair.
 absl::Status ParseKeyValuePair(absl::string_view kv_str, std::string& key,
@@ -137,6 +142,8 @@ absl::Status MainHelper(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
 
   std::string tokenizer_file = absl::GetFlag(FLAGS_tokenizer_file);
+  std::string hf_tokenizer_json_file =
+      absl::GetFlag(FLAGS_hf_tokenizer_json_file);
   std::string tflite_file = absl::GetFlag(FLAGS_tflite_file);
   std::string output_path = absl::GetFlag(FLAGS_output_path);
   std::string llm_metadata_file = absl::GetFlag(FLAGS_llm_metadata);
@@ -145,6 +152,8 @@ absl::Status MainHelper(int argc, char** argv) {
   std::string binary_data = absl::GetFlag(FLAGS_binary_data);
 
   ABSL_LOG(INFO) << "tokenizer file is " << tokenizer_file << "\n";
+  ABSL_LOG(INFO) << "hf_tokenizer_json_file is " << hf_tokenizer_json_file
+                 << "\n";
   ABSL_LOG(INFO) << "tflite file is " << tflite_file << "\n";
   ABSL_LOG(INFO) << "output_path is " << output_path << "\n";
   ABSL_LOG(INFO) << "llm_metadata file is " << llm_metadata_file << "\n";
@@ -154,8 +163,9 @@ absl::Status MainHelper(int argc, char** argv) {
   ABSL_LOG(INFO) << "binary_data file is " << binary_data << "\n";
 
   // Enforce that at least one input file flag is specified.
-  if (tokenizer_file.empty() && tflite_file.empty() &&
-      llm_metadata_file.empty() && llm_metadata_text_file.empty()) {
+  if (tokenizer_file.empty() && hf_tokenizer_json_file.empty() &&
+      tflite_file.empty() && llm_metadata_file.empty() &&
+      llm_metadata_text_file.empty()) {
     return absl::InvalidArgumentError(
         "At least one of --tokenizer_file, --tflite_file, --llm_metadata, or "
         "--llm_metadata_text must be provided.");
@@ -178,6 +188,17 @@ absl::Status MainHelper(int argc, char** argv) {
     sections.push_back(std::move(fbs));
     // We only support 1 Tokenizer type right now, SentencePiece.
     section_types.push_back(AnySectionDataType_SP_Tokenizer);
+    section_items_list.push_back(
+        {});  // Add an empty vector, to be populated later
+  }
+
+  if (!hf_tokenizer_json_file.empty()) {
+    std::unique_ptr<SectionStreamBase> base_stream =
+        std::make_unique<FileBackedSectionStream>(hf_tokenizer_json_file);
+    std::unique_ptr<SectionStreamBase> compressed_stream =
+        std::make_unique<ZlibBackendedSectionStream>(std::move(base_stream));
+    sections.push_back(std::move(compressed_stream));
+    section_types.push_back(AnySectionDataType_HF_Tokenizer_Zlib);
     section_items_list.push_back(
         {});  // Add an empty vector, to be populated later
   }

@@ -1,7 +1,10 @@
 #include "schema/core/litertlm_read.h"
 
+#include <zlib.h>
+
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <iosfwd>
@@ -9,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
@@ -17,12 +21,13 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
-#include "runtime/util/status_macros.h" // NOLINT
+#include "runtime/util/status_macros.h"  // NOLINT
 #include "schema/core/litertlm_header.h"
 #include "schema/core/litertlm_header_schema_generated.h"
 #include "schema/core/litertlm_utils.h"
 #include "sentencepiece_processor.h"  // from @sentencepiece
 #include "tflite/model_builder.h"  // from @litert
+#include "zconf.h"  // from @zlib
 
 namespace litert {
 namespace lm {
@@ -271,6 +276,45 @@ absl::Status ReadSectionIntoBinaryData(const std::string& litertlm_path,
   return absl::OkStatus();
 }
 
+absl::Status ReadSectionIntoHfTokenizerJsonData(
+    const std::string& litertlm_path, uint64_t begin_offset,
+    uint64_t end_offset, std::string* output) {
+  std::string full_binary_data;
+  RETURN_IF_ERROR(ReadSectionIntoBinaryData(litertlm_path, begin_offset,
+                                            end_offset, &full_binary_data));
+
+  // The first uint64_t bytes contain the compressed data size. Initialize the
+  // uncompressed buffer.
+  if (full_binary_data.length() < sizeof(uint64_t)) {
+    return absl::InternalError("Data too short to contain compressed size.");
+  }
+  size_t uncompressed_buffer_size;
+  std::memcpy(&uncompressed_buffer_size, full_binary_data.data(),
+              sizeof(uint64_t));
+  std::vector<Bytef> uncompressed_buffer(uncompressed_buffer_size);
+
+  // Decompress the data.
+  int result = uncompress(uncompressed_buffer.data(), &uncompressed_buffer_size,
+                          reinterpret_cast<const Bytef*>(
+                              full_binary_data.data() + sizeof(uint64_t)),
+                          full_binary_data.length() - sizeof(uint64_t));
+  switch (result) {
+    case Z_OK:
+      output->assign(reinterpret_cast<const char*>(uncompressed_buffer.data()),
+                     uncompressed_buffer_size);
+      return absl::OkStatus();
+    case Z_BUF_ERROR:
+      return absl::InternalError("Output buffer was not large enough.");
+    case Z_MEM_ERROR:
+      return absl::InternalError("Not enough memory to decompress.");
+    case Z_DATA_ERROR:
+      return absl::InternalError("Invalid or incomplete compressed data.");
+    default:
+      return absl::InternalError("Unknown decompression error " +
+                                 std::to_string(result));
+  }
+}
+
 absl::Status ReadTFLiteFileFromSection(
     const std::string& litertlm_path, int section_idx,
     std::unique_ptr<tflite::FlatBufferModel>* tflite_model,
@@ -305,6 +349,17 @@ absl::Status ReadSPTokenizerFromSection(
       std::function<absl::Status(const std::string&, uint64_t, uint64_t,
                                  sentencepiece::SentencePieceProcessor*)>(
           ReadSectionIntoSPTokenizer));
+}
+
+absl::Status ReadHfTokenizerJsonFromSection(const std::string& litertlm_path,
+                                            int section_idx,
+                                            std::string* tokenizer_json) {
+  return ReadValueTFromSection<AnySectionDataType_HF_Tokenizer_Zlib,
+                               std::string>(
+      litertlm_path, section_idx, tokenizer_json,
+      std::function<absl::Status(const std::string&, uint64_t, uint64_t,
+                                 std::string*)>(
+          ReadSectionIntoHfTokenizerJsonData));
 }
 
 absl::Status ReadBinaryDataFromSection(const std::string& litertlm_path,
@@ -391,6 +446,14 @@ absl::Status ReadAnyBinaryData(const std::string& litertlm_path,
       litertlm_path, data,
       std::function<absl::Status(const std::string&, int, std::string*)>(
           ReadBinaryDataFromSection));
+}
+
+absl::Status ReadAnyHfTokenizerJson(const std::string& litertlm_path,
+                                    std::string* tokenizer_json) {
+  return ReadAnyT<AnySectionDataType_HF_Tokenizer_Zlib, std::string>(
+      litertlm_path, tokenizer_json,
+      std::function<absl::Status(const std::string&, int, std::string*)>(
+          ReadHfTokenizerJsonFromSection));
 }
 
 }  // namespace schema

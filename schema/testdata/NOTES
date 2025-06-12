@@ -16,3 +16,7 @@ blaze run -c opt //third_party/odml/litert_lm/schema:litertlm_export_main -- \
  --output_path=$PWD/testdata/test_tok_tfl_llm.litertlm \
  --section_metadata="tokenizer:vocab_size=10000,algorithm=bpe;tflite:quantized=true,model_size=1234567;llm_metadata:model=gemma3;binary_data:type=abc"
 
+Remake test_hf_tokenizer.litertlm :
+blaze run -c opt //third_party/odml/litert_lm/schema:litertlm_export_main -- \
+ --hf_tokenizer_json_file=$PWD/testdata//tokenizer.json \
+ --output_path=$PWD/testdata/test_hf_tokenizer.litertlm

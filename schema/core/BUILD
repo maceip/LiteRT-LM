@@ -53,6 +53,7 @@ cc_library(
         "//runtime/util:scoped_file",
         "@sentencepiece//:sentencepiece_processor",
         "@litert//tflite:framework",
+        "@zlib//:zlib",
     ],
 )
 
@@ -67,8 +68,11 @@ cc_test(
         ":litertlm_read",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:str_format",
         "//runtime/proto:llm_metadata_cc_proto",
         "//runtime/util:memory_mapped_file",
+        "//runtime/util:test_utils",
         "@sentencepiece//:sentencepiece_processor",
         "@litert//tflite:framework",
         "@litert//tflite:framework_stable",
@@ -118,6 +122,8 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@flatbuffers",
+        "//runtime/util:litert_status_util",
+        "@zlib//:zlib",
     ],
 )
 

@@ -53,6 +53,7 @@ class LiteRTLMWriteTest : public ::testing::Test {
 TEST_F(LiteRTLMWriteTest, BasicFileCreationAndValidation) {
   // 1. Define paths for temporary input files and the output file.
   const std::string tokenizer_path = temp_dir_path_ + "/tokenizer.spiece";
+  const std::string hf_tokenizer_json_path = temp_dir_path_ + "/tokenizer.json";
   const std::string tflite_model_path = temp_dir_path_ + "/model.tflite";
   const std::string llm_metadata_path = temp_dir_path_ + "/llm_metadata.pbtext";
   const std::string output_litertlm_path = temp_dir_path_ + "/output.litertlm";
@@ -60,6 +61,7 @@ TEST_F(LiteRTLMWriteTest, BasicFileCreationAndValidation) {
 
   // 2. Create dummy input files.
   CreateDummyFile(tokenizer_path, "Dummy SentencePiece Model Content");
+  CreateDummyFile(hf_tokenizer_json_path, "Dummy HF Tokenizer JSON Content");
   CreateDummyFile(tflite_model_path,
                   "Dummy TFLite Model Content. Not a real model.");
   CreateDummyFile(binary_data_path, "Dummy Binary Data Content");
@@ -81,9 +83,11 @@ TEST_F(LiteRTLMWriteTest, BasicFileCreationAndValidation) {
 
   // 3. Prepare arguments for LitertLmWrite.
   const std::vector<std::string> command_args = {
-      tokenizer_path, tflite_model_path, llm_metadata_path, binary_data_path};
+      tokenizer_path, hf_tokenizer_json_path, tflite_model_path,
+      llm_metadata_path, binary_data_path};
   const std::string section_metadata_str =
       "tokenizer:tok_version=1.2,lang=en;"
+      "hf_tokenizer_zlib:;"
       "tflite:model_size=2048,quantized=false;"
       "llm_metadata:author=TestyMcTestface,temperature=0.8;"
       "binary_data:type=abc";
@@ -118,6 +122,8 @@ TEST_F(LiteRTLMWriteTest, BasicFileCreationAndValidation) {
               testing::HasSubstr("AnySectionDataType_LlmMetadataProto"));
   EXPECT_THAT(inspection_str,
               testing::HasSubstr("AnySectionDataType_GenericBinaryData"));
+  EXPECT_THAT(inspection_str,
+              testing::HasSubstr("AnySectionDataType_HF_Tokenizer_Zlib"));
 
   // Check for presence of metadata (adjust based on ProcessLiteRTLMFile's
   // output format). Assuming ProcessLiteRTLMFile prints metadata like "key:

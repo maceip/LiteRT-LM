@@ -1,16 +1,24 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_SCHEMA_CORE_LITERTLM_SECTION_H
 #define THIRD_PARTY_ODML_LITERT_LM_SCHEMA_CORE_LITERTLM_SECTION_H
 
+#include <zlib.h>
+
 #include <cstddef>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "runtime/util/status_macros.h"  // NOLINT
+#include "zconf.h"  // from @zlib
 
 namespace litert {
 namespace lm {
@@ -226,6 +234,100 @@ class ProtoBufSectionStream : public SectionStreamBase {
   std::stringstream stream_;
   bool is_ready_;
   size_t serialized_size_;
+};
+
+class ZlibBackendedSectionStream : public SectionStreamBase {
+ public:
+  explicit ZlibBackendedSectionStream(
+      std::unique_ptr<SectionStreamBase> base_stream)
+      : base_stream_(std::move(base_stream)) {}
+
+  absl::Status Prepare() override {
+    if (is_ready_) {
+      ABSL_LOG(INFO) << "Stream already prepared.";
+      return absl::OkStatus();
+    }
+
+    RETURN_IF_ERROR(base_stream_->Prepare());  // NOLINT
+
+    // Initialize zlib stream structure
+    z_stream strm;
+    strm.zalloc = Z_NULL;
+    strm.zfree = Z_NULL;
+    strm.opaque = Z_NULL;
+    if (deflateInit(&strm, Z_DEFAULT_COMPRESSION) != Z_OK) {
+      return absl::InternalError("Failed to initialize zlib compression.");
+    }
+
+    // Initialize both the compressed and uncompressed data vectors.
+    std::vector<char> uncompressed_data(
+        std::istreambuf_iterator<char>(base_stream_->GetStream()),
+        std::istreambuf_iterator<char>());
+    std::vector<char> compressed_data;
+    compressed_data.resize(deflateBound(&strm, uncompressed_data.size()));
+
+    strm.next_in = reinterpret_cast<Bytef*>(uncompressed_data.data());
+    strm.avail_in = uncompressed_data.size();
+
+    // Compress the data in chunks of 16KB.
+    const size_t kZlibChunkSize = 16 * 1024;
+    int ret;
+    uint64_t compressed_size = 0;
+    do {
+      strm.next_out =
+          reinterpret_cast<Bytef*>(compressed_data.data() + compressed_size);
+      strm.avail_out = kZlibChunkSize;
+
+      ret = deflate(&strm, strm.avail_in == 0 ? Z_FINISH : Z_NO_FLUSH);
+      if (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR) {
+        deflateEnd(&strm);
+        return absl::InternalError("Compression failed with error code: " +
+                                   std::to_string(ret));
+      }
+
+      compressed_size += (kZlibChunkSize - strm.avail_out);
+    } while (ret != Z_STREAM_END);
+    deflateEnd(&strm);
+
+    // Write the uncompressed size
+    uint64_t uncompressed_size = uncompressed_data.size();
+    zlib_stream_.write(reinterpret_cast<const char*>(&uncompressed_size),
+                       sizeof(uncompressed_size));
+    zlib_serialized_size_ += sizeof(uncompressed_size);
+
+    // Write the compressed data
+    zlib_stream_.write(compressed_data.data(), compressed_size);
+    zlib_serialized_size_ += compressed_size;
+
+    is_ready_ = true;
+    return absl::OkStatus();
+  }
+
+  std::istream& GetStream() override { return zlib_stream_; }
+
+  bool IsReady() const override { return !is_ready_; }
+
+  absl::Status Finalize() override {
+    zlib_stream_.str(std::string());
+    zlib_stream_.clear();
+    zlib_serialized_size_ = 0;
+    is_ready_ = false;
+    ABSL_LOG(INFO) << "Zlib section stream finalized.";
+    return absl::OkStatus();
+  }
+
+  size_t BufferSize() const override {
+    if (!is_ready_) {
+      ABSL_LOG(ERROR) << "Attempting to get stream before preparation.";
+    }
+    return zlib_serialized_size_;
+  }
+
+ private:
+  std::unique_ptr<SectionStreamBase> base_stream_;
+  std::stringstream zlib_stream_;
+  size_t zlib_serialized_size_ = 0;
+  bool is_ready_ = false;
 };
 
 }  // end namespace schema

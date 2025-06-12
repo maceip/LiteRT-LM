@@ -149,6 +149,19 @@ absl::Status ReadSPTokenizerFromSection(
 absl::Status ReadAnySPTokenizer(const std::string& litertlm_path,
                                 sentencepiece::SentencePieceProcessor* sp_proc);
 
+// Read a HuggingFace tokenizer JSON config from the specified section in the
+// LiteRT-LM file. Returns InvalidArgumentError if the HF tokenizer JSON is not
+// found in that section.
+absl::Status ReadHfTokenizerJsonFromSection(const std::string& litertlm_path,
+                                            int section_idx,
+                                            std::string* tokenizer_json);
+
+// Read any HuggingFace tokenizer JSON config from the file (convenience
+// function if the caller knows that only 1 HF tokenizer JSON config exists in
+// the LiteRT-LM file).
+absl::Status ReadAnyHfTokenizerJson(const std::string& litertlm_path,
+                                    std::string* tokenizer_json);
+
 // Read binary data from the specified section in the LiteRT-LM file.
 // Returns InvalidArgumentError if binary data is not found in that section.
 absl::Status ReadBinaryDataFromSection(const std::string& litertlm_path,

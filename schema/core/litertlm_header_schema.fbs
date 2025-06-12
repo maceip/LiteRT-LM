@@ -17,6 +17,7 @@
 // The metadata includes information about the system that the LiteRTLM file
 // was generated for, as well as information about the sections of the file.
 
+
 namespace litert.lm.schema;
 
 // Structs for primitive types
@@ -61,8 +62,11 @@ table SystemMetadata {
 
 // Internal bookkeeping Metadata
 
-// An enumeration of all known types, with an option for
-// "other stuff"
+// An enumeration of all known types, with an option for "other stuff".
+//
+// For any changes here, the schema version should be adjusted (pure section
+// additions constitute a minor version bump). Sections cannot be re-ordered and
+// or removed unless the major version is bumped.
 enum AnySectionDataType: ubyte {
   NONE, // Default value if no type is set.
   GenericBinaryData, // For any user-specified/previously unknown data.
@@ -70,6 +74,7 @@ enum AnySectionDataType: ubyte {
   TFLiteModel, // Corresponds to a tflite.Model.
   SP_Tokenizer, // A SentencePiece Tokenizer.
   LlmMetadataProto, // A litert.lm.proto.LlmMetadata Protobuf.
+  HF_Tokenizer_Zlib, // A HuggingFace Tokenizer's JSON config (zlib compressed).
 }
 
 // Section offsets and datatype
@@ -96,3 +101,4 @@ table LiteRTLMMetaData {
 }
 
 root_type LiteRTLMMetaData;
+

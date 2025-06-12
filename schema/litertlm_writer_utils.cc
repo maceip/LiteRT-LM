@@ -9,6 +9,7 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -32,6 +33,7 @@ constexpr char kTokenizerSectionName[] = "tokenizer";
 constexpr char kTfliteSectionName[] = "tflite";
 constexpr char kLlmMetadataSectionName[] = "llm_metadata";
 constexpr char kBinaryDataSectionName[] = "binary_data";
+constexpr char kHfTokenizerZlibSectionName[] = "hf_tokenizer_zlib";
 
 using ::litert::lm::proto::LlmMetadata;
 
@@ -151,6 +153,17 @@ absl::Status LitertLmWrite(const std::vector<std::string>& command_args,
       sections.push_back(std::make_unique<FileBackedSectionStream>(filename));
       section_types.push_back(AnySectionDataType_SP_Tokenizer);
       section_name_order.push_back(kTokenizerSectionName);
+    } else if (extension == ".json") {
+      if (!filename.ends_with("tokenizer.json")) {
+        return absl::InvalidArgumentError(
+            absl::StrCat("Unsupported JSON file: ", filename,
+                         ". Only tokenizer.json is supported."));
+      }
+      auto tokenizer_json = std::make_unique<FileBackedSectionStream>(filename);
+      sections.push_back(std::make_unique<ZlibBackendedSectionStream>(
+          std::move(tokenizer_json)));
+      section_types.push_back(AnySectionDataType_HF_Tokenizer_Zlib);
+      section_name_order.push_back(kHfTokenizerZlibSectionName);
     } else {
       // TODO(b/421217080) Writer should export what happened.
       ABSL_LOG(WARNING) << "Unknown extension for: " << filename

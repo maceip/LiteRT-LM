@@ -3,13 +3,18 @@
 #include <filesystem>  // NOLINT: Required for path manipulation.
 #include <fstream>
 #include <ios>
+#include <iterator>
 #include <memory>
 #include <string>
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
+#include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/str_format.h"  // from @com_google_absl
 #include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/util/memory_mapped_file.h"
+#include "runtime/util/test_utils.h"  // NOLINT
 #include "schema/core/litertlm_header_schema_generated.h"
 #include "sentencepiece_processor.h"  // from @sentencepiece
 #include "tflite/model_builder.h"  // from @litert
@@ -18,6 +23,24 @@ namespace litert {
 namespace lm {
 namespace schema {
 namespace {
+
+absl::StatusOr<std::string> ReadFileToString(const std::string& filename) {
+  const auto input_filename =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/schema/testdata" /
+      filename;
+
+  std::ifstream input_stream(input_filename, std::ios::binary);
+  if (!input_stream.is_open()) {
+    return absl::InternalError(
+        absl::StrFormat("Could not open file: %s", input_filename));
+  }
+
+  std::string content;
+  content.assign((std::istreambuf_iterator<char>(input_stream)),
+                 (std::istreambuf_iterator<char>()));
+  return content;
+}
 
 TEST(LiteRTLMReadTest, HeaderReadFile) {
   const auto input_filename =
@@ -29,7 +52,7 @@ TEST(LiteRTLMReadTest, HeaderReadFile) {
   absl::Status status =
       ReadHeaderFromLiteRTLM(input_filename.string(), &header);
 
-  ASSERT_TRUE(status.ok());
+  ASSERT_OK(status);
   const LiteRTLMMetaData* metadata = header.metadata;
   auto system_metadata = metadata->system_metadata();
   ASSERT_TRUE(!!system_metadata);
@@ -65,7 +88,7 @@ TEST(LiteRTLMReadTest, TokenizerRead) {
   sentencepiece::SentencePieceProcessor sp_proc;
   absl::Status result =
       ReadSPTokenizerFromSection(input_filename.string(), 0, &sp_proc);
-  ASSERT_TRUE(result.ok());
+  ASSERT_OK(result);
 }
 
 TEST(LiteRTLMReadTest, LlmMetadataRead) {
@@ -77,7 +100,7 @@ TEST(LiteRTLMReadTest, LlmMetadataRead) {
   LlmMetadata params;
   absl::Status result =
       ReadLlmMetadataFromSection(input_filename.string(), 2, &params);
-  ASSERT_TRUE(result.ok());
+  ASSERT_OK(result);
 }
 
 TEST(LiteRTLMReadTest, TFLiteRead) {
@@ -89,7 +112,7 @@ TEST(LiteRTLMReadTest, TFLiteRead) {
   std::unique_ptr<MemoryMappedFile> mapped_file;
   absl::Status result = ReadTFLiteFileFromSection(
       input_filename.string(), 1, &model, &mapped_file);
-  ASSERT_TRUE(result.ok());
+  ASSERT_OK(result);
   // Verify that buffer backing TFLite is still valid and reading data works.
   ASSERT_EQ(model->GetModel()->subgraphs()->size(), 1);
 }
@@ -102,7 +125,7 @@ TEST(LiteRTLMReadTest, TFLiteReadBinaryData) {
   std::string data;
   absl::Status result =
       ReadBinaryDataFromSection(input_filename.string(), 3, &data);
-  ASSERT_TRUE(result.ok());
+  ASSERT_OK(result);
   EXPECT_EQ(data, "Dummy Binary Data Content");
 }
 
@@ -115,7 +138,7 @@ TEST(LiteRTLMReadTest, TFLiteReadAny) {
   std::unique_ptr<MemoryMappedFile> mapped_file;
   absl::Status result =
       ReadAnyTFLiteFile(input_filename.string(), &tflite_model, &mapped_file);
-  ASSERT_TRUE(result.ok());
+  ASSERT_OK(result);
 }
 
 TEST(LiteRTLMReadTest, TFLiteRead_InvalidSection) {
@@ -129,6 +152,21 @@ TEST(LiteRTLMReadTest, TFLiteRead_InvalidSection) {
       input_filename.string(), 0, &tflite_model, &mapped_file);
   ASSERT_FALSE(result.ok());
   ASSERT_EQ(result.code(), absl::StatusCode::kInvalidArgument);
+}
+
+TEST(LiteRTLMReadTest, TFLiteRead_HFTokenizer) {
+  const auto input_filename =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/schema/testdata/test_hf_tokenizer.litertlm";
+
+  ASSERT_OK_AND_ASSIGN(std::string expected_tokenizer_json,
+                       ReadFileToString("tokenizer.json"));
+
+  std::string actual_tokenizer_json;
+  absl::Status result =
+      ReadAnyHfTokenizerJson(input_filename.string(), &actual_tokenizer_json);
+  ASSERT_OK(result);
+  EXPECT_EQ(actual_tokenizer_json, expected_tokenizer_json);
 }
 
 }  // namespace

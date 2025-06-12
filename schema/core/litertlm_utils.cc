@@ -22,6 +22,8 @@ std::string AnySectionDataTypeToString(AnySectionDataType value) {
       return "AnySectionDataType_LlmMetadataProto";
     case AnySectionDataType_GenericBinaryData:
       return "AnySectionDataType_GenericBinaryData";
+    case AnySectionDataType_HF_Tokenizer_Zlib:
+      return "AnySectionDataType_HF_Tokenizer_Zlib";
     default:
       // Handle cases for MIN/MAX or potentially invalid values.
       return "Unknown AnySectionDataType value";
