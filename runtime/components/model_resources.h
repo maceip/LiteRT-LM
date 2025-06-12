@@ -36,6 +36,7 @@ enum class ModelType {
   kTfLitePrefillDecode = 1,  // The base model is used for prefill and decode.
   kTfLiteEmbedder = 2,
   kTfLitePerLayerEmbedder = 3,
+  kTfLiteAux = 4,
 };
 
 // Utility function to convert a string to ModelType. It's case insensitive.
@@ -49,6 +50,8 @@ inline absl::StatusOr<ModelType> StringToModelType(
     return ModelType::kTfLiteEmbedder;
   } else if (lower_case_model_type_str == "tf_lite_per_layer_embedder") {
     return ModelType::kTfLitePerLayerEmbedder;
+  } else if (lower_case_model_type_str == "tf_lite_aux") {
+    return ModelType::kTfLiteAux;
   } else {
     return absl::InvalidArgumentError(
         absl::StrCat("Unknown model type: ", model_type_str));
@@ -64,6 +67,8 @@ inline std::string ModelTypeToString(ModelType model_type) {
       return "TF_LITE_EMBEDDER";
     case ModelType::kTfLitePerLayerEmbedder:
       return "TF_LITE_PER_LAYER_EMBEDDER";
+    case ModelType::kTfLiteAux:
+      return "TF_LITE_AUX";
     case ModelType::kUnknown:
       return "UNKNOWN";
     default:
