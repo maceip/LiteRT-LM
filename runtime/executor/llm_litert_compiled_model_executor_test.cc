@@ -70,8 +70,8 @@ TEST(LlmLiteRTCompiledModelExecutorTest, CreateExecutorTest_WithoutCache) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
-  auto executor = LlmLiteRtCompiledModelExecutor::Create(
-      *executor_settings, std::move(model_resources));
+  auto executor = LlmLiteRtCompiledModelExecutor::Create(*executor_settings,
+                                                         *model_resources);
   ASSERT_OK(executor);
   ASSERT_NE(*executor, nullptr);
 }
@@ -98,8 +98,8 @@ TEST(LlmLiteRTCompiledModelExecutorTest, CreateExecutorTest_WithCache) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
-  auto executor = LlmLiteRtCompiledModelExecutor::Create(
-      *executor_settings, std::move(model_resources));
+  auto executor = LlmLiteRtCompiledModelExecutor::Create(*executor_settings,
+                                                         *model_resources);
   ASSERT_OK(executor);
   ASSERT_NE(*executor, nullptr);
 }

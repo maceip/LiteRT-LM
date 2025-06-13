@@ -16,6 +16,8 @@
 
 #include <iostream>
 #include <memory>
+#include <ostream>
+#include <utility>
 #include <variant>
 
 #include "absl/status/status.h"  // from @com_google_absl
@@ -69,9 +71,10 @@ std::ostream& operator<<(std::ostream& os, const LlmExecutorSettings& config) {
   return os;
 }
 
+// static
 absl::StatusOr<LlmExecutorSettings> LlmExecutorSettings::CreateDefault(
-    const ModelAssets& model_assets, Backend backend) {
-  LlmExecutorSettings settings(model_assets);
+    ModelAssets model_assets, Backend backend) {
+  LlmExecutorSettings settings(std::move(model_assets));
   if (backend == Backend::CPU) {
     CpuConfig config;
     config.number_of_threads = 4;
@@ -96,7 +99,7 @@ absl::StatusOr<LlmExecutorSettings> LlmExecutorSettings::CreateDefault(
   settings.SetMaxNumTokens(0);
   // Disable image input by default.
   settings.SetMaxNumImages(0);
-  return settings;
+  return std::move(settings);
 }
 
 }  // namespace litert::lm

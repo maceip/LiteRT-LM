@@ -18,7 +18,7 @@
 namespace litert::lm {
 
 absl::StatusOr<std::unique_ptr<Engine::Session>> InitializeSession(
-    std::shared_ptr<LlmExecutor> executor, std::shared_ptr<Tokenizer> tokenizer,
+    LlmExecutor* executor, Tokenizer* tokenizer,
     const SessionConfig& session_config,
     std::optional<BenchmarkInfo> benchmark_info,
     ThreadPool* absl_nonnull worker_thread_pool) {

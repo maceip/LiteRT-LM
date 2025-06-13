@@ -87,8 +87,8 @@ class EngineImpl : public Engine {
     ABSL_QCHECK_OK(WaitUntilDone(Engine::kDefaultTimeout));
   }
 
-  explicit EngineImpl(const EngineSettings& engine_settings)
-      : engine_settings_(engine_settings) {
+  explicit EngineImpl(EngineSettings engine_settings)
+      : engine_settings_(std::move(engine_settings)) {
     ABSL_LOG(INFO) << "Constructing legacy EngineImpl...";
     if (engine_settings_.IsBenchmarkEnabled()) {
       benchmark_info_ = std::make_optional<BenchmarkInfo>(
@@ -118,14 +118,13 @@ class EngineImpl : public Engine {
     }
     auto metadata_buffer = (*resources)->GetFile("METADATA");
     ABSL_CHECK_OK(metadata_buffer);
-    auto metadata = ExtractOrConvertLlmMetadata(metadata_buffer.value());
-    ABSL_CHECK_OK(metadata);
-    auto llm_metadata = std::make_shared<proto::LlmMetadata>(metadata.value());
+    auto llm_metadata = ExtractOrConvertLlmMetadata(metadata_buffer.value());
+    ABSL_CHECK_OK(llm_metadata);
 
     // Update and load the parameters from the model file and convert the tokens
     // to ids.
     ABSL_CHECK_OK(
-        engine_settings_.MaybeUpdateAndValidate(tokenizer_, llm_metadata));
+        engine_settings_.MaybeUpdateAndValidate(*tokenizer_, &*llm_metadata));
 
     auto executor = BuildExecutor(model_resources_, engine_settings_);
     ABSL_QCHECK_OK(executor);
@@ -162,8 +161,8 @@ class EngineImpl : public Engine {
     // sampler component.
     config.GetMutableSamplerParams().set_type(
         proto::SamplerParameters::TYPE_UNSPECIFIED);
-    return InitializeSession(executor_, tokenizer_, config, benchmark_info_,
-                             worker_thread_pool_.get());
+    return InitializeSession(executor_.get(), tokenizer_.get(), config,
+                             benchmark_info_, worker_thread_pool_.get());
   }
 
   absl::Status WaitUntilDone(absl::Duration timeout) override {
@@ -173,10 +172,10 @@ class EngineImpl : public Engine {
  private:
   // Stored engine settings.
   EngineSettings engine_settings_;
-  // Shared executor for all sessions.
-  std::shared_ptr<LlmExecutor> executor_;
-  // Shared tokenizer for all sessions.
-  std::shared_ptr<Tokenizer> tokenizer_;
+  // Executor for all sessions.
+  std::unique_ptr<LlmExecutor> executor_;
+  // Tokenizer for all sessions.
+  std::unique_ptr<Tokenizer> tokenizer_;
   // Default stop token ids for all sessions loaded from the model file.
   std::vector<std::vector<int>> stop_token_ids_;
 
@@ -191,9 +190,8 @@ class EngineImpl : public Engine {
 
 // Method to create Engine.
 absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
-    const EngineSettings& settings_struct) {
-  auto llm_impl = std::make_unique<EngineImpl>(settings_struct);
-  return llm_impl;
+    EngineSettings settings_struct) {
+  return std::make_unique<EngineImpl>(std::move(settings_struct));
 };
 
 }  // namespace litert::lm

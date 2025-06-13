@@ -28,12 +28,12 @@ constexpr char kTestdataDir[] =
 class SessionBasicTest : public testing::Test {
  protected:
   void SetUp() override {
-    auto tokenizer_or = SentencePieceTokenizer::CreateFromFile(
+    auto tokenizer = SentencePieceTokenizer::CreateFromFile(
         (std::filesystem::path(::testing::SrcDir()) / kTestdataDir /
          "sentencepiece.model")
             .string());
-    ASSERT_OK(tokenizer_or);
-    tokenizer_ = std::move(tokenizer_or.value());
+    ASSERT_OK(tokenizer);
+    tokenizer_ = std::move(*tokenizer);
     // The prefill tokens are the expected tokens that will be passed in at each
     // time the Prefill function is called. The values are the token ids of the
     // input prompt "Hello World!".
@@ -45,7 +45,7 @@ class SessionBasicTest : public testing::Test {
     std::vector<std::vector<int>> decode_tokens = {{224}, {24}, {8},    {66},
                                                    {246}, {18}, {2295}, {2294}};
     executor_ =
-        std::make_shared<FakeLlmExecutor>(2560, prefill_tokens, decode_tokens);
+        std::make_unique<FakeLlmExecutor>(2560, prefill_tokens, decode_tokens);
 
     sampler_params_.set_type(proto::SamplerParameters::TYPE_UNSPECIFIED);
 
@@ -54,8 +54,8 @@ class SessionBasicTest : public testing::Test {
                                                        /*max_num_threads=*/1);
   }
 
-  std::shared_ptr<Tokenizer> tokenizer_;
-  std::shared_ptr<LlmExecutor> executor_;
+  std::unique_ptr<Tokenizer> tokenizer_;
+  std::unique_ptr<LlmExecutor> executor_;
   proto::SamplerParameters sampler_params_;
   std::unique_ptr<ThreadPool> worker_thread_pool_;
 };
@@ -66,9 +66,9 @@ TEST_F(SessionBasicTest, RunPrefill) {
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.GetMutableStopTokenIds() = stop_token_ids;
   session_config.SetStartTokenId(2);
-  auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
-                                      /*benchmark_info=*/std::nullopt,
-                                      worker_thread_pool_.get());
+  auto session = SessionBasic::Create(
+      executor_.get(), tokenizer_.get(), session_config,
+      /*benchmark_info=*/std::nullopt, worker_thread_pool_.get());
   EXPECT_OK((*session)->RunPrefill({InputText("Hello World!")}));
 }
 
@@ -78,8 +78,9 @@ TEST_F(SessionBasicTest, RunDecode) {
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.GetMutableStopTokenIds() = stop_token_ids;
   session_config.SetStartTokenId(2);
-  auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
-                                      std::nullopt, worker_thread_pool_.get());
+  auto session =
+      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+                           std::nullopt, worker_thread_pool_.get());
   EXPECT_OK((*session)->RunPrefill({InputText("Hello World!")}));
   auto responses = (*session)->RunDecode();
   EXPECT_OK(responses);
@@ -103,8 +104,9 @@ TEST_F(SessionBasicTest, RunPrefillAsync) {
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.SetStartTokenId(2);
   session_config.GetMutableStopTokenIds() = stop_token_ids;
-  auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
-                                      std::nullopt, worker_thread_pool_.get());
+  auto session =
+      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+                           std::nullopt, worker_thread_pool_.get());
   TestObserver observer;
   EXPECT_OK(
       (*session)->RunPrefillAsync({InputText("Hello World!")}, &observer));
@@ -118,8 +120,9 @@ TEST_F(SessionBasicTest, RunDecodeAsync) {
   SessionConfig session_config = SessionConfig::CreateDefault();
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.GetMutableStopTokenIds() = stop_token_ids;
-  auto session = SessionBasic::Create(executor_, tokenizer_, session_config,
-                                      std::nullopt, worker_thread_pool_.get());
+  auto session =
+      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+                           std::nullopt, worker_thread_pool_.get());
   TestObserver observer;
   EXPECT_OK(
       (*session)->RunPrefillAsync({InputText("Hello World!")}, &observer));

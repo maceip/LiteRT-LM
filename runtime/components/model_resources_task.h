@@ -17,6 +17,7 @@
 
 #include <memory>
 
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "litert/cc/litert_model.h"  // from @litert
 #include "runtime/components/model_resources.h"
@@ -32,13 +33,10 @@ class ModelResourcesTask : public ModelResources {
   static absl::StatusOr<std::unique_ptr<ModelResources>> Create(
       std::unique_ptr<ModelAssetBundleResources> model_asset_bundle_resources);
 
-  absl::StatusOr<std::shared_ptr<litert::Model>> GetTFLiteModel(
+  absl::StatusOr<const litert::Model*> GetTFLiteModel(
       ModelType model_type) override;
-
-  absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>> GetTokenizer()
-      override;
-
-  absl::StatusOr<std::shared_ptr<proto::LlmMetadata>> GetLlmMetadata() override;
+  absl::StatusOr<SentencePieceTokenizer*> GetTokenizer() override;
+  absl::StatusOr<const proto::LlmMetadata*> GetLlmMetadata() override;
 
  private:
   explicit ModelResourcesTask(
@@ -46,9 +44,9 @@ class ModelResourcesTask : public ModelResources {
       : model_asset_bundle_resources_(std::move(model_asset_bundle_resources)) {
   }
 
-  std::unordered_map<ModelType, std::shared_ptr<litert::Model>> model_map_;
-  std::shared_ptr<SentencePieceTokenizer> tokenizer_;
-  std::shared_ptr<proto::LlmMetadata> llm_metadata_;
+  absl::flat_hash_map<ModelType, std::shared_ptr<litert::Model>> model_map_;
+  std::unique_ptr<SentencePieceTokenizer> tokenizer_;
+  std::unique_ptr<proto::LlmMetadata> llm_metadata_;
 
   // The model asset bundle resources produced by reading task bundle. Not null
   // only when the model is provided through .task format. If the model is

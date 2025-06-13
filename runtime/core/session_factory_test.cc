@@ -1,6 +1,5 @@
 #include "runtime/core/session_factory.h"
 
-#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -12,7 +11,6 @@
 #include "runtime/components/tokenizer.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/executor/fake_llm_executor.h"
-#include "runtime/executor/llm_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
@@ -39,17 +37,15 @@ class FakeTokenizer : public Tokenizer {
 };
 
 TEST(SessionFactoryTest, InitializeSession) {
-  std::shared_ptr<Tokenizer> tokenizer = std::make_shared<FakeTokenizer>();
+  FakeTokenizer tokenizer;
   std::vector<std::vector<int>> stop_token_ids = {{1}, {2}};
   std::vector<std::vector<int>> dummy_tokens = {{0}};
-  std::shared_ptr<LlmExecutor> executor =
-      std::make_shared<FakeLlmExecutor>(256, dummy_tokens,
-                                                      dummy_tokens);
+  FakeLlmExecutor executor(256, dummy_tokens, dummy_tokens);
   SessionConfig session_config = SessionConfig::CreateDefault();
   session_config.GetMutableStopTokenIds() = stop_token_ids;
   ThreadPool worker_thread_pool("testpool", /*max_num_threads=*/1);
   auto session =
-      InitializeSession(executor, tokenizer, session_config,
+      InitializeSession(&executor, &tokenizer, session_config,
                         /*benchmark_info=*/std::nullopt, &worker_thread_pool);
   EXPECT_OK(session);
 }

@@ -48,11 +48,13 @@ absl::StatusOr<std::unique_ptr<ModelResources>> ModelResourcesTask::Create(
   return model_resources;
 }
 
-absl::StatusOr<std::shared_ptr<litert::Model>>
-ModelResourcesTask::GetTFLiteModel(ModelType model_type) {
-  if (model_map_.find(model_type) != model_map_.end()) {
-    return model_map_[model_type];
+absl::StatusOr<const litert::Model*> ModelResourcesTask::GetTFLiteModel(
+    ModelType model_type) {
+  auto it = model_map_.find(model_type);
+  if (it != model_map_.end()) {
+    return it->second.get();
   }
+
   std::string model_file = litert::lm::ModelTypeToString(model_type);
   auto buffer = model_asset_bundle_resources_->GetFile(model_file);
   if (!buffer.ok()) {
@@ -63,37 +65,32 @@ ModelResourcesTask::GetTFLiteModel(ModelType model_type) {
   ABSL_LOG(INFO) << "litert model size: " << buffer->size();
   auto buffer_ref = BufferRef<uint8_t>(buffer->data(), buffer->size());
   LITERT_ASSIGN_OR_RETURN(auto model, Model::CreateFromBuffer(buffer_ref));
-  model_map_[model_type] = std::make_shared<Model>(std::move(model));
-  return model_map_[model_type];
+  model_map_[model_type] = std::make_unique<Model>(std::move(model));
+  return model_map_[model_type].get();
 }
 
-absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>>
-ModelResourcesTask::GetTokenizer() {
-  if (tokenizer_ != nullptr) {
-    return tokenizer_;
+absl::StatusOr<SentencePieceTokenizer*> ModelResourcesTask::GetTokenizer() {
+  if (tokenizer_ == nullptr) {
+    ASSIGN_OR_RETURN(auto string_view,  // NOLINT
+                     model_asset_bundle_resources_->GetFile("TOKENIZER_MODEL"));
+    ASSIGN_OR_RETURN(auto tokenizer,  // NOLINT
+                     SentencePieceTokenizer::CreateFromBuffer(string_view));
+    tokenizer_ = std::move(tokenizer);
   }
-  ASSIGN_OR_RETURN(auto string_view,  // NOLINT
-                   model_asset_bundle_resources_->GetFile("TOKENIZER_MODEL"));
-  ASSIGN_OR_RETURN(auto tokenizer,  // NOLINT
-                   SentencePieceTokenizer::CreateFromBuffer(string_view));
-  tokenizer_ = std::move(tokenizer);
-  return tokenizer_;
+  return tokenizer_.get();
 }
 
-absl::StatusOr<std::shared_ptr<proto::LlmMetadata>>
-ModelResourcesTask::GetLlmMetadata() {
-  if (llm_metadata_ != nullptr) {
-    return llm_metadata_;
+absl::StatusOr<const proto::LlmMetadata*> ModelResourcesTask::GetLlmMetadata() {
+  if (llm_metadata_ == nullptr) {
+    ASSIGN_OR_RETURN(auto string_view,  // NOLINT
+                     model_asset_bundle_resources_->GetFile("METADATA"));
+    ASSIGN_OR_RETURN(auto llm_metadata,  // NOLINT
+                     ExtractOrConvertLlmMetadata(string_view));
+    llm_metadata_ =
+        std::make_unique<proto::LlmMetadata>(std::move(llm_metadata));
+    ABSL_LOG(INFO) << "The llm metadata: " << llm_metadata_->DebugString();
   }
-  ASSIGN_OR_RETURN(auto string_view,  // NOLINT
-                   model_asset_bundle_resources_->GetFile("METADATA"));
-  ASSIGN_OR_RETURN(auto llm_metadata,  // NOLINT
-                   ExtractOrConvertLlmMetadata(string_view));
-
-  llm_metadata_ = std::make_shared<proto::LlmMetadata>(std::move(llm_metadata));
-
-  ABSL_LOG(INFO) << "The llm metadata: " << llm_metadata_->DebugString();
-  return llm_metadata_;
+  return llm_metadata_.get();
 };
 
 }  // namespace litert::lm

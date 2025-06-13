@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
@@ -32,9 +33,11 @@ class EmbeddingLookupText : public EmbeddingLookup {
  public:
   ~EmbeddingLookupText() = default;
 
-  // Creates a EmbeddingLookupText instance.
+  // Creates a EmbeddingLookupText instance. The reference of |model| is kept
+  // in the returned instance, so the caller must ensure that |model| outlives
+  // the returned instance.
   static absl::StatusOr<std::unique_ptr<EmbeddingLookupText>> Create(
-      litert::Model& model);
+      const litert::Model* absl_nonnull model);
 
   // For a given token, looks up the embedding and stores it in the
   // provided vector. The caller is responsible for ensuring that the vector is
@@ -88,8 +91,9 @@ class EmbeddingLookupText : public EmbeddingLookup {
   }
 
  protected:
-  EmbeddingLookupText(litert::Environment env, litert::Model model)
-      : env_(std::move(env)), model_(std::move(model)) {}
+  EmbeddingLookupText(litert::Environment env,
+                      const litert::Model* absl_nonnull model)
+      : env_(std::move(env)), model_(*model) {}
 
   // Loads the provided model. This must be called before Lookup.
   absl::Status Initialize();
@@ -100,8 +104,9 @@ class EmbeddingLookupText : public EmbeddingLookup {
 
   // The environment for the embedding lookup.
   litert::Environment env_;
-  // The model for the embedding lookup.
-  litert::Model model_;
+  // The model for the embedding lookup. The actual model instance is owned by
+  // the model resources.
+  const litert::Model& model_;
   // The compiled model for the embedding model.
   std::optional<litert::CompiledModel> compiled_model_;
 

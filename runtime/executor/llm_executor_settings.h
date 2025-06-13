@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -96,7 +97,7 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
   // Creates a LlmExecutorSettings with default values using the provided
   // ModelAssets.
   static absl::StatusOr<LlmExecutorSettings> CreateDefault(
-      const ModelAssets& model_assets, Backend backend = Backend::CPU);
+      ModelAssets model_assets, Backend backend = Backend::CPU);
 
   // Getter APIs.
   uint32_t GetMaxNumTokens() const { return max_num_tokens_; }
@@ -133,8 +134,8 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
   }
 
  private:
-  explicit LlmExecutorSettings(const ModelAssets& model_assets)
-      : ExecutorSettingsBase(model_assets) {}
+  explicit LlmExecutorSettings(ModelAssets model_assets)
+      : ExecutorSettingsBase(std::move(model_assets)) {}
 
   // Maximum number of the sum of input and output tokens. It is equivalent to
   // the size of the kv-cache.

@@ -83,6 +83,7 @@ cc_library(
     srcs = ["pipeline.cc"],
     hdrs = ["pipeline.h"],
     deps = [
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",

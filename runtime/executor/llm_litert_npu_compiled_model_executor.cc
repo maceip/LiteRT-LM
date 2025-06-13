@@ -788,6 +788,7 @@ LlmLiteRtNpuCompiledModelExecutor::
       std::move(decode_input_buffers), std::move(decode_output_buffers));
 }
 
+// static
 absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
 LlmLiteRtNpuCompiledModelExecutor::CreateInternalAllQuantized(
     const std::string& llm_model, const std::string& embedder_model,
@@ -945,14 +946,14 @@ LlmLiteRtNpuCompiledModelExecutor::CreateInternalAllQuantized(
   prefill_runner_set[kPrefillSize] = kPrefillSignatureRunner;
   // TODO(b/423997573): Support litertlm file format for NPU. Then we can
   // remove the dummy model path.
-  auto executor_settings =
-      litert::lm::LlmExecutorSettings::CreateDefault(
-          litert::lm::ModelAssets::Create("dummy_model_path").value(),
-          litert::lm::Backend::QNN)
-          .value();
+  ASSIGN_OR_RETURN(auto model_assets,
+                   litert::lm::ModelAssets::Create("dummy_model_path"));
+  ASSIGN_OR_RETURN(auto executor_settings,
+                   litert::lm::LlmExecutorSettings::CreateDefault(
+                       std::move(model_assets), litert::lm::Backend::QNN));
   executor_settings.SetMaxNumTokens(kPrefillSize);
   return absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
-      executor_settings, ModelQuantization::kAllQuantized,
+      std::move(executor_settings), ModelQuantization::kAllQuantized,
       std::move(embedder_context), std::move(npu_auxiliary_context),
       std::move(mask_context), std::move(rope_context), std::move(env),
       std::move(lrt_model_llm), std::move(compiled_model_llm),
@@ -1734,14 +1735,15 @@ LlmLiteRtNpuCompiledModelExecutor::CreateInternalGemmaOnlyQuantized(
   prefill_runner_set[kPrefillSize] = kPrefillSignatureRunner;
   // TODO(b/423997573): Support litertlm file format for NPU. Then we can
   // remove the dummy model path.
-  auto executor_settings =
-      litert::lm::LlmExecutorSettings::CreateDefault(
-          litert::lm::ModelAssets::Create("dummy_model_path").value(),
-          litert::lm::Backend::QNN)
-          .value();
+  ASSIGN_OR_RETURN(auto model_assets,
+                   litert::lm::ModelAssets::Create("dummy_model_path"));
+  ASSIGN_OR_RETURN(auto executor_settings,
+                   litert::lm::LlmExecutorSettings::CreateDefault(
+                       std::move(model_assets), litert::lm::Backend::QNN));
   executor_settings.SetMaxNumTokens(kPrefillSize);
   return absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
-      executor_settings, ModelQuantization::kTransformerStackOnlyQuantized,
+      std::move(executor_settings),
+      ModelQuantization::kTransformerStackOnlyQuantized,
       std::move(embedder_context), std::move(npu_auxiliary_context),
       std::move(mask_context), std::move(rope_context), std::move(env),
       std::move(lrt_model_llm), std::move(compiled_model_llm),

@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include "absl/base/log_severity.h"  // from @com_google_absl
 #include "absl/flags/flag.h"  // from @com_google_absl
@@ -136,8 +137,9 @@ absl::Status MainHelper(int argc, char** argv) {
   ABSL_LOG(INFO) << "Choose backend: " << backend_str;
   ASSIGN_OR_RETURN(Backend backend,
                    litert::lm::GetBackendFromString(backend_str));
-  ASSIGN_OR_RETURN(EngineSettings engine_settings,
-                   EngineSettings::CreateDefault(model_assets, backend));
+  ASSIGN_OR_RETURN(
+      EngineSettings engine_settings,
+      EngineSettings::CreateDefault(std::move(model_assets), backend));
   auto session_config = litert::lm::SessionConfig::CreateDefault();
   ABSL_LOG(INFO) << "executor_settings: "
                  << engine_settings.GetMainExecutorSettings();
@@ -152,7 +154,7 @@ absl::Status MainHelper(int argc, char** argv) {
   }
   ABSL_LOG(INFO) << "Creating engine";
   absl::StatusOr<std::unique_ptr<litert::lm::Engine>> llm =
-      litert::lm::Engine::CreateEngine(engine_settings);
+      litert::lm::Engine::CreateEngine(std::move(engine_settings));
   ABSL_CHECK_OK(llm) << "Failed to create engine";
 
   ABSL_LOG(INFO) << "Creating session";

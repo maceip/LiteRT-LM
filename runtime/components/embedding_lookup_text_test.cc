@@ -53,7 +53,7 @@ class EmbeddingLookupTextTest : public testing::Test {
     if (!model_.has_value()) {
       return nullptr;
     }
-    auto status = EmbeddingLookupText::Create(*model_);
+    auto status = EmbeddingLookupText::Create(&*model_);
     if (!status.ok()) {
       return nullptr;
     }

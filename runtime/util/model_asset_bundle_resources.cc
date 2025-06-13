@@ -24,7 +24,7 @@ limitations under the License.
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
-#include "absl/strings/str_format.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/str_join.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/util/memory_mapped_file.h"
@@ -38,7 +38,7 @@ namespace litert::lm {
 absl::StatusOr<std::unique_ptr<ModelAssetBundleResources>>
 ModelAssetBundleResources::Create(
     const std::string& tag,
-    std::shared_ptr<ScopedFile> model_asset_bundle_file){
+    std::shared_ptr<ScopedFile> model_asset_bundle_file) {
   if (!model_asset_bundle_file || !model_asset_bundle_file->IsValid()) {
     return absl::InvalidArgumentError(
         "The model asset bundle file is not valid.");
@@ -58,11 +58,10 @@ ModelAssetBundleResources::Create(
       tag, std::move(mapped_model_asset_bundle_file), std::move(files)));
 }
 
-/* static */
+// static
 absl::StatusOr<std::unique_ptr<ModelAssetBundleResources>>
-ModelAssetBundleResources::Create(
-    const std::string& tag,
-    ScopedFile&& model_asset_bundle_file) {
+ModelAssetBundleResources::Create(const std::string& tag,
+                                  ScopedFile&& model_asset_bundle_file) {
   return Create(
       tag, std::make_shared<ScopedFile>(std::move(model_asset_bundle_file)));
 }
@@ -77,23 +76,19 @@ ModelAssetBundleResources::ModelAssetBundleResources(
       files_(std::move(files)) {}
 
 absl::StatusOr<absl::string_view> ModelAssetBundleResources::GetFile(
-    const std::string& filename) const {
+    absl::string_view filename) const {
   auto it = files_.find(filename);
   if (it != files_.end()) {
     return it->second;
   }
-
-  auto files = ListFiles();
-  std::string all_files = absl::StrJoin(files, ", ");
-
   return absl::NotFoundError(
-      absl::StrFormat("No file with name: %s. All files in the model asset "
-                      "bundle are: %s.",
-                      filename, all_files));
+      absl::StrCat("No file with name: ", filename,
+                   ". All files in the model asset bundle are: ",
+                   absl::StrJoin(ListFiles(), ", ")));
 }
 
-std::vector<std::string> ModelAssetBundleResources::ListFiles() const {
-  std::vector<std::string> file_names;
+std::vector<absl::string_view> ModelAssetBundleResources::ListFiles() const {
+  std::vector<absl::string_view> file_names;
   file_names.reserve(files_.size());
   for (const auto& [file_name, _] : files_) {
     file_names.push_back(file_name);

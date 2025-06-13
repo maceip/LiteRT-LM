@@ -226,10 +226,10 @@ absl::Status EmbeddingLookupText::LookupPrefill(absl::Span<const int> tokens,
 }
 
 absl::StatusOr<std::unique_ptr<EmbeddingLookupText>>
-EmbeddingLookupText::Create(litert::Model& model) {
+EmbeddingLookupText::Create(const litert::Model* model) {
   LITERT_ASSIGN_OR_RETURN(auto env, ::litert::Environment::Create({}));
   auto handler = std::unique_ptr<EmbeddingLookupText>(
-      new EmbeddingLookupText(std::move(env), std::move(model)));
+      new EmbeddingLookupText(std::move(env), model));
   RETURN_IF_ERROR(handler->Initialize());
   return handler;
 }
@@ -238,8 +238,9 @@ absl::Status EmbeddingLookupText::Initialize() {
   LITERT_ASSIGN_OR_RETURN(auto options, Options::Create());
   options.SetHardwareAccelerators(kLiteRtHwAcceleratorCpu);
 
-  LITERT_ASSIGN_OR_RETURN(compiled_model_,
-                          litert::CompiledModel::Create(env_, model_, options));
+  LITERT_ASSIGN_OR_RETURN(
+      compiled_model_,
+      litert::CompiledModel::Create(env_, const_cast<litert::Model&>(model_), options));
 
   LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
 

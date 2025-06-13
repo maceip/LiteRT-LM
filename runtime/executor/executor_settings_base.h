@@ -128,7 +128,7 @@ class ModelAssets {
 
  private:
   explicit ModelAssets(std::shared_ptr<ScopedFile> model_file);
-  explicit ModelAssets(std::string model_path);
+  explicit ModelAssets(absl::string_view model_path);
 
   // TODO: b/417814685 - Consider supporting multiple model files if the need
   // case arises.
@@ -144,6 +144,7 @@ class ExecutorSettingsBase {
  public:
   // Getter APIs.
   const ModelAssets& GetModelAssets() const { return model_assets_; }
+  ModelAssets& GetMutableModelAssets() { return model_assets_; }
 
   // Backend APIs.
   const Backend& GetBackend() const { return backend_; }
@@ -169,7 +170,7 @@ class ExecutorSettingsBase {
   // Prefer to use `GetWeightCacheFile()` if possible.
   const std::string& GetCacheDir() const { return cache_dir_; }
   // Prefer to use `GetWeightCacheFile()` if possible.
-  const std::shared_ptr<litert::lm::ScopedFile>& GetScopedCacheFile() const {
+  std::shared_ptr<litert::lm::ScopedFile> GetScopedCacheFile() const {
     return scoped_cache_file_;
   }
   // Setter APIs.
@@ -179,12 +180,12 @@ class ExecutorSettingsBase {
   }
 
  protected:
-  explicit ExecutorSettingsBase(const ModelAssets& model_assets)
-      : model_assets_(model_assets) {}
+  explicit ExecutorSettingsBase(ModelAssets model_assets)
+      : model_assets_(std::move(model_assets)) {}
 
  private:
   // Path to the LiteRT model file.
-  const ModelAssets model_assets_;
+  ModelAssets model_assets_;
 
   // Directory for saving the weight cache file. If this is set and the
   // backend supports it, the re-arranged weights will be stored in the
@@ -197,7 +198,6 @@ class ExecutorSettingsBase {
   // Open file for writing the weight cache to and later loading cache from.
   // If set, this should be preferred over the `cache_dir_`.
   std::shared_ptr<litert::lm::ScopedFile> scoped_cache_file_;
-
 
   // Optional setting to use LLM executor backend.
   Backend backend_ = Backend::CPU;

@@ -49,8 +49,8 @@ class SessionBasic : public Engine::Session {
   //   the sampler_params.type is TYPE_UNSPECIFIED, the sampling logic will be
   //   handled by the LLM Executor.
   static absl::StatusOr<std::unique_ptr<SessionBasic>> Create(
-      std::shared_ptr<LlmExecutor> executor,
-      std::shared_ptr<Tokenizer> tokenizer, const SessionConfig& session_config,
+      LlmExecutor* absl_nonnull executor, Tokenizer* absl_nonnull tokenizer,
+      const SessionConfig& session_config,
       std::optional<BenchmarkInfo> benchmark_info,
       ThreadPool* absl_nonnull worker_thread_pool);
 
@@ -74,15 +74,15 @@ class SessionBasic : public Engine::Session {
   absl::StatusOr<BenchmarkInfo> GetBenchmarkInfo() override;
 
  private:
-  explicit SessionBasic(std::shared_ptr<LlmExecutor> executor,
-                        std::shared_ptr<Tokenizer> tokenizer,
+  explicit SessionBasic(LlmExecutor* absl_nonnull executor,
+                        Tokenizer* absl_nonnull tokenizer,
                         std::unique_ptr<Sampler> sampler,
                         const SessionConfig& session_config,
                         std::optional<BenchmarkInfo> benchmark_info,
                         ThreadPool* absl_nonnull worker_thread_pool,
                         const StopTokenDetector& stop_token_detector)
-      : executor_(executor),
-        tokenizer_(tokenizer),
+      : executor_(*executor),
+        tokenizer_(*tokenizer),
         sampler_(std::move(sampler)),
         session_config_(session_config),
         benchmark_info_(benchmark_info),
@@ -101,10 +101,10 @@ class SessionBasic : public Engine::Session {
       InferenceObservable* observer = nullptr);
 
   // The executor used for run the LLM for prefill/decode.
-  std::shared_ptr<LlmExecutor> executor_;
+  LlmExecutor& executor_;
 
   // The tokenizer used for converting between text to token ids.
-  std::shared_ptr<Tokenizer> tokenizer_;
+  Tokenizer& tokenizer_;
 
   // The session config used for the session.
   std::unique_ptr<Sampler> sampler_;

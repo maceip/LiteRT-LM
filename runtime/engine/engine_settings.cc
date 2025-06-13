@@ -1,8 +1,8 @@
 #include "runtime/engine/engine_settings.h"
 
-#include <memory>
 #include <optional>
 #include <ostream>
+#include <utility>
 #include <vector>
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -40,30 +40,27 @@ std::ostream& operator<<(std::ostream& os,
 
 }  // namespace
 
+// static
 absl::StatusOr<EngineSettings> EngineSettings::CreateDefault(
-    const ModelAssets& model_assets, Backend backend) {
-  ASSIGN_OR_RETURN(auto executor_settings,  // NOLINT
-                   LlmExecutorSettings::CreateDefault(model_assets, backend));
-  return EngineSettings(executor_settings, std::nullopt);
+    ModelAssets model_assets, Backend backend) {
+  ASSIGN_OR_RETURN(  // NOLINT
+      auto executor_settings,
+      LlmExecutorSettings::CreateDefault(std::move(model_assets), backend));
+  return EngineSettings(std::move(executor_settings), std::nullopt);
 }
 
 absl::Status EngineSettings::MaybeUpdateAndValidate(
-    std::shared_ptr<Tokenizer> tokenizer,
-    std::shared_ptr<proto::LlmMetadata> metadata_from_file) {
-  if (tokenizer == nullptr) {
-    return absl::InvalidArgumentError("Tokenizer is null.");
-  }
-
+    Tokenizer& tokenizer, const proto::LlmMetadata* metadata_from_file) {
   proto::LlmMetadata& metadata = GetMutableLlmMetadata();
   // Copy the metadata from the file if it is provided.
   if (metadata_from_file != nullptr) {
-    metadata.CopyFrom(*metadata_from_file);
+    metadata = *metadata_from_file;
   }
 
   // Convert the start/stop tokens from string to token ids.
   for (auto& stop_token : *metadata.mutable_stop_tokens()) {
     if (stop_token.has_token_str()) {
-      auto stop_token_ids = tokenizer->TextToTokenIds(stop_token.token_str());
+      auto stop_token_ids = tokenizer.TextToTokenIds(stop_token.token_str());
       if (stop_token_ids.ok()) {
         stop_token.mutable_token_ids()->mutable_ids()->Add(
             stop_token_ids->begin(), stop_token_ids->end());
@@ -72,7 +69,7 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
   }
   if (metadata.start_token().has_token_str()) {
     auto start_token_ids =
-        tokenizer->TextToTokenIds(metadata.start_token().token_str());
+        tokenizer.TextToTokenIds(metadata.start_token().token_str());
     if (start_token_ids.ok()) {
       metadata.mutable_start_token()
           ->mutable_token_ids()
@@ -110,14 +107,15 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
 }
 
 EngineSettings::EngineSettings(
-    const LlmExecutorSettings& executor_settings,
+    LlmExecutorSettings executor_settings,
     std::optional<proto::BenchmarkParams> benchmark_params)
-    : main_executor_settings_(executor_settings),
+    : main_executor_settings_(std::move(executor_settings)),
       benchmark_params_(benchmark_params) {}
 
 const LlmExecutorSettings& EngineSettings::GetMainExecutorSettings() const {
   return main_executor_settings_;
 }
+
 LlmExecutorSettings& EngineSettings::GetMutableMainExecutorSettings() {
   return main_executor_settings_;
 }

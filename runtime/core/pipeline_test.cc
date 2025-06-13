@@ -47,12 +47,12 @@ class TestObserver : public InferenceObservable {
 class PipelineTest : public testing::Test {
  protected:
   void SetUp() override {
-    auto tokenizer_or = SentencePieceTokenizer::CreateFromFile(
+    auto tokenizer = SentencePieceTokenizer::CreateFromFile(
         (std::filesystem::path(::testing::SrcDir()) / kTestdataDir /
          "sentencepiece.model")
             .string());
-    ASSERT_OK(tokenizer_or);
-    tokenizer_ = std::move(tokenizer_or.value());
+    ASSERT_OK(tokenizer);
+    tokenizer_ = std::move(*tokenizer);
     // The prefill tokens are the expected tokens that will be passed in at each
     // time the Prefill function is called. The values are the token ids of the
     // input prompt "Hello World!" prepended with the bos token id (2).
@@ -64,12 +64,12 @@ class PipelineTest : public testing::Test {
     std::vector<std::vector<int>> decode_tokens = {{224}, {24}, {8},    {66},
                                                    {246}, {18}, {2295}, {2294}};
     // Vocab size needs to at least be larger than the largest token id 2294.
-    executor_ = std::make_shared<FakeLlmExecutor>(
+    executor_ = std::make_unique<FakeLlmExecutor>(
         /*vocab_size=*/2560, prefill_tokens, decode_tokens);
   }
 
-  std::shared_ptr<Tokenizer> tokenizer_;
-  std::shared_ptr<FakeLlmExecutor> executor_;
+  std::unique_ptr<Tokenizer> tokenizer_;
+  std::unique_ptr<FakeLlmExecutor> executor_;
 };
 
 TEST_F(PipelineTest, PrefillTooLong) {
@@ -78,7 +78,7 @@ TEST_F(PipelineTest, PrefillTooLong) {
   executor_->GetMutableExecutorSettings().value()->SetMaxNumTokens(3);
   std::optional<BenchmarkInfo> benchmark_info;
   auto last_prefill_token_id =
-      Prefill(executor_, tokenizer_, prompt,
+      Prefill(*executor_, *tokenizer_, prompt,
               /*bos_token_id=*/2, /*wait_for_completion=*/true, benchmark_info);
   EXPECT_THAT(last_prefill_token_id,
               StatusIs(absl::StatusCode::kInvalidArgument));
@@ -88,7 +88,7 @@ TEST_F(PipelineTest, PrefillSucceed) {
   const std::string prompt = "Hello World!";
   std::optional<BenchmarkInfo> benchmark_info;
   auto last_prefill_token_id =
-      Prefill(executor_, tokenizer_, prompt,
+      Prefill(*executor_, *tokenizer_, prompt,
               /*bos_token_id=*/2, /*wait_for_completion=*/true, benchmark_info);
   EXPECT_OK(last_prefill_token_id.status());
   EXPECT_EQ(*last_prefill_token_id, 2294);
@@ -99,7 +99,7 @@ TEST_F(PipelineTest, Decode) {
   StopTokenDetector stop_token_detector(1);
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({2294}));
   auto responses =
-      Decode(executor_, tokenizer_, stop_token_detector, benchmark_info);
+      Decode(*executor_, *tokenizer_, stop_token_detector, benchmark_info);
   EXPECT_OK(responses);
   EXPECT_EQ(*(responses->GetResponseTextAt(0)), " How's it going?!");
 }
@@ -111,7 +111,7 @@ TEST_F(PipelineTest, DecodeReachMaxNumTokens) {
   StopTokenDetector stop_token_detector(1);
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({2294}));
   auto responses =
-      Decode(executor_, tokenizer_, stop_token_detector, benchmark_info);
+      Decode(*executor_, *tokenizer_, stop_token_detector, benchmark_info);
   EXPECT_OK(responses);
   // The response is truncated at the max number of tokens.
   EXPECT_EQ(*(responses->GetResponseTextAt(0)), " How's");
@@ -122,7 +122,7 @@ TEST_F(PipelineTest, DecodeStreaming) {
   TestObserver observer(/*num_candidates=*/1);
   StopTokenDetector stop_token_detector(1);
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({2294}));
-  EXPECT_OK(DecodeStreaming(executor_, tokenizer_, stop_token_detector,
+  EXPECT_OK(DecodeStreaming(*executor_, *tokenizer_, stop_token_detector,
                             benchmark_info, &observer));
   EXPECT_EQ(observer.GetResponses()[0], " How's it going?!");
 }
@@ -134,7 +134,7 @@ TEST_F(PipelineTest, DecodeStreamingReachMaxNumTokens) {
   TestObserver observer(/*num_candidates=*/1);
   StopTokenDetector stop_token_detector(1);
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({2294}));
-  EXPECT_OK(DecodeStreaming(executor_, tokenizer_, stop_token_detector,
+  EXPECT_OK(DecodeStreaming(*executor_, *tokenizer_, stop_token_detector,
                             benchmark_info, &observer));
   // The response is truncated at the max number of tokens.
   EXPECT_EQ(observer.GetResponses()[0], " How's");
@@ -143,12 +143,12 @@ TEST_F(PipelineTest, DecodeStreamingReachMaxNumTokens) {
 class PipelineCustomSamplingTest : public testing::Test {
  protected:
   void SetUp() override {
-    auto tokenizer_or = SentencePieceTokenizer::CreateFromFile(
+    auto tokenizer = SentencePieceTokenizer::CreateFromFile(
         (std::filesystem::path(::testing::SrcDir()) / kTestdataDir /
          "sentencepiece.model")
             .string());
-    ASSERT_OK(tokenizer_or);
-    tokenizer_ = std::move(tokenizer_or.value());
+    ASSERT_OK(tokenizer);
+    tokenizer_ = std::move(*tokenizer);
     // The prefill tokens are the expected tokens that will be passed in at each
     // time the Prefill function is called. The values are the token ids of the
     // input prompt "Hello World!" prepended with the bos token id (2).
@@ -162,19 +162,19 @@ class PipelineCustomSamplingTest : public testing::Test {
         {224, 90}, {24, 547},    {8, 58},   {66, 735}, {246, 210},
         {18, 466}, {2295, 2294}, {2294, 0}, {0, 0}};
     // Vocab size needs to at least be larger than the largest token id 2294.
-    executor_ = std::make_shared<FakeLlmExecutor>(
+    executor_ = std::make_unique<FakeLlmExecutor>(
         /*vocab_size=*/2560, prefill_tokens, decode_tokens, /*batch_size=*/2);
   }
 
-  std::shared_ptr<Tokenizer> tokenizer_;
-  std::shared_ptr<FakeLlmExecutor> executor_;
+  std::unique_ptr<Tokenizer> tokenizer_;
+  std::unique_ptr<FakeLlmExecutor> executor_;
 };
 
 TEST_F(PipelineCustomSamplingTest, Prefill) {
   const std::string prompt = "Hello World!";
   std::optional<BenchmarkInfo> benchmark_info;
   auto last_prefill_token_id =
-      Prefill(executor_, tokenizer_, prompt,
+      Prefill(*executor_, *tokenizer_, prompt,
               /*bos_token_id=*/2, /*wait_for_completion=*/true, benchmark_info);
   EXPECT_OK(last_prefill_token_id.status());
   EXPECT_EQ(*last_prefill_token_id, 2294);
@@ -186,7 +186,7 @@ TEST_F(PipelineCustomSamplingTest, PrefillTooLong) {
   const std::string prompt = "Hello World!";
   std::optional<BenchmarkInfo> benchmark_info;
   auto last_prefill_token_id =
-      Prefill(executor_, tokenizer_, prompt,
+      Prefill(*executor_, *tokenizer_, prompt,
               /*bos_token_id=*/2, /*wait_for_completion=*/true, benchmark_info);
   EXPECT_THAT(last_prefill_token_id,
               StatusIs(absl::StatusCode::kInvalidArgument));
@@ -203,7 +203,7 @@ TEST_F(PipelineCustomSamplingTest, DecodeCustomSampling) {
   StopTokenDetector stop_token_detector(2);
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({0}));
   auto responses = DecodeCustomSampling(
-      executor_, tokenizer_, stop_token_detector,
+      *executor_, *tokenizer_, stop_token_detector,
       /*num_output_candidates=*/2, *sampler, *decoded_ids, benchmark_info);
   EXPECT_OK(responses);
   EXPECT_EQ(responses->GetNumOutputCandidates(), 2);
@@ -230,7 +230,7 @@ TEST_F(PipelineCustomSamplingTest, DecodeCustomSamplingReachMaxNumTokens) {
   StopTokenDetector stop_token_detector(2);
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({0}));
   auto responses = DecodeCustomSampling(
-      executor_, tokenizer_, stop_token_detector,
+      *executor_, *tokenizer_, stop_token_detector,
       /*num_output_candidates=*/2, *sampler, *decoded_ids, benchmark_info);
   EXPECT_OK(responses);
   EXPECT_EQ(responses->GetNumOutputCandidates(), 2);
@@ -252,10 +252,10 @@ TEST_F(PipelineCustomSamplingTest, DecodeCustomSamplingStreaming) {
 
   StopTokenDetector stop_token_detector(2);
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({0}));
-  EXPECT_OK(
-      DecodeCustomSamplingStreaming(executor_, tokenizer_, stop_token_detector,
-                                    /*num_output_candidates=*/2, *sampler,
-                                    *decoded_ids, benchmark_info, &observer));
+  EXPECT_OK(DecodeCustomSamplingStreaming(
+      *executor_, *tokenizer_, stop_token_detector,
+      /*num_output_candidates=*/2, *sampler, *decoded_ids, benchmark_info,
+      &observer));
   // First candidate: " How's it going?!".
   EXPECT_EQ(observer.GetResponses()[0], " How's it going?!");
   // Second candidate: " Hello World!".
@@ -277,10 +277,10 @@ TEST_F(PipelineCustomSamplingTest,
 
   StopTokenDetector stop_token_detector(2);
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({0}));
-  EXPECT_OK(
-      DecodeCustomSamplingStreaming(executor_, tokenizer_, stop_token_detector,
-                                    /*num_output_candidates=*/2, *sampler,
-                                    *decoded_ids, benchmark_info, &observer));
+  EXPECT_OK(DecodeCustomSamplingStreaming(
+      *executor_, *tokenizer_, stop_token_detector,
+      /*num_output_candidates=*/2, *sampler, *decoded_ids, benchmark_info,
+      &observer));
   // First candidate truncated at max number of tokens: " How's".
   EXPECT_EQ(observer.GetResponses()[0], " How's");
   // Second candidate truncated at max number of tokens: " Hello".

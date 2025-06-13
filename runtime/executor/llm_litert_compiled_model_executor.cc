@@ -588,11 +588,10 @@ absl::StatusOr<int> LlmLiteRtCompiledModelExecutor::GetVocabSize() {
 // static
 // Creates a LlmLiteRtCompiledModelExecutor from a LiteRt model.
 absl::StatusOr<std::unique_ptr<LlmLiteRtCompiledModelExecutor>>
-LlmLiteRtCompiledModelExecutor::Create(
-    const LlmExecutorSettings& executor_settings,
-    const std::unique_ptr<ModelResources>& resources) {
+LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
+                                       ModelResources& resources) {
   ASSIGN_OR_RETURN(auto litert_model,
-                   resources->GetTFLiteModel(ModelType::kTfLitePrefillDecode));
+                   resources.GetTFLiteModel(ModelType::kTfLitePrefillDecode));
   // For the LlmLiteRtCompiledModelExecutor, ML_DRIFT backend is used by
   // default.
   // TODO(b/405424188): - Add support for NPU backends.
@@ -675,11 +674,11 @@ LlmLiteRtCompiledModelExecutor::Create(
         "Failed to create litert environment: ", lrt_env.Error().Message()));
   }
 
-  if (!litert_model) {
+  if (!litert_model || !*litert_model) {
     return absl::InternalError("Failed to build LiteRt model");
   }
   auto compiled_model = ::litert::CompiledModel::Create(
-      *lrt_env, *litert_model, std::move(*compilation_options));
+      *lrt_env, *const_cast<litert::Model*>(litert_model), std::move(*compilation_options));
   if (!compiled_model) {
     return absl::InternalError(absl::StrCat("Failed to create compiled model: ",
                                             compiled_model.Error().Message()));
@@ -808,24 +807,23 @@ LlmLiteRtCompiledModelExecutor::Create(
 
   // Create embedding lookups from the resources.
   std::unique_ptr<EmbeddingLookupText> embedding_lookup;
-  auto embedder_model = resources->GetTFLiteModel(ModelType::kTfLiteEmbedder);
+  auto embedder_model = resources.GetTFLiteModel(ModelType::kTfLiteEmbedder);
   if (embedder_model.ok()) {
     ASSIGN_OR_RETURN(embedding_lookup,  // NOLINT
-                     EmbeddingLookupText::Create(*embedder_model.value()));
+                     EmbeddingLookupText::Create(*embedder_model));
   }
 
   // Create per layer embedding lookups from the resources.
   std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup;
   auto per_layer_embedder_model =
-      resources->GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder);
+      resources.GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder);
   if (per_layer_embedder_model.ok()) {
-    ASSIGN_OR_RETURN(  // NOLINT
-        per_layer_embedding_lookup,
-        EmbeddingLookupText::Create(*per_layer_embedder_model.value()));
+    ASSIGN_OR_RETURN(per_layer_embedding_lookup,  // NOLINT
+                     EmbeddingLookupText::Create(*per_layer_embedder_model));
   }
 
   return absl::WrapUnique(new LlmLiteRtCompiledModelExecutor(
-      executor_settings, std::move(*lrt_env), std::move(*litert_model),
+      std::move(executor_settings), std::move(*lrt_env), litert_model,
       std::move(*compiled_model), std::move(prefill_input_buffers),
       std::move(prefill_output_buffers), std::move(decode_input_buffers),
       std::move(decode_output_buffers), std::move(input_kv_cache_buffers),

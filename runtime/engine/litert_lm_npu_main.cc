@@ -232,20 +232,18 @@ struct RunStats {
 
 RunStats CreateAndRun(const std::string& prompt) {
   // Create the tokenizer.
-  auto tokenizer_or = litert::lm::SentencePieceTokenizer::CreateFromFile(
+  auto tokenizer = litert::lm::SentencePieceTokenizer::CreateFromFile(
       absl::GetFlag(FLAGS_tokenizer_path));
-  if (tokenizer_or.ok()) {
+  if (tokenizer.ok()) {
     ABSL_LOG(INFO) << "tokenizer created successfully";
   } else {
-    ABSL_LOG(ERROR) << "tokenizer creation failed: " << tokenizer_or.status();
+    ABSL_LOG(FATAL) << "tokenizer creation failed: " << tokenizer.status();
   }
-  std::shared_ptr<litert::lm::Tokenizer> tokenizer =
-      std::move(tokenizer_or.value());
 
   // Create the executor.
   auto start = absl::Now();
   ABSL_LOG(INFO) << "Creating executor";
-  auto executor_or = odml::infra::LlmLiteRtNpuCompiledModelExecutor::Create(
+  auto executor = odml::infra::LlmLiteRtNpuCompiledModelExecutor::Create(
       GetQuantizationSchema(), absl::GetFlag(FLAGS_gemma3_path),
       absl::GetFlag(FLAGS_embedder_path), absl::GetFlag(FLAGS_auxiliary_path),
       absl::GetFlag(FLAGS_litert_dispatch_lib_path));
@@ -254,15 +252,11 @@ RunStats CreateAndRun(const std::string& prompt) {
   int64_t executor_creation_latency_us = absl::ToInt64Microseconds(end - start);
   ABSL_LOG(INFO) << "executor creation took " << executor_creation_latency_us
                  << " us";
-  if (executor_or.ok()) {
+  if (executor.ok()) {
     ABSL_LOG(INFO) << "executor created successfully";
   } else {
-    ABSL_LOG(ERROR) << "executor creation failed: " << executor_or.status();
+    ABSL_LOG(FATAL) << "executor creation failed: " << executor.status();
   }
-  std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor> executor =
-      std::move(executor_or.value());
-  std::shared_ptr<LlmLiteRtNpuCompiledModelExecutor> executor_shared =
-      std::move(executor);
 
   ThreadPool worker_thread_pool(/*name_prefix=*/"engine",
                                 /*max_num_threads=*/1);
@@ -285,9 +279,9 @@ RunStats CreateAndRun(const std::string& prompt) {
   session_config.GetMutableStopTokenIds() = {{stop_token_ids}};
   constexpr int kBeginOfTurnTokenId = 2;
   session_config.SetStartTokenId(kBeginOfTurnTokenId);
-  auto session = litert::lm::SessionBasic::Create(executor_shared, tokenizer,
-                                                  session_config, std::nullopt,
-                                                  &worker_thread_pool);
+  auto session = litert::lm::SessionBasic::Create(
+      executor->get(), tokenizer->get(), session_config, std::nullopt,
+      &worker_thread_pool);
 
   // Run the session.
   ABSL_LOG(INFO) << "Prompt: " << prompt;
@@ -313,7 +307,7 @@ RunStats CreateAndRun(const std::string& prompt) {
   }
 
   LlmLiteRtNpuCompiledModelExecutor::LatencyStats latency_stats =
-      executor_shared->GetLatencyStats();
+      (*executor)->GetLatencyStats();
   PrintLatencyStats(latency_stats);
 
   return RunStats{.executor_creation_latency_us = executor_creation_latency_us,

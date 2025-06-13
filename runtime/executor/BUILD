@@ -50,7 +50,7 @@ cc_library(
     srcs = ["litert_compiled_model_executor_utils.cc"],
     hdrs = ["litert_compiled_model_executor_utils.h"],
     deps = [
-        ":llm_executor_settings",
+        ":executor_settings_base",
         "@com_google_absl//absl/container:btree",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:absl_check",
@@ -107,6 +107,7 @@ cc_library(
         ":llm_executor",
         ":llm_executor_io_types",
         ":llm_executor_settings",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",

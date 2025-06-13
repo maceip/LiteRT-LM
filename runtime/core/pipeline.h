@@ -41,8 +41,7 @@ namespace litert::lm {
 //   the next decode process to determine the token id to start from.
 // - wait_for_completion: If true, wait for the prefill to complete before
 //   returning.
-absl::StatusOr<int> Prefill(std::shared_ptr<LlmExecutor> executor,
-                            std::shared_ptr<Tokenizer> tokenizer,
+absl::StatusOr<int> Prefill(LlmExecutor& executor, Tokenizer& tokenizer,
                             absl::string_view prompt, int bos_token_id,
                             bool wait_for_completion,
                             std::optional<BenchmarkInfo>& benchmark_info);
@@ -54,8 +53,7 @@ absl::StatusOr<int> Prefill(std::shared_ptr<LlmExecutor> executor,
 // - benchmark_info: The benchmark info to record the performance metrics.
 // TODO(b/397975034): support batched output and update the logic to avoid
 // detokenizing the stop tokens.
-absl::StatusOr<Responses> Decode(std::shared_ptr<LlmExecutor> executor,
-                                 std::shared_ptr<Tokenizer> tokenizer,
+absl::StatusOr<Responses> Decode(LlmExecutor& executor, Tokenizer& tokenizer,
                                  const StopTokenDetector& stop_token_detector,
                                  std::optional<BenchmarkInfo>& benchmark_info);
 
@@ -63,8 +61,7 @@ absl::StatusOr<Responses> Decode(std::shared_ptr<LlmExecutor> executor,
 // Decode, but it outputs the result using the observer to achieve streaming
 // behavior.
 // - observer: The inference observer to receive the intermediate results.
-absl::Status DecodeStreaming(std::shared_ptr<LlmExecutor> executor,
-                             std::shared_ptr<Tokenizer> tokenizer,
+absl::Status DecodeStreaming(LlmExecutor& executor, Tokenizer& tokenizer,
                              const StopTokenDetector& stop_token_detector,
                              std::optional<BenchmarkInfo>& benchmark_info,
                              InferenceObservable* observer);
@@ -78,7 +75,7 @@ absl::Status DecodeStreaming(std::shared_ptr<LlmExecutor> executor,
 // - decoded_ids: The decoded token ids from the external sampling process.
 // - benchmark_info: The benchmark info to record the performance metrics.
 absl::StatusOr<Responses> DecodeCustomSampling(
-    std::shared_ptr<LlmExecutor> executor, std::shared_ptr<Tokenizer> tokenizer,
+    LlmExecutor& executor, Tokenizer& tokenizer,
     const StopTokenDetector& stop_token_detector, int num_output_candidates,
     Sampler& sampler, litert::TensorBuffer& decoded_ids,
     std::optional<BenchmarkInfo>& benchmark_info);
@@ -88,7 +85,7 @@ absl::StatusOr<Responses> DecodeCustomSampling(
 // streaming behavior.
 // - observer: The inference observer to receive the intermediate results.
 absl::Status DecodeCustomSamplingStreaming(
-    std::shared_ptr<LlmExecutor> executor, std::shared_ptr<Tokenizer> tokenizer,
+    LlmExecutor& executor, Tokenizer& tokenizer,
     const StopTokenDetector& stop_token_detector, int num_output_candidates,
     Sampler& sampler, litert::TensorBuffer& decoded_ids,
     std::optional<BenchmarkInfo>& benchmark_info,

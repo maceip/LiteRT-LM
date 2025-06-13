@@ -29,7 +29,7 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/model_resources.h"
-#include "runtime/executor/llm_executor_settings.h"
+#include "runtime/executor/executor_settings_base.h"
 
 namespace litert::lm {
 
@@ -84,7 +84,7 @@ absl::StatusOr<ModelSignatures> GetModelSignaturesFromInputOutputNames(
 // input_tokens_name is the name of the input tokens signature, e.g. "token_ids"
 // for Gemma2 JAX and "tokens" for Gemma2 PyTorch.
 absl::StatusOr<SortedPrefillSignatureMap> GetPrefillRunnerSetFromModel(
-    ::litert::Model& model, const std::string& signature_name_base,
+    const ::litert::Model& model, const std::string& signature_name_base,
     const std::string& input_positions_name);
 
 // Get a list of prefill work groups, each of which contains the signature

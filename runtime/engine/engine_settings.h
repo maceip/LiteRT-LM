@@ -1,11 +1,11 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_SETTINGS_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_SETTINGS_H_
 
-#include <memory>
 #include <optional>
 #include <ostream>
 #include <vector>
 
+#include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
@@ -54,14 +54,14 @@ class EngineSettings {
   // Creates a default EngineSettings with the given model assets and specified
   // backend.
   static absl::StatusOr<EngineSettings> CreateDefault(
-      const ModelAssets& model_assets, Backend backend = Backend::CPU);
+      ModelAssets model_assets, Backend backend = Backend::CPU);
 
   // Updates the EngineSettings fields by loading the metadata from the model
   // assets. The function also validates to check if all of the required fields
   // are set correctly. Returns an error if the validation fails.
   absl::Status MaybeUpdateAndValidate(
-      std::shared_ptr<Tokenizer> tokenizer,
-      std::shared_ptr<proto::LlmMetadata> metadata_from_file);
+      Tokenizer& tokenizer,
+      const proto::LlmMetadata* absl_nullable metadata_from_file);
 
   // Returns the LlmExecutorSettings.
   const LlmExecutorSettings& GetMainExecutorSettings() const;
@@ -85,7 +85,7 @@ class EngineSettings {
 
  private:
   explicit EngineSettings(
-      const LlmExecutorSettings& executor_settings,
+      LlmExecutorSettings executor_settings,
       std::optional<proto::BenchmarkParams> benchmark_params = std::nullopt);
 
   // Settings for the main executor.

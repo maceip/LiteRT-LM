@@ -19,7 +19,7 @@
 
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
-#include "runtime/executor/llm_executor_settings.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/util/scoped_file.h"
 
 namespace litert::lm {

@@ -23,7 +23,7 @@ using ::testing::ElementsAre;
 using ::testing::Eq;
 using ::testing::ContainsRegex;
 
-std::shared_ptr<proto::LlmMetadata> CreateLlmMetadata() {
+proto::LlmMetadata CreateLlmMetadata() {
   proto::LlmMetadata llm_metadata;
   llm_metadata.mutable_start_token()->mutable_token_ids()->add_ids(2);
   llm_metadata.mutable_stop_tokens()->Add()->set_token_str("<eos>");
@@ -35,7 +35,7 @@ std::shared_ptr<proto::LlmMetadata> CreateLlmMetadata() {
   llm_metadata.mutable_sampler_params()->set_p(0.95f);
   llm_metadata.mutable_sampler_params()->set_temperature(1.0f);
   llm_metadata.mutable_sampler_params()->set_seed(0);
-  return std::make_shared<proto::LlmMetadata>(llm_metadata);
+  return llm_metadata;
 }
 
 TEST(EngineSettingsTest, GetModelPath) {
@@ -177,10 +177,10 @@ TEST(EngineSettingsTest, MaybeUpdateAndValidate) {
   auto settings = EngineSettings::CreateDefault(*model_assets);
   EXPECT_OK(settings);
 
-  std::shared_ptr<Tokenizer> tokenizer = std::make_shared<FakeTokenizer>();
-  std::shared_ptr<proto::LlmMetadata> llm_metadata = CreateLlmMetadata();
+  FakeTokenizer tokenizer;
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
-  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, llm_metadata));
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
   EXPECT_OK(IsExpectedLlmMetadata(settings->GetLlmMetadata().value()));
 }
 
@@ -190,10 +190,10 @@ TEST(EngineSettingsTest, MaybeUpdateAndValidateQNN) {
   auto settings = EngineSettings::CreateDefault(*model_assets, Backend::QNN);
   EXPECT_OK(settings);
 
-  std::shared_ptr<Tokenizer> tokenizer = std::make_shared<FakeTokenizer>();
-  std::shared_ptr<proto::LlmMetadata> llm_metadata = CreateLlmMetadata();
+  FakeTokenizer tokenizer;
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
-  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, llm_metadata));
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
   EXPECT_EQ(settings->GetLlmMetadata().value().sampler_params().type(),
             proto::SamplerParameters::TOP_P);
 }
@@ -269,10 +269,10 @@ TEST(SessionConfigTest, MaybeUpdateAndValidate) {
   EXPECT_THAT(session_config.MaybeUpdateAndValidate(*settings),
               testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
 
-  std::shared_ptr<Tokenizer> tokenizer = std::make_shared<FakeTokenizer>();
-  std::shared_ptr<proto::LlmMetadata> llm_metadata = CreateLlmMetadata();
+  FakeTokenizer tokenizer;
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
-  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, llm_metadata));
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
   // The validation should pass now.
   EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
 }

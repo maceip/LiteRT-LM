@@ -24,7 +24,6 @@
 #include <utility>
 #include <vector>
 
-#include "absl/container/flat_hash_set.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -37,7 +36,7 @@
 #include "runtime/components/model_resources.h"
 #include "runtime/components/model_resources_litert_lm.h"
 #include "runtime/components/model_resources_task.h"
-#include "runtime/executor/llm_executor_settings.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/util/file_format_util.h"
 #include "runtime/util/litert_lm_loader.h"
 #include "runtime/util/model_asset_bundle_resources.h"
@@ -172,13 +171,12 @@ bool IsExternalEmbeddingModel(
 
 absl::StatusOr<std::unique_ptr<ModelResources>>
 BuildModelResourcesFromTaskFormat(std::shared_ptr<ScopedFile> model_file) {
-  ASSIGN_OR_RETURN(auto resources, ModelAssetBundleResources::Create(  // NOLINT
-                                       /*tag=*/"", std::move(model_file)));
+  ASSIGN_OR_RETURN(auto resources,  // NOLINT
+                   ModelAssetBundleResources::Create(/*tag=*/"", model_file));
 
-  const std::vector<std::string>& files_list = resources->ListFiles();
-  const absl::flat_hash_set<std::string> files_set(files_list.begin(),
-                                                   files_list.end());
-  RET_CHECK(files_set.contains(kPrefilDecodeModelNameInTaskBundle))  // NOLINT
+  auto files_list = resources->ListFiles();
+  RET_CHECK(std::find(files_list.begin(), files_list.end(),  // NOLINT
+                      kPrefilDecodeModelNameInTaskBundle) != files_list.end())
       << kPrefilDecodeModelNameInTaskBundle
       << " model file not found in task bundle.";
   ASSIGN_OR_RETURN(absl::string_view buffer,  // NOLINT
@@ -262,7 +260,7 @@ absl::StatusOr<ModelSignatures> GetModelSignaturesFromInputOutputNames(
 }
 
 absl::StatusOr<SortedPrefillSignatureMap> GetPrefillRunnerSetFromModel(
-    ::litert::Model& model, const std::string& signature_name_base,
+    const ::litert::Model& model, const std::string& signature_name_base,
     const std::string& input_positions_name) {
   SortedPrefillSignatureMap prefill_runner_set;
   auto signatures = model.GetSignatures();

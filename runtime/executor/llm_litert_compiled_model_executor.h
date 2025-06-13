@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
@@ -48,8 +49,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
  public:
   // Creates a LlmLiteRtCompiledModelExecutor from a LiteRt model.
   static absl::StatusOr<std::unique_ptr<LlmLiteRtCompiledModelExecutor>> Create(
-      const LlmExecutorSettings& executor_settings,
-      const std::unique_ptr<ModelResources>& resources);
+      LlmExecutorSettings executor_settings, ModelResources& resources);
 
   // Input APIs:
   // Basic API to trigger the "prefill" or "prefix" process.
@@ -103,8 +103,9 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
 
  protected:
   LlmLiteRtCompiledModelExecutor(
-      const LlmExecutorSettings& executor_settings, ::litert::Environment env,
-      ::litert::Model model, ::litert::CompiledModel compiled_model,
+      LlmExecutorSettings executor_settings, ::litert::Environment env,
+      const ::litert::Model* absl_nonnull model,
+      ::litert::CompiledModel compiled_model,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
           prefill_input_buffers,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
@@ -121,9 +122,9 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
       ModelSignatures signatures, int batch_size, std::string weight_cache_path,
       std::unique_ptr<EmbeddingLookupText> embedding_lookup = nullptr,
       std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup = nullptr)
-      : executor_settings_(executor_settings),
+      : executor_settings_(std::move(executor_settings)),
         env_(std::move(env)),
-        model_(std::move(model)),
+        model_(*model),
         compiled_model_(std::move(compiled_model)),
         prefill_input_buffers_(std::move(prefill_input_buffers)),
         prefill_output_buffers_(std::move(prefill_output_buffers)),
@@ -156,7 +157,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
 
   LlmExecutorSettings executor_settings_;
   ::litert::Environment env_;
-  ::litert::Model model_;
+  const ::litert::Model& model_;
   ::litert::CompiledModel compiled_model_;
   absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
       prefill_input_buffers_;

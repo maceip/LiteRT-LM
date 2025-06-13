@@ -32,7 +32,7 @@ namespace litert::lm {
 
 // static
 absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
-    std::shared_ptr<LlmExecutor> executor, std::shared_ptr<Tokenizer> tokenizer,
+    LlmExecutor* executor, Tokenizer* tokenizer,
     const SessionConfig& session_config,
     std::optional<BenchmarkInfo> benchmark_info,
     ThreadPool* worker_thread_pool) {
@@ -65,7 +65,7 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
 }
 
 SessionBasic::~SessionBasic() {
-  auto status = executor_->Reset();
+  auto status = executor_.Reset();
   if (!status.ok()) {
     ABSL_LOG(ERROR) << "Failed to reset executor: " << status;
   }

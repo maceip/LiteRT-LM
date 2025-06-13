@@ -21,6 +21,7 @@
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
@@ -39,42 +40,44 @@ absl::StatusOr<std::unique_ptr<ModelResources>> ModelResourcesLitertLm::Create(
       new ModelResourcesLitertLm(std::move(litert_lm_loader)));
 };
 
-absl::StatusOr<std::shared_ptr<litert::Model>>
-ModelResourcesLitertLm::GetTFLiteModel(ModelType model_type) {
-  if (model_map_.find(model_type) != model_map_.end()) {
-    return model_map_[model_type];
+absl::StatusOr<const litert::Model*> ModelResourcesLitertLm::GetTFLiteModel(
+    ModelType model_type) {
+  auto it = model_map_.find(model_type);
+  if (it != model_map_.end()) {
+    return it->second.get();
   }
+
   litert::BufferRef<uint8_t> buffer_ref =
       litert_lm_loader_->GetTFLiteModel(model_type);
   ABSL_LOG(INFO) << "model_type: " << ModelTypeToString(model_type);
   ABSL_LOG(INFO) << "litert model size: " << buffer_ref.Size();
   LITERT_ASSIGN_OR_RETURN(auto model, Model::CreateFromBuffer(buffer_ref));
-  model_map_[model_type] = std::make_shared<litert::Model>(std::move(model));
-  return model_map_[model_type];
+  model_map_[model_type] = std::make_unique<litert::Model>(std::move(model));
+  return model_map_[model_type].get();
 }
 
-absl::StatusOr<std::shared_ptr<SentencePieceTokenizer>>
-ModelResourcesLitertLm::GetTokenizer() {
-  if (tokenizer_ != nullptr) {
-    return tokenizer_;
+absl::StatusOr<SentencePieceTokenizer*> ModelResourcesLitertLm::GetTokenizer() {
+  if (tokenizer_ == nullptr) {
+    auto buffer_ref = litert_lm_loader_->GetTokenizer();
+    ASSIGN_OR_RETURN(  // NOLINT
+        auto tokenizer,
+        SentencePieceTokenizer::CreateFromBuffer(buffer_ref.StrView()));
+    tokenizer_ = std::move(tokenizer);
   }
-  auto buffer_ref = litert_lm_loader_->GetTokenizer();
-  ASSIGN_OR_RETURN(  // NOLINT
-      auto tokenizer,
-      SentencePieceTokenizer::CreateFromBuffer(buffer_ref.StrView()));
-  tokenizer_ = (std::move(tokenizer));
-  return tokenizer_;
+  return tokenizer_.get();
 }
 
-absl::StatusOr<std::shared_ptr<proto::LlmMetadata>>
+absl::StatusOr<const proto::LlmMetadata*>
 ModelResourcesLitertLm::GetLlmMetadata() {
-  if (llm_metadata_ != nullptr) {
-    return llm_metadata_;
+  if (llm_metadata_ == nullptr) {
+    auto buffer_ref = litert_lm_loader_->GetLlmMetadata();
+    auto llm_metadata = std::make_unique<proto::LlmMetadata>();
+    if (!llm_metadata->ParseFromString(std::string(buffer_ref.StrView()))) {  // NOLINT
+      return absl::InternalError("Failed to parse LlmMetadata");
+    }
+    llm_metadata_ = std::move(llm_metadata);
   }
-  auto buffer_ref = litert_lm_loader_->GetLlmMetadata();
-  llm_metadata_ = std::make_shared<proto::LlmMetadata>();
-  llm_metadata_->ParseFromString(std::string(buffer_ref.StrView()));  // NOLINT
-  return llm_metadata_;
+  return llm_metadata_.get();
 };
 
 }  // namespace litert::lm

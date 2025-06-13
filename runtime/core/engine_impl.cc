@@ -31,7 +31,6 @@
 #include "absl/time/time.h"  // from @com_google_absl
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
-#include "runtime/components/tokenizer.h"
 #include "runtime/core/session_factory.h"
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
@@ -53,18 +52,14 @@ namespace {
 
 // Builds the LiteRT compiled model executor.
 absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildLitertCompiledModelExecutor(
-    const std::unique_ptr<ModelResources>& model_resources,
-    const LlmExecutorSettings& executor_settings) {
+    LlmExecutorSettings executor_settings, ModelResources& model_resources) {
   if (executor_settings.GetModelAssets().HasScopedFile()) {
     return absl::InvalidArgumentError("Model must be passed as a single path.");
   }
 
   // Create executor that creates and owns the interpreter and kv cache.
-  std::unique_ptr<LlmExecutor> executor;
-  ASSIGN_OR_RETURN(executor,  // NOLINT
-                   LlmLiteRtCompiledModelExecutor::Create(
-                       executor_settings, std::move(model_resources)));
-  return executor;
+  return LlmLiteRtCompiledModelExecutor::Create(std::move(executor_settings),
+                                                model_resources);
 }
 
 // Assume the files are in the same directory with the following names. This
@@ -87,8 +82,8 @@ class EngineImpl : public Engine {
     ABSL_QCHECK_OK(WaitUntilDone(Engine::kDefaultTimeout));
   }
 
-  explicit EngineImpl(const EngineSettings& engine_settings)
-      : engine_settings_(engine_settings) {
+  explicit EngineImpl(EngineSettings engine_settings)
+      : engine_settings_(std::move(engine_settings)) {
     if (engine_settings_.IsBenchmarkEnabled()) {
       benchmark_info_ = std::make_optional<BenchmarkInfo>(
           engine_settings_.GetBenchmarkParams().value());
@@ -99,9 +94,8 @@ class EngineImpl : public Engine {
          Backend::CPU) ||
         (engine_settings_.GetMainExecutorSettings().GetBackend() ==
          Backend::GPU)) {
-      const ModelAssets& model_assets =
-          engine_settings_.GetMainExecutorSettings().GetModelAssets();
-
+      auto& model_assets = engine_settings_.GetMutableMainExecutorSettings()
+                               .GetMutableModelAssets();
       auto model_resources = BuildLiteRtCompiledModelResources(model_assets);
       ABSL_CHECK_OK(model_resources);
       litert_model_resources_ = std::move(*model_resources);
@@ -112,27 +106,21 @@ class EngineImpl : public Engine {
       ABSL_CHECK_OK(file_format);
       // TODO(b/397975034): factor out the tokenizer creation logic once the
       // model loading mechanism of the new file format is determined.
-      switch (*file_format) {
-        case FileFormat::TFLITE:
-          ABSL_LOG(FATAL) << "Not supported file format.";
-          break;
-        case FileFormat::TASK:
-          tokenizer_ = litert_model_resources_->GetTokenizer().value();
-          llm_metadata_ = litert_model_resources_->GetLlmMetadata().value();
-          break;
-        case FileFormat::LITERT_LM: {
-          tokenizer_ = litert_model_resources_->GetTokenizer().value();
-          llm_metadata_ = litert_model_resources_->GetLlmMetadata().value();
-          break;
-        }
+      if (*file_format != FileFormat::TASK &&
+          *file_format != FileFormat::LITERT_LM) {
+        ABSL_LOG(FATAL) << "Not supported file format: " << *file_format;
       }
+      auto tokenizer = litert_model_resources_->GetTokenizer();
+      ABSL_CHECK_OK(tokenizer) << tokenizer.status();
+      auto llm_metadata = litert_model_resources_->GetLlmMetadata();
+      ABSL_CHECK_OK(llm_metadata) << llm_metadata.status();
       // Update and load the parameters from the model file and convert the
       // tokens to ids.
       ABSL_CHECK_OK(
-          engine_settings_.MaybeUpdateAndValidate(tokenizer_, llm_metadata_));
+          engine_settings_.MaybeUpdateAndValidate(**tokenizer, *llm_metadata));
 
       auto executor = BuildLitertCompiledModelExecutor(
-          litert_model_resources_, engine_settings_.GetMainExecutorSettings());
+          engine_settings_.GetMainExecutorSettings(), *litert_model_resources_);
       ABSL_QCHECK_OK(executor);
       executor_ = std::move(*executor);
       if (benchmark_info_.has_value()) {
@@ -167,20 +155,20 @@ class EngineImpl : public Engine {
           std::string(kVocabName);
 
       ABSL_CHECK(std::filesystem::exists(vocab_path));
-      auto tokenizer_or = litert::lm::SentencePieceTokenizer::CreateFromFile(
+      auto tokenizer = litert::lm::SentencePieceTokenizer::CreateFromFile(
           vocab_path.string());
-      ABSL_CHECK_OK(tokenizer_or);
-      tokenizer_ = std::move(tokenizer_or.value());
+      ABSL_CHECK_OK(tokenizer);
       // Update and load the parameters from the model file and convert the
       // tokens to ids.
       ABSL_CHECK_OK(
-          engine_settings_.MaybeUpdateAndValidate(tokenizer_, nullptr));
+          engine_settings_.MaybeUpdateAndValidate(**tokenizer, nullptr));
+      tokenizer_without_model_resources_ = std::move(*tokenizer);
 
-      auto executor_or = odml::infra::LlmLiteRtNpuCompiledModelExecutor::Create(
+      auto executor = odml::infra::LlmLiteRtNpuCompiledModelExecutor::Create(
           kAllQuantized, model_path, embedder_path.string(),
           auxiliary_path.string(), path.parent_path().string());
-      ABSL_CHECK_OK(executor_or);
-      executor_ = std::move(executor_or.value());
+      ABSL_CHECK_OK(executor);
+      executor_ = std::move(executor.value());
       if (benchmark_info_.has_value()) {
         ABSL_CHECK_OK(
             benchmark_info_->TimeInitPhaseEnd("Executor initialization"));
@@ -205,8 +193,13 @@ class EngineImpl : public Engine {
     // TODO(b/418794726): Move this logics to be part of the SessionConfig
     // class.
     RETURN_IF_ERROR(config.MaybeUpdateAndValidate(engine_settings_));  // NOLINT
-    return InitializeSession(executor_, tokenizer_, config, benchmark_info_,
-                             worker_thread_pool_.get());
+    auto* tokenizer = tokenizer_without_model_resources_.get();
+    if (tokenizer == nullptr) {
+      ABSL_CHECK(litert_model_resources_ != nullptr);
+      ASSIGN_OR_RETURN(tokenizer, litert_model_resources_->GetTokenizer());  // NOLINT
+    }
+    return InitializeSession(executor_.get(), tokenizer, config,
+                             benchmark_info_, worker_thread_pool_.get());
   }
   absl::Status WaitUntilDone(absl::Duration timeout) override {
     return worker_thread_pool_->WaitUntilDone(timeout);
@@ -216,14 +209,12 @@ class EngineImpl : public Engine {
   // Stored engine settings.
   EngineSettings engine_settings_;
   // Shared executor for all sessions.
-  std::shared_ptr<LlmExecutor> executor_;
-  // Shared tokenizer for all sessions.
-  std::shared_ptr<Tokenizer> tokenizer_;
-  // Shared llm metadata.
-  std::shared_ptr<proto::LlmMetadata> llm_metadata_;
+  std::unique_ptr<LlmExecutor> executor_;
   // Default stop token ids for all sessions loaded from the model file.
   std::vector<std::vector<int>> stop_token_ids_;
   std::unique_ptr<ModelResources> litert_model_resources_;
+  // It's for NPU path. Once NPU read litertlm file, this will be removed.
+  std::unique_ptr<SentencePieceTokenizer> tokenizer_without_model_resources_;
   proto::SamplerParameters sampler_params_;
 
   // Benchmark info for the engine.
@@ -235,8 +226,8 @@ class EngineImpl : public Engine {
 
 // Method to create Engine.
 absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
-    const EngineSettings& settings_struct) {
-  auto llm_impl = std::make_unique<EngineImpl>(settings_struct);
+    EngineSettings settings_struct) {
+  auto llm_impl = std::make_unique<EngineImpl>(std::move(settings_struct));
   return llm_impl;
 };
 

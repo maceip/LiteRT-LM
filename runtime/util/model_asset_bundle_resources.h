@@ -64,10 +64,10 @@ class ModelAssetBundleResources {
   // Gets the contents of the model file (either tflite model file, resource
   // file or model bundle file) with the provided name. An error is returned if
   // there is no such model file.
-  absl::StatusOr<absl::string_view> GetFile(const std::string& filename) const;
+  absl::StatusOr<absl::string_view> GetFile(absl::string_view filename) const;
 
   // Lists all the file names in the model asset model.
-  std::vector<std::string> ListFiles() const;
+  std::vector<absl::string_view> ListFiles() const;
 
  private:
   ModelAssetBundleResources(

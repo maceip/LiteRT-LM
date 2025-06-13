@@ -33,7 +33,7 @@ namespace litert::lm {
 // settings. Note that this function should be updated to take in the
 // SessionConfig and be refactored with registry pattern.
 absl::StatusOr<std::unique_ptr<Engine::Session>> InitializeSession(
-    std::shared_ptr<LlmExecutor> executor, std::shared_ptr<Tokenizer> tokenizer,
+    LlmExecutor* absl_nonnull executor, Tokenizer* absl_nonnull tokenizer,
     const SessionConfig& session_config,
     std::optional<BenchmarkInfo> benchmark_info,
     ThreadPool* absl_nonnull worker_thread_pool);

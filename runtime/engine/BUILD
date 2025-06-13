@@ -111,6 +111,7 @@ cc_library(
     srcs = ["engine_settings.cc"],
     hdrs = ["engine_settings.h"],
     deps = [
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

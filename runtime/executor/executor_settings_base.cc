@@ -114,7 +114,7 @@ std::ostream& operator<<(std::ostream& os, const FileFormat& file_format) {
 
 // static
 absl::StatusOr<ModelAssets> ModelAssets::Create(absl::string_view model_path) {
-  return ModelAssets(std::string(model_path));
+  return ModelAssets(model_path);
 }
 
 // static
@@ -136,19 +136,18 @@ absl::StatusOr<ModelAssets> ModelAssets::Create(
 ModelAssets::ModelAssets(std::shared_ptr<litert::lm::ScopedFile> model_file)
     : path_or_scoped_file_(std::move(model_file)) {}
 
-ModelAssets::ModelAssets(std::string model_path)
-    : path_or_scoped_file_(std::move(model_path)) {}
+ModelAssets::ModelAssets(absl::string_view model_path)
+    : path_or_scoped_file_(std::string(model_path)) {}
 
 absl::StatusOr<absl::string_view> ModelAssets::GetPath() const {
-  if (!std::holds_alternative<std::string>(path_or_scoped_file_)) {
+  if (HasScopedFile()) {
     return absl::InvalidArgumentError("Assets were not created with a path.");
   }
   return std::get<std::string>(path_or_scoped_file_);
 }
 
 absl::StatusOr<std::shared_ptr<ScopedFile>> ModelAssets::GetScopedFile() const {
-  if (!std::holds_alternative<std::shared_ptr<ScopedFile>>(
-          path_or_scoped_file_)) {
+  if (!HasScopedFile()) {
     return absl::InvalidArgumentError(
         "Assets were not created with a scoped file.");
   }
@@ -157,15 +156,13 @@ absl::StatusOr<std::shared_ptr<ScopedFile>> ModelAssets::GetScopedFile() const {
 
 absl::StatusOr<std::shared_ptr<ScopedFile>> ModelAssets::GetOrCreateScopedFile()
     const {
-  if (std::holds_alternative<std::shared_ptr<ScopedFile>>(
-          path_or_scoped_file_)) {
+  if (HasScopedFile()) {
     return std::get<std::shared_ptr<ScopedFile>>(path_or_scoped_file_);
   }
 
   ASSIGN_OR_RETURN(  // NOLINT
-      ScopedFile scoped_file,
+      auto scoped_file,
       ScopedFile::Open(std::get<std::string>(path_or_scoped_file_)));
-
   return std::make_shared<ScopedFile>(std::move(scoped_file));
 }
 
@@ -179,6 +176,7 @@ std::ostream& operator<<(std::ostream& os, const ModelAssets& model_assets) {
   os << "fake_weights_mode: " << model_assets.fake_weights_mode() << "\n";
   return os;
 }
+
 absl::StatusOr<
     std::variant<std::string, std::shared_ptr<litert::lm::ScopedFile>>>
 ExecutorSettingsBase::GetWeightCacheFile(absl::string_view suffix) const {
@@ -206,6 +204,5 @@ ExecutorSettingsBase::GetWeightCacheFile(absl::string_view suffix) const {
 
   return JoinPath(GetCacheDir(), absl::StrCat(Basename(model_path), suffix));
 }
-
 
 }  // namespace litert::lm

@@ -115,7 +115,7 @@ class Engine {
 
   // Method to create Engine.
   static absl::StatusOr<std::unique_ptr<Engine>> CreateEngine(
-      const EngineSettings& settings);
+      EngineSettings settings);
 
   // Method to create the Session.
   virtual absl::StatusOr<std::unique_ptr<Session>> CreateSession(

@@ -45,6 +45,7 @@ cc_library(
     hdrs = ["embedding_lookup_text.h"],
     deps = [
         ":embedding_lookup",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -411,8 +412,10 @@ cc_library(
     deps = [
         ":model_resources_task",
         ":sentencepiece_tokenizer",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@litert//litert/cc:litert_buffer_ref",
         "@litert//litert/cc:litert_macros",
@@ -432,6 +435,7 @@ cc_library(
     ],
     deps = [
         ":sentencepiece_tokenizer",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",

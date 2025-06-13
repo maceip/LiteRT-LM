@@ -31,6 +31,7 @@
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
@@ -176,7 +177,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
       InferenceContext llm_inference_context,
       InferenceContext cache_update_inference_context,
       ::litert::lm::SortedPrefillSignatureMap prefill_signature_map)
-      : executor_settings_(executor_settings),
+      : executor_settings_(std::move(executor_settings)),
         model_quantization_(model_quantization),
         embedder_context_(std::move(embedder_context)),
         npu_auxiliary_context_(std::move(npu_auxiliary_context)),
