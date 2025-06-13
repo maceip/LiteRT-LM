@@ -9,6 +9,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
@@ -33,23 +37,28 @@ std::string GetHuggingFaceModelPath() {
 
 absl::StatusOr<std::string> GetContents(absl::string_view path) {
   ASSIGN_OR_RETURN(auto file, ScopedFile::Open(path));  // NOLINT
-  int64_t contents_length = lseek(file.file(), 0, SEEK_END);
-  if (contents_length < 0) {
-    return absl::InternalError(absl::StrCat("Failed to get length: ", path));
-  }
+  ASSIGN_OR_RETURN(auto contents_length, file.GetSize());  // NOLINT
 
   std::string contents(contents_length, '\0');
-  lseek(file.file(), 0, SEEK_SET);
   char* contents_ptr = contents.data();
   while (contents_length > 0) {
-    int read_bytes = read(file.file(), contents_ptr, contents_length);
+#if defined(_WIN32)
+    DWORD read_bytes = 0;
+    if (!ReadFile(file.file(), contents_ptr,
+                  static_cast<DWORD>(contents_length),
+                  &read_bytes, nullptr)) {
+      read_bytes = -1;
+    }
+#else
+    ssize_t read_bytes = read(file.file(), contents_ptr, contents_length);
+#endif  // _WIN32
     if (read_bytes < 0) {
       return absl::InternalError(absl::StrCat("Failed to read: ", path));
     } else if (read_bytes == 0) {
       return absl::InternalError(absl::StrCat("File is empty: ", path));
     }
-    contents_ptr += read_bytes;
-    contents_length -= read_bytes;
+    contents_ptr += static_cast<size_t>(read_bytes);
+    contents_length -= static_cast<size_t>(read_bytes);
   }
 
   return std::move(contents);
