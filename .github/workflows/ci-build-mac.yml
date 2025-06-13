@@ -1,15 +1,19 @@
 name: "CI-Mac"
 on:
   push:
+    branches:
+    - main
     tags:
     - v*.*.*
   pull_request:
     branches:
     - main
+  schedule:
+    - cron: "0 10 * * *"  # Run at 2am PST (10am UTC) every day to refresh the cache.
   workflow_dispatch:  # Manual trigger
     inputs:
-      RESTORE_CACHE:
-        description: 'Restore cache from previous runs'
+      REFRESH_CACHE:
+        description: 'Refresh cache to remove unused files'
         type: boolean
         default: true
 
@@ -30,7 +34,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Restore bazel cache
-        if: github.event_name != 'workflow_dispatch' || inputs.RESTORE_CACHE
+        if: >  # Restore cache only when it's not triggered to refresh the cache.
+          ! (github.event_name == 'schedule' ||
+             (github.event_name == 'workflow_dispatch' && inputs.REFRESH_CACHE))
         uses: actions/cache/restore@v4
         id: bazel-cache
         with:
@@ -75,7 +81,7 @@ jobs:
 
       - name: Save bazel cache if new or changed on push.
         uses: actions/cache/save@v4
-        if: steps.bazel-cache.outputs.cache-hit != 'true'
+        if: steps.bazel-cache.outputs.cache-hit != 'true' || github.event_name == 'push'
         with:
           path: |
             ~/.cache/bazel
