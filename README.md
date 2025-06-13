@@ -491,6 +491,28 @@ CHECK_OK(responses);
 std::cout << *responses << std::endl;
 ```
 
+### Inference with GPU Backend
+
+On Android, the runtime can pick GPU as the backend for inference instead of
+CPU, by passing `litert::lm::Backend::GPU` in `EngineSettings::CreateDefault()`.
+
+```cpp
+// ...
+
+// Set GPU as backend instead of CPU.
+auto engine_settings = EngineSettings::CreateDefault(
+    model_assets, litert::lm::Backend::GPU);
+
+// ...
+```
+
+When the engine is created, it looks for `libLiteRtGpuAccelerator.so` and
+`libLiteRtTopKSampler.so` from the directories specified in `LD_LIBRARY_PATH`,
+rpath in the app binary or default location by system dynamic linker. For
+example, if an app binary and .so files are packaged in an APK by Android SDK,
+.so files are unpacked by Android Package Manager where the app binary can find
+them, i.e. under app's `/lib` directory.
+
 ### Advanced Control Over Prefill/Decode
 
 This API provides fine-grained control over the two phases of transformer
