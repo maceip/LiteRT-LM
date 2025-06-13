@@ -1,6 +1,5 @@
 #include "runtime/engine/engine_settings.h"
 
-#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -13,6 +12,7 @@
 #include "runtime/components/tokenizer.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/proto/engine.pb.h"
+#include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
@@ -275,6 +275,26 @@ TEST(SessionConfigTest, MaybeUpdateAndValidate) {
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
   // The validation should pass now.
   EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
+}
+
+TEST(SessionConfigTest, MaybeUpdateAndValidateMaxNumTokens) {
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings = EngineSettings::CreateDefault(*model_assets);
+  auto session_config = SessionConfig::CreateDefault();
+  EXPECT_OK(settings);
+  EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 0);
+
+  FakeTokenizer tokenizer;
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
+
+  llm_metadata.set_max_num_tokens(1280);
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
+  EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 1280);
+
+  llm_metadata.set_max_num_tokens(4096);
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
+  EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 1280);
 }
 
 TEST(SessionConfigTest, PrintOperator) {

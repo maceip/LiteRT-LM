@@ -139,6 +139,7 @@ cc_test(
         "//runtime/components:tokenizer",
         "//runtime/executor:executor_settings_base",
         "//runtime/proto:engine_cc_proto",
+        "//runtime/proto:llm_metadata_cc_proto",
         "//runtime/util:test_utils",
     ],
 )
