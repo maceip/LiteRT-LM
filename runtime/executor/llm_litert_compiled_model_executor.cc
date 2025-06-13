@@ -678,7 +678,7 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
     return absl::InternalError("Failed to build LiteRt model");
   }
   auto compiled_model = ::litert::CompiledModel::Create(
-      *lrt_env, *const_cast<litert::Model*>(litert_model), std::move(*compilation_options));
+      *lrt_env, *litert_model, std::move(*compilation_options));
   if (!compiled_model) {
     return absl::InternalError(absl::StrCat("Failed to create compiled model: ",
                                             compiled_model.Error().Message()));
