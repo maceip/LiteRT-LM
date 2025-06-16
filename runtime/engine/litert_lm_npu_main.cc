@@ -13,6 +13,7 @@
 
 #include "absl/flags/flag.h"  // from @com_google_absl
 #include "absl/flags/parse.h"  // from @com_google_absl
+#include "absl/log/absl_check.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/time/clock.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
@@ -21,11 +22,17 @@
 #include "runtime/core/session_basic.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/executor/executor_settings_base.h"
+#include "runtime/executor/litert_compiled_model_executor_utils.h"
+#include "runtime/executor/llm_executor_settings.h"
 #include "runtime/executor/llm_litert_npu_compiled_model_executor.h"
 #include "runtime/framework/thread_options.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
+#include "runtime/util/file_format_util.h"
 
+ABSL_FLAG(std::string, gemma3_litertlm_path, "",
+          "Path to Gemma3 model in LiteRT LM format.");
 ABSL_FLAG(std::string, gemma3_path, "", "Path to the Gemma3 model.");
 ABSL_FLAG(std::string, embedder_path, "", "Path to the embedder model.");
 ABSL_FLAG(std::string, auxiliary_path, "", "Path to the auxiliary model.");
@@ -231,21 +238,37 @@ struct RunStats {
 };
 
 RunStats CreateAndRun(const std::string& prompt) {
-  // Create the tokenizer.
-  auto tokenizer = litert::lm::SentencePieceTokenizer::CreateFromFile(
-      absl::GetFlag(FLAGS_tokenizer_path));
+  // Create the executor.
+  auto start = absl::Now();
+  litert::lm::ModelAssets model_assets =
+      litert::lm::ModelAssets::Create(absl::GetFlag(FLAGS_gemma3_litertlm_path))
+          .value();
+
+  auto model_resources = BuildLiteRtCompiledModelResources(model_assets);
+  ABSL_CHECK_OK(model_resources);
+  auto scoped_file = model_assets.GetOrCreateScopedFile();
+  ABSL_CHECK_OK(scoped_file);
+
+  auto file_format = litert::lm::GetFileFormat(/*model_path=*/"", *scoped_file);
+  ABSL_CHECK_OK(file_format);
+  if (*file_format != litert::lm::FileFormat::LITERT_LM) {
+    ABSL_LOG(FATAL) << "Not supported file format.";
+  }
+
+  auto tokenizer = model_resources->get()->GetTokenizer();
   if (tokenizer.ok()) {
     ABSL_LOG(INFO) << "tokenizer created successfully";
   } else {
     ABSL_LOG(FATAL) << "tokenizer creation failed: " << tokenizer.status();
   }
 
-  // Create the executor.
-  auto start = absl::Now();
+  // Create the tokenizer.
   ABSL_LOG(INFO) << "Creating executor";
+  auto executor_settings = litert::lm::LlmExecutorSettings::CreateDefault(
+                               model_assets, litert::lm::Backend::QNN)
+                               .value();
   auto executor = odml::infra::LlmLiteRtNpuCompiledModelExecutor::Create(
-      GetQuantizationSchema(), absl::GetFlag(FLAGS_gemma3_path),
-      absl::GetFlag(FLAGS_embedder_path), absl::GetFlag(FLAGS_auxiliary_path),
+      executor_settings, **model_resources,
       absl::GetFlag(FLAGS_litert_dispatch_lib_path));
   auto end = absl::Now();
 
@@ -264,24 +287,24 @@ RunStats CreateAndRun(const std::string& prompt) {
   // Create the session.
   constexpr int kEndOfTurnTokenId = 106;
   std::vector<int> stop_token_ids = {kEndOfTurnTokenId};
-  // TODO(b/405424188): The NPU executor currently uses direct sampling on the
-  // int16 logits. Use SamplerParameters::TYPE_UNSPECIFIED to avoid using the
-  // default float CPU sampler.
-  // See the description of cl/752681117 that justifies the usage of a
-  // custom sampler (decode performance speed-up). We should extend the
-  // 'litert::lm' Sampler to support this natively and remove the custom sampler
-  // of the NPU executor.
-  // TODO(b/415915773): update the session config to use the provided sampler
-  // once it supports the int16 logits.
+  // TODO(b/405424188): The NPU executor currently uses direct sampling on
+  // the int16 logits. Use SamplerParameters::TYPE_UNSPECIFIED to avoid
+  // using the default float CPU sampler. See the description of
+  // cl/752681117 that justifies the usage of a custom sampler (decode
+  // performance speed-up). We should extend the 'litert::lm' Sampler to
+  // support this natively and remove the custom sampler of the NPU
+  // executor.
+  // TODO(b/415915773): update the session config to use the provided
+  // sampler once it supports the int16 logits.
   auto session_config = litert::lm::SessionConfig::CreateDefault();
   session_config.GetMutableSamplerParams().set_type(
       litert::lm::proto::SamplerParameters::TYPE_UNSPECIFIED);
   session_config.GetMutableStopTokenIds() = {{stop_token_ids}};
   constexpr int kBeginOfTurnTokenId = 2;
   session_config.SetStartTokenId(kBeginOfTurnTokenId);
-  auto session = litert::lm::SessionBasic::Create(
-      executor->get(), tokenizer->get(), session_config, std::nullopt,
-      &worker_thread_pool);
+  auto session = litert::lm::SessionBasic::Create(executor->get(), *tokenizer,
+                                                  session_config, std::nullopt,
+                                                  &worker_thread_pool);
 
   // Run the session.
   ABSL_LOG(INFO) << "Prompt: " << prompt;

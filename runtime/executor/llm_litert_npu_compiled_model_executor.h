@@ -31,6 +31,7 @@
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/model_resources.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
@@ -78,6 +79,13 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   Create(
       ModelQuantization model_quantization, const std::string& llm_model,
       const std::string& embedder_model, const std::string& npu_auxiliary_model,
+      const std::optional<std::string>& dispatch_library_path = std::nullopt);
+
+  // Creates an executor from the resources.
+  static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
+  Create(
+      const litert::lm::LlmExecutorSettings& executor_settings,
+      litert::lm::ModelResources& resources,
       const std::optional<std::string>& dispatch_library_path = std::nullopt);
 
   // Input APIs:
@@ -146,7 +154,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
     ::litert::CompiledModel embedder_compiled_model;
     InferenceContext inference_context;
     EmbedderContext(
-        ::litert::Model embedder_model,
         ::litert::CompiledModel embedder_compiled_model,
         absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
             prefill_input_buffers,
@@ -161,10 +168,8 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // Holds the context for the NPU auxiliary model, which contains several
   // signatures for Mask, RoPE and KV cache update computation.
   struct NpuAuxiliaryContext {
-    ::litert::Model npu_auxiliary_model;
     ::litert::CompiledModel npu_auxiliary_compiled_model;
-    NpuAuxiliaryContext(::litert::Model npu_auxiliary_model,
-                        ::litert::CompiledModel npu_auxiliary_compiled_model);
+    NpuAuxiliaryContext(::litert::CompiledModel npu_auxiliary_compiled_model);
   };
 
  protected:
@@ -173,7 +178,8 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
       ModelQuantization model_quantization, EmbedderContext embedder_context,
       NpuAuxiliaryContext npu_auxiliary_context, InferenceContext mask_context,
       InferenceContext rope_context, ::litert::Environment llm_env,
-      ::litert::Model llm_model, ::litert::CompiledModel llm_compiled_model,
+      const ::litert::Model* llm_model,
+      ::litert::CompiledModel llm_compiled_model,
       InferenceContext llm_inference_context,
       InferenceContext cache_update_inference_context,
       ::litert::lm::SortedPrefillSignatureMap prefill_signature_map)
@@ -184,12 +190,14 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
         mask_context_(std::move(mask_context)),
         rope_context_(std::move(rope_context)),
         env_(std::move(llm_env)),
-        llm_model_(std::move(llm_model)),
+        llm_model_(llm_model),
         llm_compiled_model_(std::move(llm_compiled_model)),
         llm_inference_context_(std::move(llm_inference_context)),
         cache_update_inference_context_(
             std::move(cache_update_inference_context)),
-        prefill_signature_map_(std::move(prefill_signature_map)) {}
+        prefill_signature_map_(std::move(prefill_signature_map)) {
+    executor_settings_.SetMaxNumTokens(1280);
+  }
 
  private:
   // Prefill internal implementation, for one prefill call to the Interpreter
@@ -211,7 +219,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // of the provided 'gemma_prefill_input_buffers' and
   // 'gemma_decode_input_buffers'.
   static absl::StatusOr<EmbedderContext> CreateEmbedderContextWithBufferSharing(
-      ::litert::Environment& env, const std::string& embedder_model,
+      ::litert::Environment& env, const litert::Model& embedder_model,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
           gemma_prefill_input_buffers,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -219,7 +227,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
 
   // Creates the context for the NPU auxiliary model.
   static absl::StatusOr<NpuAuxiliaryContext> CreateNpuAuxiliaryContext(
-      ::litert::Environment& env, const std::string& npu_auxiliary_model);
+      ::litert::Environment& env, const litert::Model& npu_auxiliary_model);
 
   // Creates the context for the mask signatures.
   static absl::StatusOr<InferenceContext> CreateMaskContextWithoutBufferSharing(
@@ -232,7 +240,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // of the provided 'gemma_prefill_input_buffers' and
   // 'gemma_decode_input_buffers'.
   static absl::StatusOr<InferenceContext> CreateMaskContextWithBufferSharing(
-      NpuAuxiliaryContext& npu_auxiliary_context, const std::string& mask_model,
+      NpuAuxiliaryContext& npu_auxiliary_context,
       ::litert::TensorBuffer prefill_input_tokens,
       ::litert::TensorBuffer decode_input_tokens,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -250,7 +258,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // of the provided 'gemma_prefill_input_buffers' and
   // 'gemma_decode_input_buffers'.
   static absl::StatusOr<InferenceContext> CreateRopeContextWithBufferSharing(
-      NpuAuxiliaryContext& npu_auxiliary_context, const std::string& rope_model,
+      NpuAuxiliaryContext& npu_auxiliary_context,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
           gemma_prefill_input_buffers,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -259,8 +267,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // Creates the context for the LLM model.
   static absl::StatusOr<InferenceContext>
   CreateLlmInferenceContextWithBufferSharing(
-      ::litert::Environment& env, ::litert::Model& llm_model,
-      ::litert::CompiledModel& llm_compiled_model,
+      ::litert::Environment& env, ::litert::CompiledModel& llm_compiled_model,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
           input_kv_cache_buffers,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -341,7 +348,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   InferenceContext mask_context_;
   InferenceContext rope_context_;
   ::litert::Environment env_;
-  ::litert::Model llm_model_;
+  const ::litert::Model* llm_model_;
   ::litert::CompiledModel llm_compiled_model_;
 
   InferenceContext llm_inference_context_;
