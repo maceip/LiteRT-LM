@@ -62,18 +62,6 @@ absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildLitertCompiledModelExecutor(
                                                 model_resources);
 }
 
-// Assume the files are in the same directory with the following names. This
-// should be cleaned up once we store everything in the litertlm file format.
-// TODO(b/417209286): Remove this once the model assets are stored in the
-// litertlm file format.
-constexpr absl::string_view kAuxiliaryModelName =
-    "static_a16w4-for-aux_qpa_quantized_gemma3_npu_auxiliary.tflite";
-constexpr absl::string_view kEmbedderName =
-    "static_a16w4-for-embedder_qpa_quantized_gemma3_npu_embedder.tflite";
-constexpr absl::string_view kVocabName = "gemma3_tokenizer.spiece";
-using ::odml::infra::LlmLiteRtNpuCompiledModelExecutor::ModelQuantization::
-    kAllQuantized;
-
 }  // namespace
 
 class EngineImpl : public Engine {
@@ -90,50 +78,40 @@ class EngineImpl : public Engine {
       ABSL_CHECK_OK(
           benchmark_info_->TimeInitPhaseStart("Executor initialization"));
     }
+    auto& model_assets = engine_settings_.GetMutableMainExecutorSettings()
+                             .GetMutableModelAssets();
+
+    auto model_resources = BuildLiteRtCompiledModelResources(model_assets);
+    ABSL_CHECK_OK(model_resources);
+    litert_model_resources_ = std::move(*model_resources);
+    auto scoped_file = model_assets.GetOrCreateScopedFile();
+    ABSL_CHECK_OK(scoped_file);
+
+    auto file_format = GetFileFormat(/*model_path=*/"", *scoped_file);
+    ABSL_CHECK_OK(file_format);
+    // TODO(b/397975034): factor out the tokenizer creation logic once the
+    // model loading mechanism of the new file format is determined.
+    if (*file_format != FileFormat::TASK &&
+        *file_format != FileFormat::LITERT_LM) {
+      ABSL_LOG(FATAL) << "Not supported file format: " << *file_format;
+    }
+    auto tokenizer = litert_model_resources_->GetTokenizer();
+    ABSL_CHECK_OK(tokenizer) << tokenizer.status();
+    auto llm_metadata = litert_model_resources_->GetLlmMetadata();
+    ABSL_CHECK_OK(llm_metadata) << llm_metadata.status();
+    // Update and load the parameters from the model file and convert the
+    // tokens to ids.
+    ABSL_CHECK_OK(
+        engine_settings_.MaybeUpdateAndValidate(**tokenizer, *llm_metadata));
+
     if ((engine_settings_.GetMainExecutorSettings().GetBackend() ==
          Backend::CPU) ||
         (engine_settings_.GetMainExecutorSettings().GetBackend() ==
          Backend::GPU)) {
-      auto& model_assets = engine_settings_.GetMutableMainExecutorSettings()
-                               .GetMutableModelAssets();
-      auto model_resources = BuildLiteRtCompiledModelResources(model_assets);
-      ABSL_CHECK_OK(model_resources);
-      litert_model_resources_ = std::move(*model_resources);
-      auto scoped_file = model_assets.GetOrCreateScopedFile();
-      ABSL_CHECK_OK(scoped_file);
-
-      auto file_format = GetFileFormat(/*model_path=*/"", *scoped_file);
-      ABSL_CHECK_OK(file_format);
-      // TODO(b/397975034): factor out the tokenizer creation logic once the
-      // model loading mechanism of the new file format is determined.
-      if (*file_format != FileFormat::TASK &&
-          *file_format != FileFormat::LITERT_LM) {
-        ABSL_LOG(FATAL) << "Not supported file format: " << *file_format;
-      }
-      auto tokenizer = litert_model_resources_->GetTokenizer();
-      ABSL_CHECK_OK(tokenizer) << tokenizer.status();
-      auto llm_metadata = litert_model_resources_->GetLlmMetadata();
-      ABSL_CHECK_OK(llm_metadata) << llm_metadata.status();
-      // Update and load the parameters from the model file and convert the
-      // tokens to ids.
-      ABSL_CHECK_OK(
-          engine_settings_.MaybeUpdateAndValidate(**tokenizer, *llm_metadata));
-
       auto executor = BuildLitertCompiledModelExecutor(
           engine_settings_.GetMainExecutorSettings(), *litert_model_resources_);
       ABSL_QCHECK_OK(executor);
       executor_ = std::move(*executor);
-      if (benchmark_info_.has_value()) {
-        ABSL_CHECK_OK(
-            benchmark_info_->TimeInitPhaseEnd("Executor initialization"));
-        ABSL_CHECK_OK(
-            benchmark_info_->TimeInitPhaseStart("Tokenizer initialization"));
-      }
-
-      if (benchmark_info_.has_value()) {
-        ABSL_CHECK_OK(
-            benchmark_info_->TimeInitPhaseEnd("Tokenizer initialization"));
-      }
     } else {
       std::string model_path(engine_settings_.GetMainExecutorSettings()
                                  .GetModelAssets()
@@ -142,43 +120,22 @@ class EngineImpl : public Engine {
 
       std::filesystem::path path(model_path);
       ABSL_CHECK(std::filesystem::exists(path));
-      auto embedder_path =
-          std::filesystem::path(model_path).parent_path() /
-          std::string(kEmbedderName);
-      ABSL_CHECK(std::filesystem::exists(embedder_path));
-      auto auxiliary_path =
-          std::filesystem::path(model_path).parent_path() /
-          std::string(kAuxiliaryModelName);
-      ABSL_CHECK(std::filesystem::exists(auxiliary_path));
-      auto vocab_path =
-          std::filesystem::path(model_path).parent_path() /
-          std::string(kVocabName);
-
-      ABSL_CHECK(std::filesystem::exists(vocab_path));
-      auto tokenizer = litert::lm::SentencePieceTokenizer::CreateFromFile(
-          vocab_path.string());
-      ABSL_CHECK_OK(tokenizer);
-      // Update and load the parameters from the model file and convert the
-      // tokens to ids.
-      ABSL_CHECK_OK(
-          engine_settings_.MaybeUpdateAndValidate(**tokenizer, nullptr));
-      tokenizer_without_model_resources_ = std::move(*tokenizer);
-
       auto executor = odml::infra::LlmLiteRtNpuCompiledModelExecutor::Create(
-          kAllQuantized, model_path, embedder_path.string(),
-          auxiliary_path.string(), path.parent_path().string());
+          engine_settings_.GetMainExecutorSettings(), *litert_model_resources_,
+          path.parent_path().string());
       ABSL_CHECK_OK(executor);
       executor_ = std::move(executor.value());
-      if (benchmark_info_.has_value()) {
-        ABSL_CHECK_OK(
-            benchmark_info_->TimeInitPhaseEnd("Executor initialization"));
-        ABSL_CHECK_OK(
-            benchmark_info_->TimeInitPhaseStart("Tokenizer initialization"));
-      }
-      if (benchmark_info_.has_value()) {
-        ABSL_CHECK_OK(
-            benchmark_info_->TimeInitPhaseEnd("Tokenizer initialization"));
-      }
+    }
+    if (benchmark_info_.has_value()) {
+      ABSL_CHECK_OK(
+          benchmark_info_->TimeInitPhaseEnd("Executor initialization"));
+      ABSL_CHECK_OK(
+          benchmark_info_->TimeInitPhaseStart("Tokenizer initialization"));
+    }
+
+    if (benchmark_info_.has_value()) {
+      ABSL_CHECK_OK(
+          benchmark_info_->TimeInitPhaseEnd("Tokenizer initialization"));
     }
 
     // Creating the thread pool of a single thread to execute the works.
@@ -193,11 +150,10 @@ class EngineImpl : public Engine {
     // TODO(b/418794726): Move this logics to be part of the SessionConfig
     // class.
     RETURN_IF_ERROR(config.MaybeUpdateAndValidate(engine_settings_));  // NOLINT
-    auto* tokenizer = tokenizer_without_model_resources_.get();
-    if (tokenizer == nullptr) {
-      ABSL_CHECK(litert_model_resources_ != nullptr);
-      ASSIGN_OR_RETURN(tokenizer, litert_model_resources_->GetTokenizer());  // NOLINT
-    }
+
+    ABSL_CHECK(litert_model_resources_ != nullptr);
+    ASSIGN_OR_RETURN(auto* tokenizer,  // NOLINT
+                     litert_model_resources_->GetTokenizer());
     return InitializeSession(executor_.get(), tokenizer, config,
                              benchmark_info_, worker_thread_pool_.get());
   }
@@ -213,8 +169,6 @@ class EngineImpl : public Engine {
   // Default stop token ids for all sessions loaded from the model file.
   std::vector<std::vector<int>> stop_token_ids_;
   std::unique_ptr<ModelResources> litert_model_resources_;
-  // It's for NPU path. Once NPU read litertlm file, this will be removed.
-  std::unique_ptr<SentencePieceTokenizer> tokenizer_without_model_resources_;
   proto::SamplerParameters sampler_params_;
 
   // Benchmark info for the engine.
