@@ -43,12 +43,6 @@ namespace odml::infra {
 // Component intended to be used with an NPU variant of Gemma3.
 class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
  public:
-  enum class ModelQuantization {
-    kTransformerStackOnlyQuantized,  // Only the main transformer stack is
-                                     // quantized.
-    kAllQuantized,                   // All models are quantized.
-  };
-
   // Holds the latency breakdown stats for the executor.
   // TODO(b/405424188): Use 'litert::lm::BenchmarkInfo' instead.
   struct LatencyStats {
@@ -60,7 +54,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
     uint64_t prefill_rope_inference_latency_us = 0;
     uint64_t prefill_llm_inference_latency_us = 0;
     uint64_t prefill_cache_update_inference_latency_us = 0;
-    uint64_t prefill_quantization_latency_us = 0;
 
     uint64_t decode_e2e_latency_us = 0;
     int decode_num_tokens = 0;
@@ -70,16 +63,8 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
     uint64_t decode_rope_inference_latency_us = 0;
     uint64_t decode_llm_inference_latency_us = 0;
     uint64_t decode_cache_update_inference_latency_us = 0;
-    uint64_t decode_quantization_latency_us = 0;
     uint64_t decode_sampling_latency_us = 0;
   };
-
-  // Creates an executor from the given models.
-  static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
-  Create(
-      ModelQuantization model_quantization, const std::string& llm_model,
-      const std::string& embedder_model, const std::string& npu_auxiliary_model,
-      const std::optional<std::string>& dispatch_library_path = std::nullopt);
 
   // Creates an executor from the resources.
   static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
@@ -175,7 +160,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
  protected:
   LlmLiteRtNpuCompiledModelExecutor(
       litert::lm::LlmExecutorSettings executor_settings,
-      ModelQuantization model_quantization, EmbedderContext embedder_context,
+      EmbedderContext embedder_context,
       NpuAuxiliaryContext npu_auxiliary_context, InferenceContext mask_context,
       InferenceContext rope_context, ::litert::Environment llm_env,
       const ::litert::Model* llm_model,
@@ -184,7 +169,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
       InferenceContext cache_update_inference_context,
       ::litert::lm::SortedPrefillSignatureMap prefill_signature_map)
       : executor_settings_(std::move(executor_settings)),
-        model_quantization_(model_quantization),
         embedder_context_(std::move(embedder_context)),
         npu_auxiliary_context_(std::move(npu_auxiliary_context)),
         mask_context_(std::move(mask_context)),
@@ -209,11 +193,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // Caller of this function is responsible for capturing the output.
   absl::Status DecodeInternal(::litert::lm::ExecutorInputs inputs);
 
-  // Creates the context for the embedder model.
-  static absl::StatusOr<EmbedderContext>
-  CreateEmbedderContextWithoutBufferSharing(::litert::Environment& env,
-                                            const std::string& embedder_model);
-
   // Creates the context for the embedder model.  Instead of creating new
   // output buffers for the embedder, the context will use the input buffers
   // of the provided 'gemma_prefill_input_buffers' and
@@ -229,12 +208,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   static absl::StatusOr<NpuAuxiliaryContext> CreateNpuAuxiliaryContext(
       ::litert::Environment& env, const litert::Model& npu_auxiliary_model);
 
-  // Creates the context for the mask signatures.
-  static absl::StatusOr<InferenceContext> CreateMaskContextWithoutBufferSharing(
-      NpuAuxiliaryContext& npu_auxiliary_context, const std::string& mask_model,
-      ::litert::TensorBuffer prefill_input_tokens,
-      ::litert::TensorBuffer decode_input_tokens);
-
   // Creates the context for the mask model.  Instead of creating new
   // output buffers for the mask model, the context will use the input buffers
   // of the provided 'gemma_prefill_input_buffers' and
@@ -247,11 +220,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
           gemma_prefill_input_buffers,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
           gemma_decode_input_buffers);
-
-  // Creates the context for the RoPE signatures.
-  static absl::StatusOr<InferenceContext> CreateRopeContextWithoutBufferSharing(
-      NpuAuxiliaryContext& npu_auxiliary_context,
-      const std::string& rope_model);
 
   // Creates the context for the RoPE model.  Instead of creating new
   // output buffers for the RoPE model, the context will use the input buffers
@@ -279,25 +247,8 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
           gemma_decode_input_buffers);
 
-  // Creates the input and output tensor buffer maps for prefill and decode.
-  // Intended to be used when the buffers used the main language model are not
-  // shared with the auxiliary models.
   static absl::StatusOr<InferenceContext>
-  CreateLlmInferenceContextWithoutBufferSharing(
-      ::litert::CompiledModel& llm_compiled_model,
-      const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-          input_kv_cache_buffers,
-      const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-          prefill_output_kv_cache_slice_buffers,
-      const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-          decode_output_kv_cache_slice_buffers,
-      const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-          prefill_input_buffers,
-      const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-          decode_input_buffers);
-
-  static absl::StatusOr<InferenceContext>
-  CreateCacheUpdateInferenceContextWithoutBufferSharing(
+  CreateCacheUpdateInferenceContextWithBufferSharing(
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
           input_kv_cache_buffers,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -306,30 +257,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
           decode_output_kv_cache_slice_buffers,
       ::litert::TensorBuffer prefill_input_pos,
       ::litert::TensorBuffer decode_input_pos);
-
-  // Creates the input and output tensor buffer maps for prefill and decode.
-  // Intended to be used when the buffers used the cache update model are not
-  // shared with the main language model.
-  static absl::StatusOr<InferenceContext>
-  CreateCacheUpdateInferenceContextWithoutBufferSharing(
-      ::litert::Model& auxiliary_model,
-      ::litert::CompiledModel& compiled_auxiliary_model,
-      ::litert::TensorBuffer prefill_input_pos,
-      ::litert::TensorBuffer decode_input_pos);
-
-  // Creates an executor from the given models.
-  static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
-  CreateInternalGemmaOnlyQuantized(
-      const std::string& llm_model, const std::string& embedder_model,
-      const std::string& npu_auxiliary_model,
-      const std::optional<std::string>& dispatch_library_path = std::nullopt);
-
-  static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
-  CreateInternalAllQuantized(
-      const std::string& llm_model, const std::string& embedder_model,
-      const std::string& npu_auxiliary_model,
-      const std::optional<std::string>& dispatch_library_path = std::nullopt);
-
   // Run a 'warmup' inference on every model (prefill and decode).  This is
   // intended to be called before the first actual inference.
   static absl::Status WarmupInference(
@@ -342,7 +269,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
 
   litert::lm::LlmExecutorSettings executor_settings_;
   LatencyStats latency_stats_;
-  ModelQuantization model_quantization_;
   EmbedderContext embedder_context_;
   NpuAuxiliaryContext npu_auxiliary_context_;
   InferenceContext mask_context_;

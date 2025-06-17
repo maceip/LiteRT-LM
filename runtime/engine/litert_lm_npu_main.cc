@@ -40,9 +40,6 @@ ABSL_FLAG(std::string, tokenizer_path, "", "Path to the tokenizer model.");
 ABSL_FLAG(std::string, litert_dispatch_lib_path, "",
           "Path to the LiteRT dispatch library.");
 ABSL_FLAG(std::string, prompt, "", "Prompt to run.");
-ABSL_FLAG(bool, gemma_only_quantized, true,
-          "If only Gemma3 is quantized. If false, all models except embedder "
-          "are quantized (*except the embedder for now).");
 ABSL_FLAG(int, num_runs, 1, "Number of times to run the benchmark.");
 
 using odml::infra::LlmLiteRtNpuCompiledModelExecutor;
@@ -50,19 +47,6 @@ using odml::infra::LlmLiteRtNpuCompiledModelExecutor;
 using litert::lm::InputText;
 using litert::lm::ThreadOptions;
 using litert::lm::ThreadPool;
-using odml::infra::LlmLiteRtNpuCompiledModelExecutor::ModelQuantization::
-    kAllQuantized;
-using odml::infra::LlmLiteRtNpuCompiledModelExecutor::ModelQuantization::
-    kTransformerStackOnlyQuantized;
-
-odml::infra::LlmLiteRtNpuCompiledModelExecutor::ModelQuantization
-GetQuantizationSchema() {
-  if (absl::GetFlag(FLAGS_gemma_only_quantized)) {
-    return kTransformerStackOnlyQuantized;
-  } else {
-    return kAllQuantized;
-  }
-}
 
 float GetToksPrefill(
     const LlmLiteRtNpuCompiledModelExecutor::LatencyStats& latency_stats) {
@@ -92,21 +76,6 @@ void PrintLatencyStats(
             << ((latency_stats.prefill_num_tokens * 1000 * 1000) /
                 (float)latency_stats.prefill_llm_inference_latency_us);
 
-  std::cout << "\n"
-            << "====== [Excluding (de)quantization and buffer copying] "
-               "PREFILL STATS ======";
-  std::cout << "\n"
-            << "(*) Prefill latency [us]: "
-            << (latency_stats.prefill_e2e_latency_us -
-                latency_stats.prefill_quantization_latency_us);
-  std::cout << "\n"
-            << "(*) Prefill num tokens: " << latency_stats.prefill_num_tokens;
-  std::cout << "\n"
-            << "(*) Prefill tokens per second: "
-            << ((latency_stats.prefill_num_tokens * 1000 * 1000) /
-                (float)(latency_stats.prefill_e2e_latency_us -
-                        latency_stats.prefill_quantization_latency_us));
-
   std::cout << "\n" << "------ Prefill breakdown ------";
   std::cout << "\n"
             << "Total prefill prepare input tensors latency [us]: "
@@ -130,12 +99,6 @@ void PrintLatencyStats(
             << "Total prefill mask inference latency [us]: "
             << latency_stats.prefill_mask_inference_latency_us << " ("
             << ((latency_stats.prefill_mask_inference_latency_us * 100) /
-                (float)latency_stats.prefill_e2e_latency_us)
-            << "%)";
-  std::cout << "\n"
-            << "Total prefill (de)quantization and copy buffer latency [us]: "
-            << latency_stats.prefill_quantization_latency_us << " ("
-            << ((latency_stats.prefill_quantization_latency_us * 100) /
                 (float)latency_stats.prefill_e2e_latency_us)
             << "%)";
   std::cout << "\n"
@@ -165,21 +128,6 @@ void PrintLatencyStats(
             << ((latency_stats.decode_num_tokens * 1000 * 1000) /
                 (float)latency_stats.decode_llm_inference_latency_us);
 
-  std::cout << "\n"
-            << "====== [Excluding (de)quantization and buffer copying] "
-               "DECODE STATS ======";
-  std::cout << "\n"
-            << "(*) Decode latency [us]: "
-            << (latency_stats.decode_e2e_latency_us -
-                latency_stats.decode_quantization_latency_us);
-  std::cout << "\n"
-            << "(*) Decode num tokens: " << latency_stats.decode_num_tokens;
-  std::cout << "\n"
-            << "(*) Decode tokens per second: "
-            << ((latency_stats.decode_num_tokens * 1000 * 1000) /
-                (float)(latency_stats.decode_e2e_latency_us -
-                        latency_stats.decode_quantization_latency_us));
-
   std::cout << "\n" << "------ Decode breakdown ------";
   std::cout << "\n"
             << "Total decode prepare input tensors latency [us]: "
@@ -203,12 +151,6 @@ void PrintLatencyStats(
             << "Total decode mask inference latency [us]: "
             << latency_stats.decode_mask_inference_latency_us << " ("
             << ((latency_stats.decode_mask_inference_latency_us * 100) /
-                (float)latency_stats.decode_e2e_latency_us)
-            << "%)";
-  std::cout << "\n"
-            << "Total decode (de)quantization and copy buffer latency [us]: "
-            << latency_stats.decode_quantization_latency_us << " ("
-            << ((latency_stats.decode_quantization_latency_us * 100) /
                 (float)latency_stats.decode_e2e_latency_us)
             << "%)";
   std::cout << "\n"

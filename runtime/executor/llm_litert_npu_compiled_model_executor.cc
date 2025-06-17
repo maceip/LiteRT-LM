@@ -110,117 +110,7 @@ struct CacheUpdateSignatures {
   static constexpr absl::string_view kInputPos = "input_pos";
 };
 
-// Iterates through the given 'unquantized_buffer' quantizes each value and
-// copies the result into the 'quantized_buffer'. Quantization is applied
-// according to the 'quantization_info'.  This function assumes symmetric
-// quantization, i.e. the offset is 0.
-absl::Status QuantizeThenCopyValues(
-    const ::litert::TensorBuffer& unquantized_buffer,
-    ::litert::TensorBuffer& quantized_buffer,
-    const LiteRtQuantizationPerTensor quantization_info) {
-  LITERT_ASSIGN_OR_RETURN_ABSL(
-      auto float_values, ReferTensorBufferAsSpan<float>(unquantized_buffer));
-  LITERT_ASSIGN_OR_RETURN(
-      auto quantized_buffer_lock_and_addr,
-      ::litert::TensorBufferScopedLock::Create(quantized_buffer));
-  int16_t* quantized_buffer_ptr =
-      static_cast<int16_t*>(quantized_buffer_lock_and_addr.second);
-  if (quantization_info.scale == 0.0f) {
-    return absl::InvalidArgumentError("Quantization scale must be non-zero.");
-  }
-  float inversed_scale = 1.0f / quantization_info.scale;
-
-  for (int i = 0; i < float_values.size(); ++i) {
-    float tmp = float_values[i] * inversed_scale;
-    // Compute the nearest integer value to num (in floating-point format).
-    float rounded_float = std::round(tmp);
-    int16_t rounded_int = -1;
-    // Clip the value to the range of int16_t.
-    if (rounded_float > std::numeric_limits<int16_t>::max()) {
-      rounded_int = std::numeric_limits<int16_t>::max();
-    } else if (rounded_float < std::numeric_limits<int16_t>::min()) {
-      rounded_int = std::numeric_limits<int16_t>::min();
-    } else {
-      rounded_int = static_cast<int16_t>(rounded_float);
-    }
-    quantized_buffer_ptr[i] = rounded_int;
-  }
-
-  return absl::OkStatus();
-}
-
-// Iterates through the given 'quantized_buffer' de-quantizes each value and
-// copies the result into the 'unquantized_buffer'. De-quantization is applied
-// according to the 'quantization_info'.  This function assumes symmetric
-// quantization, i.e. the offset is 0.
-absl::Status DequantizeThenCopyValues(
-    const ::litert::TensorBuffer& quantized_buffer,
-    ::litert::TensorBuffer& unquantized_buffer,
-    const LiteRtQuantizationPerTensor quantization_info) {
-  LITERT_ASSIGN_OR_RETURN_ABSL(std::vector<int16_t> int16_values,
-                               CopyFromTensorBuffer<int16_t>(quantized_buffer));
-  LITERT_ASSIGN_OR_RETURN(
-      auto unquantized_buffer_lock_and_addr,
-      ::litert::TensorBufferScopedLock::Create(unquantized_buffer));
-  float* unquantized_buffer_ptr =
-      static_cast<float*>(unquantized_buffer_lock_and_addr.second);
-  for (int i = 0; i < int16_values.size(); ++i) {
-    unquantized_buffer_ptr[i] =
-        (float)int16_values[i] * quantization_info.scale;
-  }
-  return absl::OkStatus();
-}
-
 }  // namespace
-
-absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::EmbedderContext>
-LlmLiteRtNpuCompiledModelExecutor::CreateEmbedderContextWithoutBufferSharing(
-    Environment& env, const std::string& embedder_model) {
-  LITERT_ASSIGN_OR_RETURN(Model embedder_lrt_model,
-                          Model::CreateFromFile(embedder_model));
-  LITERT_ASSIGN_OR_RETURN(
-      CompiledModel embedder_compiled_model,
-      CompiledModel::Create(env, embedder_lrt_model, kLiteRtHwAcceleratorCpu));
-
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_input_buffers;
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_output_buffers;
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_input_buffers;
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_output_buffers;
-
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_input_buffers[EmbedderSignatures::kEmbedderInput],
-      embedder_compiled_model.CreateInputBuffer(
-          EmbedderSignatures::kPrefillEmbedder,
-          EmbedderSignatures::kEmbedderInput));
-
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_output_buffers[EmbedderSignatures::kEmbedderOutput],
-      embedder_compiled_model.CreateOutputBuffer(
-          EmbedderSignatures::kPrefillEmbedder,
-          EmbedderSignatures::kEmbedderOutput));
-
-  LITERT_ASSIGN_OR_RETURN(
-      decode_input_buffers[EmbedderSignatures::kEmbedderInput],
-      embedder_compiled_model.CreateInputBuffer(
-          EmbedderSignatures::kDecodeEmbedder,
-          EmbedderSignatures::kEmbedderInput));
-
-  LITERT_ASSIGN_OR_RETURN(
-      decode_output_buffers[EmbedderSignatures::kEmbedderOutput],
-      embedder_compiled_model.CreateOutputBuffer(
-          EmbedderSignatures::kDecodeEmbedder,
-          EmbedderSignatures::kEmbedderOutput));
-
-  EmbedderContext embedder_context(
-      std::move(embedder_compiled_model), std::move(prefill_input_buffers),
-      std::move(prefill_output_buffers), std::move(decode_input_buffers),
-      std::move(decode_output_buffers));
-  return embedder_context;
-}
 
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::EmbedderContext>
 LlmLiteRtNpuCompiledModelExecutor::CreateEmbedderContextWithBufferSharing(
@@ -281,58 +171,6 @@ LlmLiteRtNpuCompiledModelExecutor::CreateNpuAuxiliaryContext(
 }
 
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
-LlmLiteRtNpuCompiledModelExecutor::CreateMaskContextWithoutBufferSharing(
-    NpuAuxiliaryContext& npu_auxiliary_context, const std::string& mask_model,
-    ::litert::TensorBuffer prefill_input_tokens,
-    ::litert::TensorBuffer decode_input_tokens) {
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_input_buffers;
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_output_buffers;
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_input_buffers;
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_output_buffers;
-
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_input_buffers[MaskSignatures::kMaskInputTimeStep],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateInputBuffer(
-          MaskSignatures::kPrefillMask, MaskSignatures::kMaskInputTimeStep));
-  prefill_input_buffers[MaskSignatures::kMaskInputTokens] =
-      std::move(prefill_input_tokens);
-
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_output_buffers[MaskSignatures::kMaskOutputLocalMask],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          MaskSignatures::kPrefillMask, MaskSignatures::kMaskOutputLocalMask));
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_output_buffers[MaskSignatures::kMaskOutputGlobalMask],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          MaskSignatures::kPrefillMask, MaskSignatures::kMaskOutputGlobalMask));
-  LITERT_ASSIGN_OR_RETURN(
-      decode_input_buffers[MaskSignatures::kMaskInputTimeStep],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateInputBuffer(
-          MaskSignatures::kDecodeMask, MaskSignatures::kMaskInputTimeStep));
-  decode_input_buffers[MaskSignatures::kMaskInputTokens] =
-      std::move(decode_input_tokens);
-
-  LITERT_ASSIGN_OR_RETURN(
-      decode_output_buffers[MaskSignatures::kMaskOutputLocalMask],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          MaskSignatures::kDecodeMask, MaskSignatures::kMaskOutputLocalMask));
-
-  LITERT_ASSIGN_OR_RETURN(
-      decode_output_buffers[MaskSignatures::kMaskOutputGlobalMask],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          MaskSignatures::kDecodeMask, MaskSignatures::kMaskOutputGlobalMask));
-
-  InferenceContext mask_context(
-      std::move(prefill_input_buffers), std::move(prefill_output_buffers),
-      std::move(decode_input_buffers), std::move(decode_output_buffers));
-  return mask_context;
-}
-
-absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
 LlmLiteRtNpuCompiledModelExecutor::CreateMaskContextWithBufferSharing(
     NpuAuxiliaryContext& npu_auxiliary_context,
     ::litert::TensorBuffer prefill_input_tokens,
@@ -386,80 +224,6 @@ LlmLiteRtNpuCompiledModelExecutor::CreateMaskContextWithBufferSharing(
 }
 
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
-LlmLiteRtNpuCompiledModelExecutor::CreateRopeContextWithoutBufferSharing(
-    LlmLiteRtNpuCompiledModelExecutor::NpuAuxiliaryContext&
-        npu_auxiliary_context,
-    const std::string& rope_model) {
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_input_buffers;
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_output_buffers;
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_input_buffers;
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_output_buffers;
-
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_input_buffers[RopeSignatures::kInputPos],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateInputBuffer(
-          RopeSignatures::kPrefillRope, RopeSignatures::kInputPos));
-
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_output_buffers[RopeSignatures::kOutputPosEmbeddingLocalLow],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          RopeSignatures::kPrefillRope,
-          RopeSignatures::kOutputPosEmbeddingLocalLow));
-
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_output_buffers[RopeSignatures::kOutputPosEmbeddingHigh],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          RopeSignatures::kPrefillRope,
-          RopeSignatures::kOutputPosEmbeddingHigh));
-
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_output_buffers[RopeSignatures::kOutputPosEmbeddingLocalHigh],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          RopeSignatures::kPrefillRope,
-          RopeSignatures::kOutputPosEmbeddingLocalHigh));
-
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_output_buffers[RopeSignatures::kOutputPosEmbeddingLow],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          RopeSignatures::kPrefillRope,
-          RopeSignatures::kOutputPosEmbeddingLow));
-
-  LITERT_ASSIGN_OR_RETURN(
-      decode_input_buffers[RopeSignatures::kInputPos],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateInputBuffer(
-          RopeSignatures::kDecodeRope, RopeSignatures::kInputPos));
-
-  LITERT_ASSIGN_OR_RETURN(
-      decode_output_buffers[RopeSignatures::kOutputPosEmbeddingLocalLow],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          RopeSignatures::kDecodeRope,
-          RopeSignatures::kOutputPosEmbeddingLocalLow));
-  LITERT_ASSIGN_OR_RETURN(
-      decode_output_buffers[RopeSignatures::kOutputPosEmbeddingHigh],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          RopeSignatures::kDecodeRope,
-          RopeSignatures::kOutputPosEmbeddingHigh));
-  LITERT_ASSIGN_OR_RETURN(
-      decode_output_buffers[RopeSignatures::kOutputPosEmbeddingLocalHigh],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          RopeSignatures::kDecodeRope,
-          RopeSignatures::kOutputPosEmbeddingLocalHigh));
-  LITERT_ASSIGN_OR_RETURN(
-      decode_output_buffers[RopeSignatures::kOutputPosEmbeddingLow],
-      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateOutputBuffer(
-          RopeSignatures::kDecodeRope, RopeSignatures::kOutputPosEmbeddingLow));
-
-  InferenceContext rope_context(
-      std::move(prefill_input_buffers), std::move(prefill_output_buffers),
-      std::move(decode_input_buffers), std::move(decode_output_buffers));
-  return rope_context;
-}
-
-absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
 LlmLiteRtNpuCompiledModelExecutor::CreateRopeContextWithBufferSharing(
     NpuAuxiliaryContext& npu_auxiliary_context,
     absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -506,73 +270,6 @@ LlmLiteRtNpuCompiledModelExecutor::CreateRopeContextWithBufferSharing(
       std::move(prefill_input_buffers), std::move(prefill_output_buffers),
       std::move(decode_input_buffers), std::move(decode_output_buffers));
   return rope_context;
-}
-
-absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
-LlmLiteRtNpuCompiledModelExecutor::
-    CreateLlmInferenceContextWithoutBufferSharing(
-        ::litert::CompiledModel& llm_compiled_model,
-        const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-            input_kv_cache_buffers,
-        const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-            prefill_output_kv_cache_slice_buffers,
-        const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-            decode_output_kv_cache_slice_buffers,
-        const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-            prefill_input_buffers_ext,
-        const absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
-            decode_input_buffers_ext) {
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_input_buffers;
-  {
-    // Duplicate all provided inputs to prefill inputs.
-    for (const auto& [key, value] : prefill_input_buffers_ext) {
-      LITERT_ASSIGN_OR_RETURN(prefill_input_buffers[key], value.Duplicate());
-    }
-    // Duplicate all kv cache buffers to prefill inputs.
-    for (const auto& [key, value] : input_kv_cache_buffers) {
-      LITERT_ASSIGN_OR_RETURN(prefill_input_buffers[key], value.Duplicate());
-    }
-  }
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_output_buffers;
-  {
-    // Duplicate all output kv cache slice buffers to prefill output
-    // buffers.
-    for (const auto& [key, value] : prefill_output_kv_cache_slice_buffers) {
-      LITERT_ASSIGN_OR_RETURN(prefill_output_buffers[key], value.Duplicate());
-    }
-  }
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_input_buffers;
-  {
-    // Duplicate all provided outputs to prefill inputs.
-    for (const auto& [key, value] : decode_input_buffers_ext) {
-      LITERT_ASSIGN_OR_RETURN(decode_input_buffers[key], value.Duplicate());
-    }
-    // Duplicate all kv cache buffers to decode inputs.
-    for (const auto& [key, value] : input_kv_cache_buffers) {
-      LITERT_ASSIGN_OR_RETURN(decode_input_buffers[key], value.Duplicate());
-    }
-  }
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_output_buffers;
-  {
-    // Duplicate all output kv cache slice buffers to decode output
-    // buffers.
-    for (const auto& [key, value] : decode_output_kv_cache_slice_buffers) {
-      LITERT_ASSIGN_OR_RETURN(decode_output_buffers[key], value.Duplicate());
-    }
-
-    // Create the decode logits output buffer.
-    LITERT_ASSIGN_OR_RETURN(
-        decode_output_buffers[LlmSignatures::kDecodeLogitsOutput],
-        llm_compiled_model.CreateOutputBuffer(
-            kDecodeSignatureRunner, LlmSignatures::kDecodeLogitsOutput));
-  }
-  return InferenceContext(
-      std::move(prefill_input_buffers), std::move(prefill_output_buffers),
-      std::move(decode_input_buffers), std::move(decode_output_buffers));
 }
 
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
@@ -656,7 +353,7 @@ LlmLiteRtNpuCompiledModelExecutor::CreateLlmInferenceContextWithBufferSharing(
 
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
 LlmLiteRtNpuCompiledModelExecutor::
-    CreateCacheUpdateInferenceContextWithoutBufferSharing(
+    CreateCacheUpdateInferenceContextWithBufferSharing(
         absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
             input_kv_cache_buffers,
         absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -709,90 +406,6 @@ LlmLiteRtNpuCompiledModelExecutor::
   return InferenceContext(
       std::move(prefill_input_buffers), std::move(prefill_output_buffers),
       std::move(decode_input_buffers), std::move(decode_output_buffers));
-}
-
-absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
-LlmLiteRtNpuCompiledModelExecutor::
-    CreateCacheUpdateInferenceContextWithoutBufferSharing(
-        ::litert::Model& auxiliary_model,
-        ::litert::CompiledModel& compiled_auxiliary_model,
-        ::litert::TensorBuffer prefill_input_pos,
-        ::litert::TensorBuffer decode_input_pos)
-
-{
-  auto prefill_signature =
-      auxiliary_model.FindSignature(CacheUpdateSignatures::kPrefillCacheUpdate);
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_input_buffers;
-  {
-    // Move the provided (duplicated) input pos buffer but create other inputs.
-    prefill_input_buffers[CacheUpdateSignatures::kInputPos] =
-        std::move(prefill_input_pos);
-    for (auto input_name : prefill_signature->InputNames()) {
-      if (input_name == CacheUpdateSignatures::kInputPos) {
-        continue;
-      }
-      LITERT_ASSIGN_OR_RETURN(
-          prefill_input_buffers[input_name],
-          compiled_auxiliary_model.CreateInputBuffer(
-              CacheUpdateSignatures::kPrefillCacheUpdate, input_name));
-    }
-  }
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      prefill_output_buffers;
-  {
-    // The cache update model output should re-use the KV cache that is already
-    // available in the input buffers.
-    for (auto output_name : prefill_signature->OutputNames()) {
-      ::litert::TensorBuffer& output_buffer =
-          prefill_input_buffers[output_name];
-      LITERT_ASSIGN_OR_RETURN(prefill_output_buffers[output_name],
-                              output_buffer.Duplicate());
-    }
-  }
-
-  auto decode_signature =
-      auxiliary_model.FindSignature(CacheUpdateSignatures::kDecodeCacheUpdate);
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_input_buffers;
-  {
-    decode_input_buffers[CacheUpdateSignatures::kInputPos] =
-        std::move(decode_input_pos);
-    for (auto input_name : decode_signature->InputNames()) {
-      if (input_name == CacheUpdateSignatures::kInputPos) {
-        continue;
-      }
-      ::litert::TensorBuffer& buffer = prefill_input_buffers[input_name];
-      LITERT_ASSIGN_OR_RETURN(decode_input_buffers[input_name],
-                              buffer.Duplicate());
-    }
-  }
-  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
-      decode_output_buffers;
-  {
-    // The cache update model should re-use the KV cache that is already
-    // available in the input buffers.
-    for (auto output_name : decode_signature->OutputNames()) {
-      ::litert::TensorBuffer& output_buffer = decode_input_buffers[output_name];
-      LITERT_ASSIGN_OR_RETURN(decode_output_buffers[output_name],
-                              output_buffer.Duplicate());
-    }
-  }
-  return InferenceContext(
-      std::move(prefill_input_buffers), std::move(prefill_output_buffers),
-      std::move(decode_input_buffers), std::move(decode_output_buffers));
-}
-
-// static
-absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
-LlmLiteRtNpuCompiledModelExecutor::CreateInternalAllQuantized(
-    const std::string& llm_model, const std::string& embedder_model,
-    const std::string& npu_auxiliary_model,
-    const std::optional<std::string>& dispatch_library_path) {
-  // TODO(b/405424188): Remove 'Create' functions that require the caller
-  // to provide tflite files, we should only be using the litertlm file
-  // format.
-  return absl::UnimplementedError("This method is not implemented.");
 }
 
 absl::Status LlmLiteRtNpuCompiledModelExecutor::WarmupInference(
@@ -1063,61 +676,13 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
 
   // Invoke LLM signature.
   {
-    // The Gemma model expects quantized inputs, but the buffers of all
-    // auxiliary models are not quantized. So we need to quantize them here on
-    // the fly.
     auto start = absl::Now();
-    if (model_quantization_ ==
-        ModelQuantization::kTransformerStackOnlyQuantized) {
-      for (auto& [input_name, quantized_input_buffer] :
-           llm_inference_context_.prefill_input_buffers) {
-        if (input_name == cache_v25 || input_name == cache_k25) {
-          continue;
-        }
-        // Get tensor and check it has quantization.
-        LITERT_ASSIGN_OR_RETURN(
-            auto prefill_subgraph,
-            llm_model_->Subgraph(LlmSignatures::kPrefillLlm));
-        auto tensor = prefill_subgraph.Input(input_name);
-        RET_CHECK(tensor->HasQuantization());
-        auto quantization_info = tensor->PerTensorQuantization();
-        if (input_name == LlmSignatures::kInputEmbeddings) {
-          ::litert::TensorBuffer& input_embeds =
-              embedder_context_.inference_context
-                  .prefill_output_buffers[EmbedderSignatures::kEmbedderOutput];
-          RETURN_IF_ERROR(QuantizeThenCopyValues(
-              input_embeds, quantized_input_buffer, quantization_info));
-        } else if (absl::StartsWith(input_name, "kv_cache_")) {
-          ::litert::TensorBuffer& input_kv_cache =
-              cache_update_inference_context_
-                  .prefill_output_buffers[input_name];
-          RETURN_IF_ERROR(QuantizeThenCopyValues(
-              input_kv_cache, quantized_input_buffer, quantization_info));
-        } else if (absl::StartsWith(input_name, "mask_")) {
-          ::litert::TensorBuffer& input_mask =
-              mask_context_.prefill_output_buffers[input_name];
-          RETURN_IF_ERROR(QuantizeThenCopyValues(
-              input_mask, quantized_input_buffer, quantization_info));
-        } else if (absl::StartsWith(input_name, "pos_emb_")) {
-          ::litert::TensorBuffer& input_pos_emb =
-              rope_context_.prefill_output_buffers[input_name];
-          RETURN_IF_ERROR(QuantizeThenCopyValues(
-              input_pos_emb, quantized_input_buffer, quantization_info));
-        }
-      }
-    }
-
-    auto end = absl::Now();
-    latency_stats_.prefill_quantization_latency_us +=
-        absl::ToInt64Microseconds(end - start);
-
-    start = absl::Now();
     auto res =
         llm_compiled_model_.Run(LlmSignatures::kPrefillLlm,
                                 llm_inference_context_.prefill_input_buffers,
                                 llm_inference_context_.prefill_output_buffers);
     RET_CHECK(res) << "Failed to run LLM model." << res.Error().Message();
-    end = absl::Now();
+    auto end = absl::Now();
     latency_stats_.prefill_llm_inference_latency_us +=
         absl::ToInt64Microseconds(end - start);
   }
@@ -1125,38 +690,11 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
   // Cache update.
   {
     auto start = absl::Now();
-    // The cache model expects non-quantized inputs, but the buffers of the
-    // Gemma model are quantized. So we need to de-quantize them here on
-    // the fly.
-    if (model_quantization_ ==
-        ModelQuantization::kTransformerStackOnlyQuantized) {
-      for (auto& [input_name, input_buffer] :
-           cache_update_inference_context_.prefill_input_buffers) {
-        if (absl::StartsWith(input_name, "kv_slice_")) {
-          LITERT_ASSIGN_OR_RETURN(
-              auto prefill_subgraph,
-              llm_model_->Subgraph(LlmSignatures::kPrefillLlm));
-          auto tensor = prefill_subgraph.Output(input_name);
-          RET_CHECK(tensor->HasQuantization());
-          auto quantization_info = tensor->PerTensorQuantization();
-          ::litert::TensorBuffer& quantized_kv_slice =
-              llm_inference_context_.prefill_output_buffers[input_name];
-          RETURN_IF_ERROR(DequantizeThenCopyValues(
-              quantized_kv_slice, input_buffer, quantization_info));
-        }
-      }
-    }
-
-    auto end = absl::Now();
-    latency_stats_.prefill_quantization_latency_us +=
-        absl::ToInt64Microseconds(end - start);
-
-    start = absl::Now();
     auto res = npu_auxiliary_context_.npu_auxiliary_compiled_model.Run(
         CacheUpdateSignatures::kPrefillCacheUpdate,
         cache_update_inference_context_.prefill_input_buffers,
         cache_update_inference_context_.prefill_output_buffers);
-    end = absl::Now();
+    auto end = absl::Now();
     latency_stats_.prefill_cache_update_inference_latency_us +=
         absl::ToInt64Microseconds(end - start);
     RET_CHECK(res) << "Failed to run cache update model."
@@ -1262,54 +800,11 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
 
   // Invoke LLM signature.
   {
-    // The Gemma model expects quantized inputs, but the buffers of all
-    // auxiliary models are not quantized. So we need to quantize them here on
-    // the fly.
     auto start = absl::Now();
-    if (model_quantization_ ==
-        ModelQuantization::kTransformerStackOnlyQuantized) {
-      for (auto& [input_name, quantized_input_buffer] :
-           llm_inference_context_.decode_input_buffers) {
-        // Get tensor and check it has quantization.
-        LITERT_ASSIGN_OR_RETURN(
-            auto decode_subgraph,
-            llm_model_->Subgraph(LlmSignatures::kDecodeLlm));
-        auto tensor = decode_subgraph.Input(input_name);
-        RET_CHECK(tensor->HasQuantization());
-        auto quantization_info = tensor->PerTensorQuantization();
-        if (input_name == LlmSignatures::kInputEmbeddings) {
-          ::litert::TensorBuffer& input_embeds =
-              embedder_context_.inference_context
-                  .decode_output_buffers[EmbedderSignatures::kEmbedderOutput];
-          RETURN_IF_ERROR(QuantizeThenCopyValues(
-              input_embeds, quantized_input_buffer, quantization_info));
-        } else if (absl::StartsWith(input_name, "kv_cache_")) {
-          ::litert::TensorBuffer& input_kv_cache =
-              cache_update_inference_context_.decode_output_buffers[input_name];
-          RETURN_IF_ERROR(QuantizeThenCopyValues(
-              input_kv_cache, quantized_input_buffer, quantization_info));
-        } else if (absl::StartsWith(input_name, "mask_")) {
-          ::litert::TensorBuffer& input_mask =
-              mask_context_.decode_output_buffers[input_name];
-          RETURN_IF_ERROR(QuantizeThenCopyValues(
-              input_mask, quantized_input_buffer, quantization_info));
-        } else if (absl::StartsWith(input_name, "pos_emb_")) {
-          ::litert::TensorBuffer& input_pos_emb =
-              rope_context_.decode_output_buffers[input_name];
-          RETURN_IF_ERROR(QuantizeThenCopyValues(
-              input_pos_emb, quantized_input_buffer, quantization_info));
-        }
-      }
-    }
-    auto end = absl::Now();
-    latency_stats_.decode_quantization_latency_us +=
-        absl::ToInt64Microseconds(end - start);
-
-    start = absl::Now();
     auto res = llm_compiled_model_.Run(
         LlmSignatures::kDecodeLlm, llm_inference_context_.decode_input_buffers,
         llm_inference_context_.decode_output_buffers);
-    end = absl::Now();
+    auto end = absl::Now();
     latency_stats_.decode_llm_inference_latency_us +=
         absl::ToInt64Microseconds(end - start);
     RET_CHECK(res) << "Failed to run LLM model." << res.Error().Message();
@@ -1318,43 +813,13 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
   // Cache update.
   {
     auto start = absl::Now();
-    // The cache model expects non-quantized inputs, but the buffers of the
-    // Gemma model are quantized. So we need to de-quantize them here on
-    // the fly.
-    if (model_quantization_ ==
-        ModelQuantization::kTransformerStackOnlyQuantized) {
-      for (auto& [input_name, input_buffer] :
-           cache_update_inference_context_.decode_input_buffers) {
-        if (!absl::StartsWith(input_name, "kv_slice_")) {
-          continue;
-        }
-        // If it is a kv_slice input, we need to dequantize it and we know
-        // the gemma model has it as an output tensor.
-        // Get tensor and check it has quantization.
-        LITERT_ASSIGN_OR_RETURN(
-            auto decode_subgraph,
-            llm_model_->Subgraph(LlmSignatures::kDecodeLlm));
-        auto tensor = decode_subgraph.Output(input_name);
-        RET_CHECK(tensor->HasQuantization());
-        auto quantization_info = tensor->PerTensorQuantization();
-        ::litert::TensorBuffer& quantized_kv_slice =
-            llm_inference_context_.decode_output_buffers[input_name];
-        RETURN_IF_ERROR(DequantizeThenCopyValues(
-            quantized_kv_slice, input_buffer, quantization_info));
-      }
-    }
-    auto end = absl::Now();
-    latency_stats_.decode_quantization_latency_us +=
-        absl::ToInt64Microseconds(end - start);
-
-    start = absl::Now();
     auto res = npu_auxiliary_context_.npu_auxiliary_compiled_model.Run(
         CacheUpdateSignatures::kDecodeCacheUpdate,
         cache_update_inference_context_.decode_input_buffers,
         cache_update_inference_context_.decode_output_buffers);
     RET_CHECK(res) << "Failed to run cache update model."
                    << res.Error().Message();
-    end = absl::Now();
+    auto end = absl::Now();
     latency_stats_.decode_cache_update_inference_latency_us +=
         absl::ToInt64Microseconds(end - start);
   }
@@ -1375,21 +840,6 @@ LlmLiteRtNpuCompiledModelExecutor::LatencyStats
 LlmLiteRtNpuCompiledModelExecutor::GetLatencyStats() const {
   return latency_stats_;
 }
-
-// static
-absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
-LlmLiteRtNpuCompiledModelExecutor::Create(
-    ModelQuantization model_quantization, const std::string& llm_model,
-    const std::string& embedder_model, const std::string& npu_auxiliary_model,
-    const std::optional<std::string>& dispatch_library_path) {
-  if (model_quantization == ModelQuantization::kTransformerStackOnlyQuantized) {
-    return CreateInternalGemmaOnlyQuantized(
-        llm_model, embedder_model, npu_auxiliary_model, dispatch_library_path);
-  } else {
-    return CreateInternalAllQuantized(
-        llm_model, embedder_model, npu_auxiliary_model, dispatch_library_path);
-  }
-};
 
 // static
 absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
@@ -1544,7 +994,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
       rope_context.decode_input_buffers[RopeSignatures::kInputPos].Duplicate());
   ASSIGN_OR_RETURN(
       auto cache_update_inference_context,
-      CreateCacheUpdateInferenceContextWithoutBufferSharing(
+      CreateCacheUpdateInferenceContextWithBufferSharing(
           input_kv_cache_buffers, prefill_output_kv_cache_slice_buffers,
           decode_output_kv_cache_slice_buffers, std::move(prefill_input_pos),
           std::move(decode_input_pos)));
@@ -1560,30 +1010,14 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   // TODO(b/423997573): Support litertlm file format for NPU. Then we can
   // remove the dummy model path.
   auto executor = absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
-      executor_settings, ModelQuantization::kAllQuantized,
-      std::move(embedder_context), std::move(npu_auxiliary_context),
-      std::move(mask_context), std::move(rope_context), std::move(env),
-      model_shared_ptr, std::move(compiled_model_llm),
-      std::move(llm_inference_context),
+      executor_settings, std::move(embedder_context),
+      std::move(npu_auxiliary_context), std::move(mask_context),
+      std::move(rope_context), std::move(env), model_shared_ptr,
+      std::move(compiled_model_llm), std::move(llm_inference_context),
       std::move(cache_update_inference_context),
       std::move(prefill_runner_set)));
   ABSL_LOG(INFO) << "Executor created.";
   return executor;
 };
-
-// Creates an executor from the given models.
-absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
-LlmLiteRtNpuCompiledModelExecutor::CreateInternalGemmaOnlyQuantized(
-    const std::string& llm_model, const std::string& embedder_model,
-    const std::string& npu_auxiliary_model,
-    const std::optional<std::string>& dispatch_library_path) {
-  // TODO(b405424188): Remove the support for the 'gemma_only_quantized' variant
-  // of the executor.  This was a temporary solution to allow us to use the
-  // executor with the Gemma3 model, which was quantized, but the embedder and
-  // auxiliary models were not quantized. Now that we have the full generality
-  // of the executor, we should remove this path.
-  return absl::Status(absl::StatusCode::kUnimplemented,
-                      "This method is not implemented.");
-}
 
 }  // namespace odml::infra
