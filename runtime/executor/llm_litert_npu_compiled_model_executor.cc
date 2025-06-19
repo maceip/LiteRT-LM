@@ -113,6 +113,8 @@ struct CacheUpdateSignatures {
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::EmbedderContext>
 LlmLiteRtNpuCompiledModelExecutor::CreateEmbedderContextWithBufferSharing(
     ::litert::Environment& env, const litert::Model& embedder_model,
+    ::litert::TensorBuffer prefill_input_tokens,
+    ::litert::TensorBuffer decode_input_tokens,
     absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
         gemma_prefill_input_buffers,
     absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -130,21 +132,15 @@ LlmLiteRtNpuCompiledModelExecutor::CreateEmbedderContextWithBufferSharing(
   absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
       decode_output_buffers;
 
-  LITERT_ASSIGN_OR_RETURN(
-      prefill_input_buffers[EmbedderSignatures::kEmbedderInput],
-      embedder_compiled_model.CreateInputBuffer(
-          EmbedderSignatures::kPrefillEmbedder,
-          EmbedderSignatures::kEmbedderInput));
+  prefill_input_buffers[EmbedderSignatures::kEmbedderInput] =
+      std::move(prefill_input_tokens);
 
   LITERT_ASSIGN_OR_RETURN(
       prefill_output_buffers[EmbedderSignatures::kEmbedderOutput],
       gemma_prefill_input_buffers[LlmSignatures::kInputEmbeddings].Duplicate());
 
-  LITERT_ASSIGN_OR_RETURN(
-      decode_input_buffers[EmbedderSignatures::kEmbedderInput],
-      embedder_compiled_model.CreateInputBuffer(
-          EmbedderSignatures::kDecodeEmbedder,
-          EmbedderSignatures::kEmbedderInput));
+  decode_input_buffers[EmbedderSignatures::kEmbedderInput] =
+      std::move(decode_input_tokens);
 
   LITERT_ASSIGN_OR_RETURN(
       decode_output_buffers[EmbedderSignatures::kEmbedderOutput],
@@ -171,8 +167,6 @@ LlmLiteRtNpuCompiledModelExecutor::CreateNpuAuxiliaryContext(
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::InferenceContext>
 LlmLiteRtNpuCompiledModelExecutor::CreateMaskContextWithBufferSharing(
     NpuAuxiliaryContext& npu_auxiliary_context,
-    ::litert::TensorBuffer prefill_input_tokens,
-    ::litert::TensorBuffer decode_input_tokens,
     absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
         gemma_prefill_input_buffers,
     absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -190,8 +184,10 @@ LlmLiteRtNpuCompiledModelExecutor::CreateMaskContextWithBufferSharing(
       prefill_input_buffers[MaskSignatures::kMaskInputTimeStep],
       npu_auxiliary_context.npu_auxiliary_compiled_model.CreateInputBuffer(
           MaskSignatures::kPrefillMask, MaskSignatures::kMaskInputTimeStep));
-  prefill_input_buffers[MaskSignatures::kMaskInputTokens] =
-      std::move(prefill_input_tokens);
+  LITERT_ASSIGN_OR_RETURN(
+      prefill_input_buffers[MaskSignatures::kMaskInputTokens],
+      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateInputBuffer(
+          MaskSignatures::kPrefillMask, MaskSignatures::kMaskInputTokens));
 
   const std::set<absl::string_view> mask_output_names = {
       MaskSignatures::kMaskOutputLocalMask,
@@ -206,8 +202,10 @@ LlmLiteRtNpuCompiledModelExecutor::CreateMaskContextWithBufferSharing(
       decode_input_buffers[MaskSignatures::kMaskInputTimeStep],
       npu_auxiliary_context.npu_auxiliary_compiled_model.CreateInputBuffer(
           MaskSignatures::kDecodeMask, MaskSignatures::kMaskInputTimeStep));
-  decode_input_buffers[MaskSignatures::kMaskInputTokens] =
-      std::move(decode_input_tokens);
+  LITERT_ASSIGN_OR_RETURN(
+      decode_input_buffers[MaskSignatures::kMaskInputTokens],
+      npu_auxiliary_context.npu_auxiliary_compiled_model.CreateInputBuffer(
+          MaskSignatures::kDecodeMask, MaskSignatures::kMaskInputTokens));
 
   for (const auto& mask_output_name : mask_output_names) {
     LITERT_ASSIGN_OR_RETURN(
@@ -935,40 +933,36 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
           decode_output_kv_cache_slice_buffers, gemma_prefill_input_buffers,
           gemma_decode_input_buffers));
 
+  ASSIGN_OR_RETURN(auto npu_auxiliary_lrt_model,
+                   resources.GetTFLiteModel(litert::lm::ModelType::kTfLiteAux));
+
+  ASSIGN_OR_RETURN(auto npu_auxiliary_context,
+                   CreateNpuAuxiliaryContext(env, *npu_auxiliary_lrt_model));
+
+  ASSIGN_OR_RETURN(auto mask_context,
+                   CreateMaskContextWithBufferSharing(
+                       npu_auxiliary_context, gemma_prefill_input_buffers,
+                       gemma_decode_input_buffers));
+
+  // Duplicate the mask buffers that are used to store the prefill and
+  // decode input tokens, because they will need to be passed to the embedder
+  // inference context as well so that they can be shared.
+  LITERT_ASSIGN_OR_RETURN(
+      ::litert::TensorBuffer prefill_input_tokens,
+      mask_context.prefill_input_buffers[MaskSignatures::kMaskInputTokens]
+          .Duplicate());
+  LITERT_ASSIGN_OR_RETURN(
+      ::litert::TensorBuffer decode_input_tokens,
+      mask_context.decode_input_buffers[MaskSignatures::kMaskInputTokens]
+          .Duplicate());
+
   ASSIGN_OR_RETURN(
-      auto embedder_lrt_model_shared_ptr,
+      auto embedder_lrt_model,
       resources.GetTFLiteModel(litert::lm::ModelType::kTfLiteEmbedder));
   ASSIGN_OR_RETURN(
       auto embedder_context,
       CreateEmbedderContextWithBufferSharing(
-          env, *embedder_lrt_model_shared_ptr, gemma_prefill_input_buffers,
-          gemma_decode_input_buffers));
-
-  ASSIGN_OR_RETURN(auto npu_auxiliary_lrt_model_shared_ptr,
-                   resources.GetTFLiteModel(litert::lm::ModelType::kTfLiteAux));
-
-  ASSIGN_OR_RETURN(
-      auto npu_auxiliary_context,
-      CreateNpuAuxiliaryContext(env, *npu_auxiliary_lrt_model_shared_ptr));
-
-  // Duplicate the embedder's buffers that are used to store the prefill and
-  // decode input tokens, because they will need to be passed to the mask
-  // inference context as well.
-  LITERT_ASSIGN_OR_RETURN(
-      ::litert::TensorBuffer prefill_input_tokens,
-      embedder_context.inference_context
-          .prefill_input_buffers[EmbedderSignatures::kEmbedderInput]
-          .Duplicate());
-  LITERT_ASSIGN_OR_RETURN(
-      ::litert::TensorBuffer decode_input_tokens,
-      embedder_context.inference_context
-          .decode_input_buffers[EmbedderSignatures::kEmbedderInput]
-          .Duplicate());
-
-  ASSIGN_OR_RETURN(
-      auto mask_context,
-      CreateMaskContextWithBufferSharing(
-          npu_auxiliary_context, std::move(prefill_input_tokens),
+          env, *embedder_lrt_model, std::move(prefill_input_tokens),
           std::move(decode_input_tokens), gemma_prefill_input_buffers,
           gemma_decode_input_buffers));
 

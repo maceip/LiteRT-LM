@@ -202,9 +202,13 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // Creates the context for the embedder model.  Instead of creating new
   // output buffers for the embedder, the context will use the input buffers
   // of the provided 'gemma_prefill_input_buffers' and
-  // 'gemma_decode_input_buffers'.
+  // 'gemma_decode_input_buffers'.  Similarly, instead of creating the buffers
+  // for the input tokens the provided 'prefill_input_tokens' and
+  // 'decode_input_tokens' will be used.
   static absl::StatusOr<EmbedderContext> CreateEmbedderContextWithBufferSharing(
       ::litert::Environment& env, const litert::Model& embedder_model,
+      ::litert::TensorBuffer prefill_input_tokens,
+      ::litert::TensorBuffer decode_input_tokens,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
           gemma_prefill_input_buffers,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -220,8 +224,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // 'gemma_decode_input_buffers'.
   static absl::StatusOr<InferenceContext> CreateMaskContextWithBufferSharing(
       NpuAuxiliaryContext& npu_auxiliary_context,
-      ::litert::TensorBuffer prefill_input_tokens,
-      ::litert::TensorBuffer decode_input_tokens,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
           gemma_prefill_input_buffers,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
