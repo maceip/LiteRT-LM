@@ -84,7 +84,7 @@ absl::StatusOr<LlmExecutorSettings> LlmExecutorSettings::CreateDefault(
     // Default max top k to 1 for GPU.
     config.max_top_k = 1;
     settings.SetBackendConfig(config);
-  } else if (backend == Backend::QNN) {
+  } else if (backend == Backend::NPU) {
   } else if (backend == Backend::GPU_ARTISAN) {
     settings.SetBackendConfig(GpuArtisanConfig());
   } else {

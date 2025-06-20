@@ -92,7 +92,7 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
     proto::SamplerParameters& sampler_params =
         *metadata.mutable_sampler_params();
     Backend backend = main_executor_settings_.GetBackend();
-    if (backend == Backend::QNN) {
+    if (backend == Backend::NPU) {
       sampler_params.set_type(proto::SamplerParameters::TYPE_UNSPECIFIED);
     } else if (backend == Backend::CPU || backend == Backend::GPU) {
       sampler_params.set_type(proto::SamplerParameters::TOP_P);

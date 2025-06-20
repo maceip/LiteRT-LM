@@ -184,10 +184,10 @@ TEST(EngineSettingsTest, MaybeUpdateAndValidate) {
   EXPECT_OK(IsExpectedLlmMetadata(settings->GetLlmMetadata().value()));
 }
 
-TEST(EngineSettingsTest, MaybeUpdateAndValidateQNN) {
+TEST(EngineSettingsTest, MaybeUpdateAndValidateNPU) {
   auto model_assets = ModelAssets::Create("test_model_path_1");
   ASSERT_OK(model_assets);
-  auto settings = EngineSettings::CreateDefault(*model_assets, Backend::QNN);
+  auto settings = EngineSettings::CreateDefault(*model_assets, Backend::NPU);
   EXPECT_OK(settings);
 
   FakeTokenizer tokenizer;

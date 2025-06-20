@@ -51,10 +51,10 @@ TEST(LlmExecutorConfigTest, Backend) {
   oss << backend;
   EXPECT_EQ(oss.str(), "GOOGLE_TENSOR_ARTISAN");
 
-  backend = Backend::QNN;
+  backend = Backend::NPU;
   oss.str("");
   oss << backend;
-  EXPECT_EQ(oss.str(), "QNN");
+  EXPECT_EQ(oss.str(), "NPU");
 }
 
 TEST(LlmExecutorConfigTest, StringToBackend) {
@@ -68,8 +68,8 @@ TEST(LlmExecutorConfigTest, StringToBackend) {
   EXPECT_EQ(*backend, Backend::CPU);
   backend = GetBackendFromString("google_tensor_artisan");
   EXPECT_EQ(*backend, Backend::GOOGLE_TENSOR_ARTISAN);
-  backend = GetBackendFromString("qnn");
-  EXPECT_EQ(*backend, Backend::QNN);
+  backend = GetBackendFromString("npu");
+  EXPECT_EQ(*backend, Backend::NPU);
 }
 
 TEST(LlmExecutorConfigTest, ActivatonDataType) {

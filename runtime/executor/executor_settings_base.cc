@@ -43,8 +43,8 @@ std::ostream& operator<<(std::ostream& os, const Backend& backend) {
       return os << "CPU";
     case Backend::GOOGLE_TENSOR_ARTISAN:
       return os << "GOOGLE_TENSOR_ARTISAN";
-    case Backend::QNN:
-      return os << "QNN";
+    case Backend::NPU:
+      return os << "NPU";
     default:
       return os << "UNKNOWN";
   }
@@ -56,8 +56,8 @@ absl::StatusOr<Backend> GetBackendFromString(absl::string_view backend_str) {
     backend = Backend::CPU;
   } else if (absl::EqualsIgnoreCase(backend_str, "gpu")) {
     backend = Backend::GPU;
-  } else if (absl::EqualsIgnoreCase(backend_str, "qnn")) {
-    backend = Backend::QNN;
+  } else if (absl::EqualsIgnoreCase(backend_str, "npu")) {
+    backend = Backend::NPU;
   } else if (absl::EqualsIgnoreCase(backend_str, "gpu_artisan")) {
     backend = Backend::GPU_ARTISAN;
   } else if (absl::EqualsIgnoreCase(backend_str, "cpu_artisan")) {
