@@ -35,6 +35,7 @@
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/framework/threadpool.h"
@@ -103,28 +104,42 @@ class EngineImpl : public Engine {
     ABSL_QCHECK_OK(model_resources);
     model_resources_ = std::move(*model_resources);
 
-    // TODO(b/397975034): factor out the tokenizer creation logic once the model
-    // loading mechanism of the new file format is determined.
-    auto scoped_file = ScopedFile::Open(*model_path);
-    ABSL_CHECK_OK(scoped_file);
-    auto resources = ModelAssetBundleResources::Create(
-        /*tag=*/"", *std::move(scoped_file));
-    auto vocab_buffer = (*resources)->GetFile("TOKENIZER_MODEL");
-    tokenizer_ =
-        std::move(*SentencePieceTokenizer::CreateFromBuffer(*vocab_buffer));
-    if (benchmark_info_.has_value()) {
-      ABSL_CHECK_OK(
-          benchmark_info_->TimeInitPhaseEnd("Tokenizer initialization"));
+    proto::LlmMetadata llm_metadata;
+    if (model_resources_->litert_lm_model_resources == nullptr) {
+      // Handle the .task file format.
+      auto scoped_file = ScopedFile::Open(*model_path);
+      ABSL_CHECK_OK(scoped_file);
+      auto resources = ModelAssetBundleResources::Create(
+          /*tag=*/"", *std::move(scoped_file));
+      auto vocab_buffer = (*resources)->GetFile("TOKENIZER_MODEL");
+      task_tokenizer_ =
+          std::move(SentencePieceTokenizer::CreateFromBuffer(*vocab_buffer))
+              .value();
+      tokenizer_ = task_tokenizer_.get();
+      if (benchmark_info_.has_value()) {
+        ABSL_CHECK_OK(
+            benchmark_info_->TimeInitPhaseEnd("Tokenizer initialization"));
+      }
+      auto metadata_buffer = (*resources)->GetFile("METADATA");
+      ABSL_CHECK_OK(metadata_buffer);
+      auto metadata = ExtractOrConvertLlmMetadata(metadata_buffer.value());
+      ABSL_CHECK_OK(metadata);
+      llm_metadata = metadata.value();
+    } else {
+      // Handle the .litert_lm file format.
+      auto tokenizer =
+          model_resources_->litert_lm_model_resources->GetTokenizer();
+      ABSL_CHECK_OK(tokenizer);
+      tokenizer_ = tokenizer.value();
+      auto metadata =
+          model_resources_->litert_lm_model_resources->GetLlmMetadata();
+      ABSL_CHECK_OK(metadata);
+      llm_metadata = *metadata.value();
     }
-    auto metadata_buffer = (*resources)->GetFile("METADATA");
-    ABSL_CHECK_OK(metadata_buffer);
-    auto llm_metadata = ExtractOrConvertLlmMetadata(metadata_buffer.value());
-    ABSL_CHECK_OK(llm_metadata);
-
     // Update and load the parameters from the model file and convert the tokens
     // to ids.
     ABSL_CHECK_OK(
-        engine_settings_.MaybeUpdateAndValidate(*tokenizer_, &*llm_metadata));
+        engine_settings_.MaybeUpdateAndValidate(*tokenizer_, &llm_metadata));
 
     auto executor = BuildExecutor(model_resources_, engine_settings_);
     ABSL_QCHECK_OK(executor);
@@ -161,7 +176,7 @@ class EngineImpl : public Engine {
     // sampler component.
     config.GetMutableSamplerParams().set_type(
         proto::SamplerParameters::TYPE_UNSPECIFIED);
-    return InitializeSession(executor_.get(), tokenizer_.get(), config,
+    return InitializeSession(executor_.get(), tokenizer_, config,
                              benchmark_info_, worker_thread_pool_.get());
   }
 
@@ -174,8 +189,13 @@ class EngineImpl : public Engine {
   EngineSettings engine_settings_;
   // Executor for all sessions.
   std::unique_ptr<LlmExecutor> executor_;
-  // Tokenizer for all sessions.
-  std::unique_ptr<Tokenizer> tokenizer_;
+  // Tokenizer from task file, that is not owned by the model resources.
+  // So we keep it here to avoid the model resources being destroyed.
+  std::unique_ptr<Tokenizer> task_tokenizer_;
+  // A pointer to the tokenizer, that is either the task_tokenizer_ or the
+  // tokenizer from the litert lm model resources. Set in constructor and it is
+  // used in CreateSession().
+  Tokenizer* tokenizer_ = nullptr;
   // Default stop token ids for all sessions loaded from the model file.
   std::vector<std::vector<int>> stop_token_ids_;
 

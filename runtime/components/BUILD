@@ -368,6 +368,7 @@ cc_test(
     name = "sampler_factory_test",
     srcs = ["sampler_factory_test.cc"],
     deps = [
+        ":model_resources",
         ":model_resources_task",
         ":sampler_factory",
         ":top_p_cpu_sampler",
@@ -423,12 +424,37 @@ cc_test(
     }),
 )
 
+# Having this target here to avoid the build error caused by HF tokenizer.
+# TODO(b/426663511): Remove this target once the issue of HF tokenizer is resolved.
+cc_library(
+    name = "model_resources_litert_lm_only_with_sentencepiece",
+    srcs = ["model_resources_litert_lm.cc"],
+    hdrs = ["model_resources_litert_lm.h"],
+    deps = [
+        ":model_resources",
+        ":sentencepiece_tokenizer",
+        ":tokenizer",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@litert//litert/cc:litert_buffer_ref",
+        "@litert//litert/cc:litert_macros",
+        "@litert//litert/cc:litert_model",
+        "//runtime/proto:llm_metadata_cc_proto",
+        "//runtime/util:litert_lm_loader",
+        "//runtime/util:litert_status_util",
+    ],
+)
+
 cc_library(
     name = "model_resources_litert_lm",
     srcs = ["model_resources_litert_lm.cc"],
     hdrs = ["model_resources_litert_lm.h"],
     deps = [
-        ":model_resources_task",
+        ":model_resources",
         ":tokenizer",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log:absl_check",
@@ -452,13 +478,27 @@ cc_library(
 )
 
 cc_library(
+    name = "model_resources",
+    hdrs = ["model_resources.h"],
+    deps = [
+        ":tokenizer",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@litert//litert/cc:litert_model",
+        "//runtime/proto:llm_metadata_cc_proto",
+    ],
+)
+
+cc_library(
     name = "model_resources_task",
     srcs = ["model_resources_task.cc"],
     hdrs = [
-        "model_resources.h",
         "model_resources_task.h",
     ],
     deps = [
+        ":model_resources",
         ":sentencepiece_tokenizer",
         ":tokenizer",
         "@com_google_absl//absl/container:flat_hash_map",

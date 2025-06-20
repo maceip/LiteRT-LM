@@ -17,7 +17,6 @@
 
 // All the loaded model resources the executor needs to hold to avoid the model
 // being destroyed.
-#include <memory>
 #include <string>
 
 #include "absl/status/status.h"  // from @com_google_absl

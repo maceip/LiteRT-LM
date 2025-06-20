@@ -383,7 +383,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@litert//litert/cc:litert_buffer_ref",
-        "//runtime/components:model_resources_task",
+        "//runtime/components:model_resources",
         "//schema/core:litertlm_header_schema",
         "//schema/core:litertlm_read",
     ],
