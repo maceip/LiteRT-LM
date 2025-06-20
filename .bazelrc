@@ -54,6 +54,9 @@ build --repo_env=RULES_PYTHON_ENABLE_PYSTAR=0
 
 # Shlibs built from the source tree should resolve symbols in the exectuable.
 build --define=resolve_symbols_in_exec=true
+# Disable HF tokenizer on windows by default. It can be enabled by adding
+# --define=DISABLE_HUGGINGFACE_TOKENIZER=0 to the bazel command line.
+build:windows --define=DISABLE_HUGGINGFACE_TOKENIZER=1
 
 # For projects which use TensorFlow as part of a Bazel build process, putting
 # nothing in a bazelrc will default to a monolithic build. The following line

@@ -39,6 +39,7 @@ using ::litert::lm::ModelTypeToString;
 using ::litert::lm::ScopedFile;
 using ::litert::lm::StringToModelType;
 
+#ifdef ENABLE_SENTENCEPIECE_TOKENIZER
 TEST(ModelResourcesTest, InitializeWithValidLitertLmLoader) {
   const auto model_path =
       std::filesystem::path(::testing::SrcDir()) /
@@ -62,7 +63,9 @@ TEST(ModelResourcesTest, InitializeWithValidLitertLmLoader) {
   ASSERT_OK(tokenizer);
   ASSERT_NE(tokenizer.value(), nullptr);
 }
+#endif  // ENABLE_SENTENCEPIECE_TOKENIZER
 
+#ifdef ENABLE_HUGGINGFACE_TOKENIZER
 TEST(ModelResourcesTest, InitializeWithHuggingFaceTokenizer) {
   const auto model_path =
       std::filesystem::path(::testing::SrcDir()) /
@@ -80,7 +83,9 @@ TEST(ModelResourcesTest, InitializeWithHuggingFaceTokenizer) {
   ASSERT_OK(tokenizer);
   ASSERT_NE(tokenizer.value(), nullptr);
 }
+#endif  // ENABLE_HUGGINGFACE_TOKENIZER
 
+#ifdef ENABLE_SENTENCEPIECE_TOKENIZER
 TEST(ModelResourcesTest, InitializeWithValidModelAssetBundleResources) {
   const auto model_path =
       std::filesystem::path(::testing::SrcDir()) /
@@ -104,6 +109,7 @@ TEST(ModelResourcesTest, InitializeWithValidModelAssetBundleResources) {
   ASSERT_OK(tokenizer);
   ASSERT_NE(tokenizer.value(), nullptr);
 }
+#endif  // ENABLE_SENTENCEPIECE_TOKENIZER
 
 TEST(ModelTypeConversionTest, StringToModelType) {
   auto result = StringToModelType("tf_lite_prefill_decode");

@@ -175,6 +175,7 @@ cc_library(
     name = "sentencepiece_tokenizer",
     srcs = ["sentencepiece_tokenizer.cc"],
     hdrs = ["sentencepiece_tokenizer.h"],
+    defines = ["ENABLE_SENTENCEPIECE_TOKENIZER"],
     deps = [
         ":tokenizer",
         "@com_google_absl//absl/memory",
@@ -203,6 +204,7 @@ cc_library(
     name = "huggingface_tokenizer",
     srcs = ["huggingface_tokenizer.cc"],
     hdrs = ["huggingface_tokenizer.h"],
+    defines = ["ENABLE_HUGGINGFACE_TOKENIZER"],
     deps = [
         ":tokenizer",
         "@com_google_absl//absl/debugging:leak_check",  # See b/402708346
@@ -425,13 +427,6 @@ cc_library(
     name = "model_resources_litert_lm",
     srcs = ["model_resources_litert_lm.cc"],
     hdrs = ["model_resources_litert_lm.h"],
-    local_defines = select({
-        ":disable_huggingface_tokenizer": ["DISABLE_HUGGINGFACE_TOKENIZER"],
-        "//conditions:default": [],
-    }) + select({
-        ":disable_sentencepiece_tokenizer": ["DISABLE_SENTENCEPIECE_TOKENIZER"],
-        "//conditions:default": [],
-    }),
     deps = [
         ":model_resources_task",
         ":tokenizer",
