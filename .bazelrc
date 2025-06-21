@@ -40,6 +40,9 @@
 #
 # Default build options. These are applied first and unconditionally.
 
+# Shlibs built from the source tree should resolve symbols in the exectuable.
+build --define=resolve_symbols_in_exec=true
+
 build --repo_env=USE_PYWRAP_RULES=True
 build --copt=-DGRPC_BAZEL_BUILD
 build --host_copt=-DGRPC_BAZEL_BUILD
@@ -51,12 +54,6 @@ build --repo_env=RULES_PYTHON_ENABLE_PYSTAR=0
 # that as it would link protobuf into its own set of dynamic libraries, which
 # would conflict with our protobuf linkage.
 #build --define=use_fast_cpp_protos=true
-
-# Shlibs built from the source tree should resolve symbols in the exectuable.
-build --define=resolve_symbols_in_exec=true
-# Disable HF tokenizer on windows by default. It can be enabled by adding
-# --define=DISABLE_HUGGINGFACE_TOKENIZER=0 to the bazel command line.
-build:windows --define=DISABLE_HUGGINGFACE_TOKENIZER=1
 
 # For projects which use TensorFlow as part of a Bazel build process, putting
 # nothing in a bazelrc will default to a monolithic build. The following line

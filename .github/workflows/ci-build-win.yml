@@ -6,10 +6,8 @@ on:
   pull_request:
     branches:
     - main
-    paths:
-    - .github/workflows/ci-build-win.yml
   schedule:
-    - cron: "0 10 * * *"  # Run at 2am PST (10am UTC) every day as postsubmit.
+    - cron: "0 10 * * *"  # Run at 2am PST (10am UTC) every day to refresh the cache.
   workflow_dispatch:  # Manual trigger
     inputs:
       REFRESH_CACHE:
@@ -22,8 +20,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  nightly-check:
-    name: "Nightly-Win"
+  presubmit:
+    name: "Presubmit-Win"
     runs-on: windows-latest
     permissions:
       actions: write  # For gh cache delete.
@@ -33,7 +31,8 @@ jobs:
       # androidndk rulesto create symlinks.
       ANDROID_NDK_HOME:
       GH_TOKEN: ${{ github.token }}  # For gh release upload.
-      REFRESH_CACHE: ${{ github.event_name == 'workflow_dispatch' && inputs.REFRESH_CACHE }}
+      REFRESH_CACHE: ${{ github.event_name == 'schedule' ||
+                         (github.event_name == 'workflow_dispatch' && inputs.REFRESH_CACHE) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -55,7 +54,7 @@ jobs:
 
       - name: Clean build outputs if cache is being refreshed.
         if: env.REFRESH_CACHE == 'true'
-        run: bazel clean --expunge
+        run: bazel --output_base=D:/w clean --expunge
 
       - name: Restore bazel cache if cache is not being refreshed.
         id: bazel-cache
@@ -78,11 +77,10 @@ jobs:
 
       - name: Run bazel build on Windows
         run: |
-          bazel build --disk_cache=~/.cache/bazel-windows "--" `
+          bazel --output_base=D:/w `
+            build --disk_cache=~/.cache/bazel-windows `
             //... `
-            //runtime/engine:litert_lm_main `
-            -//runtime/components:huggingface_tokenizer `
-            -//runtime/components:huggingface_tokenizer_test
+            //runtime/engine:litert_lm_main
 
       - name: Update litert_lm_main prebuilt for Windows if new version tag is pushed.
         if: github.ref_type == 'tag'
@@ -92,9 +90,10 @@ jobs:
 
       - name: Run bazel test on Windows
         run: |
-          bazel test --disk_cache=~/.cache/bazel-windows --test_output=errors "--" `
+          bazel --output_base=D:/w `
+            test --disk_cache=~/.cache/bazel-windows --test_output=errors `
             //... `
-            -//runtime/components:huggingface_tokenizer_test
+            "--" -//runtime/components:huggingface_tokenizer_test
 
       - name: Remove cache if cache is being refreshed.
         if: env.REFRESH_CACHE == 'true'

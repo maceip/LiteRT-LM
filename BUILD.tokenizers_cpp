@@ -1,10 +1,10 @@
-load("@rules_rust//rust:defs.bzl", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_static_library")
 
 package(
     default_visibility = ["//visibility:public"],
 )
 
-rust_library(
+rust_static_library(
     name = "huggingface_tokenizer_impl",
     srcs = ["rust/src/lib.rs"],
     edition = "2018",
@@ -26,4 +26,8 @@ cc_library(
     deps = [
         ":huggingface_tokenizer_impl",
     ],
+    linkopts = select({
+        "@platforms//os:windows": ["kernel32.lib", "ntdll.lib"],
+        "//conditions:default": [],
+    }),
 )
