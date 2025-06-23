@@ -63,8 +63,8 @@ struct EmbedderSignatures {
   static constexpr absl::string_view kPrefillEmbedder = "prefill_embedder_128";
   static constexpr absl::string_view kDecodeEmbedder = "decode_embedder";
   // Prefill and decode use identical tensor signature names.
-  static constexpr absl::string_view kEmbedderInput = "tokens";
-  static constexpr absl::string_view kEmbedderOutput = "embeds";
+  static constexpr absl::string_view kEmbedderInput = "token_ids";
+  static constexpr absl::string_view kEmbedderOutput = "embeddings";
 };
 
 // Signature names for the mask signatures.
@@ -96,7 +96,7 @@ struct RopeSignatures {
 struct LlmSignatures {
   static constexpr absl::string_view kPrefillLlm = "prefill_128";
   static constexpr absl::string_view kDecodeLlm = "decode";
-  static constexpr absl::string_view kInputEmbeddings = "input_embeds";
+  static constexpr absl::string_view kInputEmbeddings = "embeddings";
   static constexpr absl::string_view kDecodeLogitsOutput = "logits";
 };
 
