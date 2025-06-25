@@ -157,7 +157,7 @@ class SessionConfig {
   std::vector<std::vector<int>> stop_token_ids_;
 
   // Start token id for the session.
-  int start_token_id_;
+  int start_token_id_ = -1;
 
   // Prompt templates for the session. This is loaded from the model assets (if
   // present).
@@ -165,10 +165,10 @@ class SessionConfig {
 
   // The number of output candidates to generate. Default value is 1 and setting
   // it to a value greater than 1 will require the model to support batching.
-  int num_output_candidates_;
+  int num_output_candidates_ = 1;
 
   // Backend to use for sampling.
-  Backend sampler_backend_;
+  Backend sampler_backend_ = Backend::UNSPECIFIED;
 };
 std::ostream& operator<<(std::ostream& os, const SessionConfig& config);
 

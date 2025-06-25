@@ -22,7 +22,6 @@
 // Consider run_llm_inference_engine.sh as an example to run on android device.
 
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 
@@ -46,8 +45,12 @@
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
 #include "tflite/profiling/memory_usage_monitor.h"  // from @litert
 
-ABSL_FLAG(std::optional<std::string>, backend, "gpu",
+ABSL_FLAG(std::string, backend, "gpu",
           "Executor backend to use for LLM execution (cpu, gpu, etc.)");
+ABSL_FLAG(std::string, sampler_backend, "",
+          "Sampler backend to use for LLM execution (cpu, gpu, etc.). If "
+          "empty, the sampler backend will be chosen for the best according to "
+          "the main executor, for example, gpu for gpu main executor.");
 ABSL_FLAG(std::string, model_path, "", "Model path to use for LLM execution.");
 ABSL_FLAG(std::string, input_prompt,
           "What is the tallest building in the world?",
@@ -65,6 +68,8 @@ ABSL_FLAG(int, benchmark_decode_tokens, 0,
 ABSL_FLAG(bool, async, true, "Run the LLM execution asynchronously.");
 ABSL_FLAG(bool, report_peak_memory_footprint, false,
           "Report peak memory footprint.");
+ABSL_FLAG(bool, force_f32, false,
+          "Force float 32 precision for the activation data type.");
 
 namespace {
 
@@ -111,8 +116,9 @@ absl::Status MainHelper(int argc, char** argv) {
   if (argc <= 1) {
     ABSL_LOG(INFO)
         << "Example usage: ./litert_lm_main --model_path=<model_path> "
-           "[--input_prompt=<input_prompt>] [--backend=<cpu|gpu>] "
-           "[--benchmark] [--benchmark_prefill_tokens=<num_prefill_tokens>] "
+           "[--input_prompt=<input_prompt>] [--backend=<cpu|gpu|npu>] "
+           "[--sampler_backend=<cpu|gpu>] [--benchmark] "
+           "[--benchmark_prefill_tokens=<num_prefill_tokens>] "
            "[--benchmark_decode_tokens=<num_decode_tokens>] "
            "[--async=<true|false>] "
            "[--report_peak_memory_footprint]";
@@ -133,14 +139,29 @@ absl::Status MainHelper(int argc, char** argv) {
   ABSL_LOG(INFO) << "Model path: " << model_path;
   ASSIGN_OR_RETURN(ModelAssets model_assets,  // NOLINT
                    ModelAssets::Create(model_path));
-  std::string backend_str = absl::GetFlag(FLAGS_backend).value();
+  auto backend_str = absl::GetFlag(FLAGS_backend);
   ABSL_LOG(INFO) << "Choose backend: " << backend_str;
   ASSIGN_OR_RETURN(Backend backend,
                    litert::lm::GetBackendFromString(backend_str));
   ASSIGN_OR_RETURN(
       EngineSettings engine_settings,
       EngineSettings::CreateDefault(std::move(model_assets), backend));
+  if (absl::GetFlag(FLAGS_force_f32)) {
+    engine_settings.GetMutableMainExecutorSettings().SetActivationDataType(
+        litert::lm::ActivationDataType::FLOAT32);
+  }
   auto session_config = litert::lm::SessionConfig::CreateDefault();
+  auto sampler_backend_str = absl::GetFlag(FLAGS_sampler_backend);
+  if (!sampler_backend_str.empty()) {
+    auto sampler_backend =
+        litert::lm::GetBackendFromString(absl::GetFlag(FLAGS_sampler_backend));
+    if (!sampler_backend.ok()) {
+      ABSL_LOG(WARNING) << "Ignore invalid sampler backend string: "
+                        << sampler_backend.status();
+    } else {
+      session_config.SetSamplerBackend(*sampler_backend);
+    }
+  }
   ABSL_LOG(INFO) << "executor_settings: "
                  << engine_settings.GetMainExecutorSettings();
 

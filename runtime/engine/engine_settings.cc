@@ -179,7 +179,6 @@ SessionConfig SessionConfig::CreateDefault() {
   // Default to -1 to indicate the start token is not set. This is to be
   // overridden by the EngineSettings.
   config.SetStartTokenId(-1);
-  config.SetSamplerBackend(Backend::CPU);
   return config;
 }
 
@@ -257,9 +256,15 @@ absl::Status SessionConfig::MaybeUpdateAndValidate(
         num_output_candidates_));
   }
 
-  if (engine_settings.GetMainExecutorSettings().GetBackend() == Backend::GPU) {
-    sampler_backend_ = Backend::GPU;
+  if (sampler_backend_ == Backend::UNSPECIFIED) {
+    if (engine_settings.GetMainExecutorSettings().GetBackend() ==
+        Backend::GPU) {
+      sampler_backend_ = Backend::GPU;
+  } else {
+      sampler_backend_ = Backend::CPU;
+    }
   }
+
   ABSL_LOG(INFO) << "The validated session config: " << *this;
   return absl::OkStatus();
 }
@@ -282,6 +287,7 @@ const std::vector<std::vector<int>>& SessionConfig::GetStopTokenIds() const {
 std::vector<std::vector<int>>& SessionConfig::GetMutableStopTokenIds() {
   return stop_token_ids_;
 }
+
 int SessionConfig::GetStartTokenId() const { return start_token_id_; }
 
 void SessionConfig::SetStartTokenId(int start_token_id) {
@@ -291,6 +297,7 @@ void SessionConfig::SetStartTokenId(int start_token_id) {
 int SessionConfig::GetNumOutputCandidates() const {
   return num_output_candidates_;
 }
+
 void SessionConfig::SetNumOutputCandidates(int num_output_candidates) {
   num_output_candidates_ = num_output_candidates;
 }
@@ -307,6 +314,7 @@ std::ostream& operator<<(std::ostream& os, const SessionConfig& config) {
   os << "SessionConfig: " << std::endl;
   os << "  SamplerParams: " << config.GetSamplerParams().DebugString()
      << std::endl;
+  os << "  SamplerBackend: " << config.GetSamplerBackend() << std::endl;
   os << "  StartTokenId: " << config.GetStartTokenId() << std::endl;
   os << "  StopTokenIds: " << std::endl;
   for (const auto& stop_token_ids : config.GetStopTokenIds()) {

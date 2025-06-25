@@ -217,6 +217,7 @@ TEST(SessionConfigTest, CreateDefault) {
   SessionConfig session_config = SessionConfig::CreateDefault();
   EXPECT_EQ(session_config.GetSamplerParams().type(),
             proto::SamplerParameters::TYPE_UNSPECIFIED);
+  EXPECT_EQ(session_config.GetSamplerBackend(), Backend::UNSPECIFIED);
 }
 
 TEST(SessionConfigTest, SetAndGetSamplerParams) {
@@ -275,6 +276,28 @@ TEST(SessionConfigTest, MaybeUpdateAndValidate) {
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
   // The validation should pass now.
   EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
+  EXPECT_EQ(session_config.GetSamplerBackend(), Backend::CPU);
+}
+
+TEST(SessionConfigTest, MaybeUpdateAndValidatePickGpuAsSamplerBackend) {
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings = EngineSettings::CreateDefault(*model_assets);
+  settings->GetMutableMainExecutorSettings().SetBackend(Backend::GPU);
+  auto session_config = SessionConfig::CreateDefault();
+  EXPECT_OK(settings);
+  // We didn't call MaybeUpdateAndValidate on EngineSettings, so some of the
+  // required fields are not set. So the validation should fail.
+  EXPECT_THAT(session_config.MaybeUpdateAndValidate(*settings),
+              testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+
+  FakeTokenizer tokenizer;
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
+
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
+  // The validation should pass now.
+  EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
+  EXPECT_EQ(session_config.GetSamplerBackend(), Backend::GPU);
 }
 
 TEST(SessionConfigTest, MaybeUpdateAndValidateMaxNumTokens) {
@@ -311,6 +334,8 @@ TEST(SessionConfigTest, PrintOperator) {
 
 TEST(SessionConfigTest, SetAndGetSamplerBackend) {
   SessionConfig session_config = SessionConfig::CreateDefault();
+  EXPECT_EQ(session_config.GetSamplerBackend(), Backend::UNSPECIFIED);
+  session_config.SetSamplerBackend(Backend::CPU);
   EXPECT_EQ(session_config.GetSamplerBackend(), Backend::CPU);
   session_config.SetSamplerBackend(Backend::GPU);
   EXPECT_EQ(session_config.GetSamplerBackend(), Backend::GPU);

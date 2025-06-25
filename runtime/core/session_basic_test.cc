@@ -13,6 +13,7 @@
 #include "runtime/components/tokenizer.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/fake_llm_executor.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/framework/thread_options.h"
@@ -66,6 +67,7 @@ TEST_F(SessionBasicTest, RunPrefill) {
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.GetMutableStopTokenIds() = stop_token_ids;
   session_config.SetStartTokenId(2);
+  session_config.SetSamplerBackend(Backend::CPU);
   auto session = SessionBasic::Create(
       executor_.get(), tokenizer_.get(), session_config,
       /*benchmark_info=*/std::nullopt, worker_thread_pool_.get());
@@ -78,6 +80,7 @@ TEST_F(SessionBasicTest, RunDecode) {
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.GetMutableStopTokenIds() = stop_token_ids;
   session_config.SetStartTokenId(2);
+  session_config.SetSamplerBackend(Backend::CPU);
   auto session =
       SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
                            std::nullopt, worker_thread_pool_.get());
@@ -104,6 +107,7 @@ TEST_F(SessionBasicTest, RunPrefillAsync) {
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.SetStartTokenId(2);
   session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetSamplerBackend(Backend::CPU);
   auto session =
       SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
                            std::nullopt, worker_thread_pool_.get());
@@ -120,6 +124,7 @@ TEST_F(SessionBasicTest, RunDecodeAsync) {
   SessionConfig session_config = SessionConfig::CreateDefault();
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetSamplerBackend(Backend::CPU);
   auto session =
       SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
                            std::nullopt, worker_thread_pool_.get());

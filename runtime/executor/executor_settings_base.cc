@@ -46,7 +46,7 @@ std::ostream& operator<<(std::ostream& os, const Backend& backend) {
     case Backend::NPU:
       return os << "NPU";
     default:
-      return os << "UNKNOWN";
+      return os << "UNSPECIFIED";
   }
 }
 

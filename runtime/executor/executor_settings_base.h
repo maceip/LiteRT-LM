@@ -29,6 +29,9 @@
 namespace litert::lm {
 
 enum class Backend {
+  // Unspecified backend.
+  UNSPECIFIED,
+
   // CPU hand-written path backend.
   CPU_ARTISAN,
 

@@ -10,6 +10,7 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
 #include "runtime/engine/engine_settings.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/fake_llm_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/util/test_utils.h"  // NOLINT
@@ -43,6 +44,7 @@ TEST(SessionFactoryTest, InitializeSession) {
   FakeLlmExecutor executor(256, dummy_tokens, dummy_tokens);
   SessionConfig session_config = SessionConfig::CreateDefault();
   session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetSamplerBackend(Backend::CPU);
   ThreadPool worker_thread_pool("testpool", /*max_num_threads=*/1);
   auto session =
       InitializeSession(&executor, &tokenizer, session_config,
