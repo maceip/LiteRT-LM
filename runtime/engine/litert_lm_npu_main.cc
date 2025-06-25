@@ -206,9 +206,10 @@ RunStats CreateAndRun(const std::string& prompt) {
 
   // Create the tokenizer.
   ABSL_LOG(INFO) << "Creating executor";
-  auto executor_settings = litert::lm::LlmExecutorSettings::CreateDefault(
-                               model_assets, litert::lm::Backend::NPU)
-                               .value();
+  auto executor_settings =
+      litert::lm::LlmExecutorSettings::CreateDefault(std::move(model_assets),
+                                                     litert::lm::Backend::NPU)
+          .value();
   auto executor = LlmLiteRtNpuCompiledModelExecutor::Create(
       executor_settings, **model_resources,
       absl::GetFlag(FLAGS_litert_dispatch_lib_path));

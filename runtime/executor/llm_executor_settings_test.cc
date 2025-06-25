@@ -170,8 +170,8 @@ enable_decode_logits: 1
 TEST(LlmExecutorConfigTest, LlmExecutorSettings) {
   auto model_assets = ModelAssets::Create("/path/to/model1");
   ASSERT_OK(model_assets);
-  auto settings =
-      LlmExecutorSettings::CreateDefault(*model_assets, Backend::GPU_ARTISAN);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets),
+                                                     Backend::GPU_ARTISAN);
   (*settings).SetBackendConfig(CreateGpuArtisanConfig());
   (*settings).SetMaxNumTokens(1024);
   (*settings).SetActivationDataType(ActivationDataType::FLOAT16);
@@ -204,7 +204,7 @@ fake_weights_mode: FAKE_WEIGHTS_NONE
 TEST(GetWeightCacheFileTest, CacheDirAndModelPath) {
   auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
   ASSERT_OK(model_assets);
-  auto settings = LlmExecutorSettings::CreateDefault(*model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
   settings->SetCacheDir("/weight/cache/path");
 
@@ -216,7 +216,7 @@ TEST(GetWeightCacheFileTest, CacheDirAndModelPath) {
 TEST(GetWeightCacheFileTest, CacheDirHasTrailingSeparator) {
   auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
   ASSERT_OK(model_assets);
-  auto settings = LlmExecutorSettings::CreateDefault(*model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
   settings->SetCacheDir("/weight/cache/path/");
 
@@ -228,7 +228,7 @@ TEST(GetWeightCacheFileTest, CacheDirHasTrailingSeparator) {
 TEST(GetWeightCacheFileTest, CacheDirAndModelPathAndCustomSuffix) {
   auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
   ASSERT_OK(model_assets);
-  auto settings = LlmExecutorSettings::CreateDefault(*model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
   settings->SetCacheDir("/weight/cache/path");
 
@@ -242,7 +242,7 @@ TEST(GetWeightCacheFileTest, CacheDirAndModelPathAndCustomSuffix) {
 TEST(LlmExecutorConfigTest, ModelPathOnly) {
   auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
   ASSERT_OK(model_assets);
-  auto settings = LlmExecutorSettings::CreateDefault(*model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
 
   ASSERT_OK_AND_ASSIGN(auto weight_cache_file, settings->GetWeightCacheFile());
@@ -253,7 +253,7 @@ TEST(LlmExecutorConfigTest, ModelPathOnly) {
 TEST(GetWeightCacheFileTest, ModelPathAndSuffix) {
   auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
   ASSERT_OK(model_assets);
-  auto settings = LlmExecutorSettings::CreateDefault(*model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
 
   ASSERT_OK_AND_ASSIGN(auto weight_cache_file,
@@ -272,7 +272,7 @@ TEST(GetWeightCacheFileTest, PreferScopedCacheFileToCacheDir) {
 
   auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
   ASSERT_OK(model_assets);
-  auto settings = LlmExecutorSettings::CreateDefault(*model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
   settings->SetScopedCacheFile(shared_cache_file);
   settings->SetCacheDir("/weight/cache/path");
@@ -297,7 +297,7 @@ TEST(GetWeightCacheFileTest, PreferScopedCacheFileToScopedModelFile) {
   auto model_assets =
       ModelAssets::Create(std::make_shared<ScopedFile>(std::move(model_file)));
   ASSERT_OK(model_assets);
-  auto settings = LlmExecutorSettings::CreateDefault(*model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
   settings->SetScopedCacheFile(shared_cache_file);
 
@@ -309,7 +309,7 @@ TEST(GetWeightCacheFileTest, PreferScopedCacheFileToScopedModelFile) {
 TEST(GetWeightCacheFileTest, EmptyModelPath) {
   auto model_assets = ModelAssets::Create("");
   ASSERT_OK(model_assets);
-  auto settings = LlmExecutorSettings::CreateDefault(*model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
   settings->SetCacheDir("/weight/cache/path");
 
@@ -326,7 +326,7 @@ TEST(GetWeightCacheFileTest, CacheDisabled) {
 
   auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
   ASSERT_OK(model_assets);
-  auto settings = LlmExecutorSettings::CreateDefault(*model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
   settings->SetCacheDir(":nocache");
   // This should be ignored in favor of the explicitly disabled cache dir.
@@ -339,8 +339,8 @@ TEST(GetWeightCacheFileTest, CacheDisabled) {
 TEST(LlmExecutorConfigTest, GetBackendConfig) {
   auto model_assets = ModelAssets::Create("/path/to/model1");
   ASSERT_OK(model_assets);
-  auto settings =
-      LlmExecutorSettings::CreateDefault(*model_assets, Backend::GPU_ARTISAN);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets),
+                                                     Backend::GPU_ARTISAN);
 
   (*settings).SetBackendConfig(CreateGpuArtisanConfig());
 
@@ -354,8 +354,8 @@ TEST(LlmExecutorConfigTest, GetBackendConfig) {
 TEST(LlmExecutorConfigTest, MutableBackendConfig) {
   auto model_assets = ModelAssets::Create("/path/to/model1");
   ASSERT_OK(model_assets);
-  auto settings =
-      LlmExecutorSettings::CreateDefault(*model_assets, Backend::GPU_ARTISAN);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets),
+                                                     Backend::GPU_ARTISAN);
   (*settings).SetBackendConfig(CreateGpuArtisanConfig());
 
   auto gpu_config = (*settings).MutableBackendConfig<GpuArtisanConfig>();

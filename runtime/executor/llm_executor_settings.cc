@@ -99,7 +99,7 @@ absl::StatusOr<LlmExecutorSettings> LlmExecutorSettings::CreateDefault(
   settings.SetMaxNumTokens(0);
   // Disable image input by default.
   settings.SetMaxNumImages(0);
-  return std::move(settings);
+  return settings;
 }
 
 }  // namespace litert::lm
