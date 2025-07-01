@@ -68,6 +68,10 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   // Basic API to trigger the "decode" process.
   absl::Status Decode(::litert::TensorBuffer& output_tokens) override;
 
+  // Advanced API to allow customized decode parameters.
+  absl::Status Decode(::litert::TensorBuffer& output_tokens,
+                      const ExecutorDecodeParams& decode_params) override;
+
   // Basic API to trigger the "decode" process but without sampling.
   // Input is token ids with shape `[batch, sequence_length]`
   // Output is logits with shape `[batch, sequence_length, vocab_size]`
@@ -191,7 +195,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
 
   // Sampler for sampling logits.
   // For now, only CPU sampler is supported.
-  std::unique_ptr<::litert::lm::Sampler> sampler_;
+  std::unique_ptr<Sampler> sampler_;
 
   // Internal timestep.
   int current_step_ = 0;

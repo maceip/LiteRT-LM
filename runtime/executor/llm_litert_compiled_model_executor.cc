@@ -288,6 +288,12 @@ absl::Status LlmLiteRtCompiledModelExecutor::PrefillInternal(
 
 absl::Status LlmLiteRtCompiledModelExecutor::Decode(
     ::litert::TensorBuffer& output_tokens) {
+  return Decode(output_tokens, ExecutorDecodeParams());
+}
+
+absl::Status LlmLiteRtCompiledModelExecutor::Decode(
+    ::litert::TensorBuffer& output_tokens,
+    const ExecutorDecodeParams& decode_params) {
   ASSIGN_OR_RETURN(decoded_logits_, DecodeLogits(ExecutorInputs()));
   LITERT_ASSIGN_OR_RETURN_ABSL(auto size, decoded_logits_.PackedSize());
   if (decoded_logits_vector_.empty()) {
