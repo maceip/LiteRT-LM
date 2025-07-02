@@ -300,17 +300,28 @@ absl::Status LlmLiteRtCompiledModelExecutor::Decode(
     decoded_logits_vector_ = std::vector<float>(size / sizeof(float));
   }
   RETURN_IF_ERROR(SampleLogits(decoded_logits_, output_tokens));
-  LITERT_ASSIGN_OR_RETURN_ABSL(
-      auto lock_and_addr,
-      ::litert::TensorBufferScopedLock::Create(
-          output_tokens, TensorBuffer::LockMode::kReadWrite));
-  auto output_tokens_ptr = static_cast<int32_t*>(lock_and_addr.second);
-  if (output_tokens_ptr[0] < 0) {
+
+  // Read the first output token for the next input token id.
+  bool reset_output_token = false;
+  {
+    LITERT_ASSIGN_OR_RETURN_ABSL(
+        auto lock_and_addr, ::litert::TensorBufferScopedLock::Create(
+                                output_tokens, TensorBuffer::LockMode::kRead));
+    auto output_tokens_ptr = static_cast<int32_t*>(lock_and_addr.second);
+    reset_output_token = output_tokens_ptr[0] < 0;
+    next_input_token_id_ = reset_output_token ? 0 : output_tokens_ptr[0];
+  }
+
+  // If the first output token is invalid, reset it to 0 to avoid crash.
+  if (reset_output_token) {
+    LITERT_ASSIGN_OR_RETURN_ABSL(
+        auto lock_and_addr, ::litert::TensorBufferScopedLock::Create(
+                                output_tokens, TensorBuffer::LockMode::kWrite));
     ABSL_LOG(WARNING) << "Invalid decode and sample result. The sampled token "
                          "is casted to 0 to avoid crash.";
+    auto output_tokens_ptr = static_cast<int32_t*>(lock_and_addr.second);
     output_tokens_ptr[0] = 0;
   }
-  next_input_token_id_ = output_tokens_ptr[0];
   return absl::OkStatus();
 }
 

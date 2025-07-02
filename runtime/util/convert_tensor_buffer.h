@@ -179,7 +179,8 @@ template <typename TargetType, typename SourceType>
     return tensor_buffer.Error();
   }
 
-  auto lock_and_addr = ::litert::TensorBufferScopedLock::Create(*tensor_buffer);
+  auto lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+      *tensor_buffer, TensorBuffer::LockMode::kWrite);
   ABSL_DCHECK(lock_and_addr.HasValue());
   auto* target = static_cast<TargetType*>(lock_and_addr->second);
   for (int i = 0; i < source.size(); ++i) {

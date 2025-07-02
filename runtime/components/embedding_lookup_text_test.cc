@@ -3,13 +3,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>  // NOLINT: Required for path manipulation.
 #include <memory>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "devtools/build/runtime/get_runfiles_dir.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
@@ -24,7 +24,14 @@
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/test/matchers.h"  // from @litert
 
+#ifndef EXPECT_OK
+#define EXPECT_OK(status) EXPECT_TRUE((status).ok())
+#endif
+
 namespace litert::lm {
+
+constexpr char kTestdataDir[] =
+    "litert_lm/runtime/components/testdata/";
 
 class EmbeddingLookupTextTest : public testing::Test {
  protected:
@@ -39,10 +46,9 @@ class EmbeddingLookupTextTest : public testing::Test {
     //       for idx_3 in range(dim[3]):
     //         table[idx_0, idx_1, idx_2, idx_3] =
     //                              idx_0*10000 + idx_1*1000 + idx_2*100 + idx_3
-    std::string model_path = devtools_build::GetDataDependencyFilepath(
-        "google3/third_party/odml/litert_lm/runtime/components/testdata/"
-        "dummy_embedding_cpu_model.tflite");
-    LITERT_ASSIGN_OR_RETURN(model_, Model::CreateFromFile(model_path));
+    auto model_path = std::filesystem::path(::testing::SrcDir()) /
+                      kTestdataDir / "dummy_embedding_cpu_model.tflite";
+    LITERT_ASSIGN_OR_RETURN(model_, Model::CreateFromFile(model_path.string()));
     return absl::OkStatus();
   }
 
@@ -80,12 +86,12 @@ class EmbeddingLookupTextTest : public testing::Test {
 
 TEST_F(EmbeddingLookupTextTest, LookupDecodeVector) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   std::vector<float> output_vector(4 * 32);
 
   int32_t token = 1;
-  ASSERT_OK(embedding->LookupDecode(token, output_vector));
+  EXPECT_OK(embedding->LookupDecode(token, output_vector));
 
   size_t offset = 0;
   // Dimensions 0 and 1 both have size 1.
@@ -94,19 +100,19 @@ TEST_F(EmbeddingLookupTextTest, LookupDecodeVector) {
       // Dimensions 0 and 1 both have size 1 so offset and expected value can
       // ignore them.
       float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-      ASSERT_NEAR(output_vector[offset++], expected_value, 1e-5);
+      EXPECT_NEAR(output_vector[offset++], expected_value, 1e-5);
     }
   }
 }
 
 TEST_F(EmbeddingLookupTextTest, LookupDecodeVectorBadOutputVector) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   std::vector<float> output_vector(4 * 32 + 1);
 
   int32_t token = 1;
-  ASSERT_THAT(
+  EXPECT_THAT(
       embedding->LookupDecode(token, output_vector),
       testing::status::StatusIs(
           absl::StatusCode::kInvalidArgument,
@@ -116,12 +122,12 @@ TEST_F(EmbeddingLookupTextTest, LookupDecodeVectorBadOutputVector) {
 
 TEST_F(EmbeddingLookupTextTest, LookupDecodeVectorNegativeToken) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   std::vector<float> output_vector(4 * 32);
 
   int32_t token = -1;
-  ASSERT_OK(embedding->LookupDecode(token, output_vector));
+  EXPECT_OK(embedding->LookupDecode(token, output_vector));
 
   size_t offset = 0;
   // Dimensions 0 and 1 both have size 1.
@@ -130,24 +136,24 @@ TEST_F(EmbeddingLookupTextTest, LookupDecodeVectorNegativeToken) {
       // Dimensions 0 and 1 both have size 1 so offset and expected value can
       // ignore them.
       float expected_value = 10000.0 * 0 + 100.0 * idx2 + idx3;
-      ASSERT_NEAR(output_vector[offset++], expected_value, 1e-5);
+      EXPECT_NEAR(output_vector[offset++], expected_value, 1e-5);
     }
   }
 }
 
 TEST_F(EmbeddingLookupTextTest, LookupDecode) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 1, 4, 32});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
                               GetTensorBuffer(dimensions));
 
   int32_t token = 1;
-  ASSERT_OK(embedding->LookupDecode(token, &output_tensor));
+  EXPECT_OK(embedding->LookupDecode(token, &output_tensor));
 
-  auto output_tensor_lock_and_addr =
-      ::litert::TensorBufferScopedLock::Create(output_tensor);
+  auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+      output_tensor, ::litert::TensorBuffer::LockMode::kRead);
   auto output_tensor_ptr =
       reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
@@ -158,20 +164,20 @@ TEST_F(EmbeddingLookupTextTest, LookupDecode) {
       // ignore them.
       size_t offset = idx2 * dimensions[3] + idx3;
       float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-      ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+      EXPECT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
     }
   }
 }
 
 TEST_F(EmbeddingLookupTextTest, LookupDecodeBadOutputTensorDimNum) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 1, 4});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
                               GetTensorBuffer(dimensions));
 
-  ASSERT_THAT(embedding->LookupDecode(1, &output_tensor),
+  EXPECT_THAT(embedding->LookupDecode(1, &output_tensor),
               testing::status::StatusIs(
                   absl::StatusCode::kInvalidArgument,
                   testing::HasSubstr("The output tensor from the Embedding "
@@ -181,13 +187,13 @@ TEST_F(EmbeddingLookupTextTest, LookupDecodeBadOutputTensorDimNum) {
 
 TEST_F(EmbeddingLookupTextTest, LookupDecodeBadOutputTensorDimSize) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 1, 4, 256});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
                               GetTensorBuffer(dimensions));
 
-  ASSERT_THAT(embedding->LookupDecode(1, &output_tensor),
+  EXPECT_THAT(embedding->LookupDecode(1, &output_tensor),
               testing::status::StatusIs(
                   absl::StatusCode::kInvalidArgument,
                   testing::HasSubstr("The output tensor from the Embedding "
@@ -197,9 +203,9 @@ TEST_F(EmbeddingLookupTextTest, LookupDecodeBadOutputTensorDimSize) {
 
 TEST_F(EmbeddingLookupTextTest, LookupDecodeNullOutputTensor) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
-  ASSERT_THAT(embedding->LookupDecode(1, nullptr),
+  EXPECT_THAT(embedding->LookupDecode(1, nullptr),
               testing::status::StatusIs(
                   absl::StatusCode::kInvalidArgument,
                   testing::HasSubstr("Decode output tensor buffer is null")));
@@ -207,12 +213,12 @@ TEST_F(EmbeddingLookupTextTest, LookupDecodeNullOutputTensor) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillVector) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   std::vector<float> output_vector(4 * 32);
 
   int32_t token = 1;
-  ASSERT_OK(embedding->LookupPrefill(token, output_vector));
+  EXPECT_OK(embedding->LookupPrefill(token, output_vector));
 
   size_t offset = 0;
   // Dimensions 0 and 1 both have size 1.
@@ -221,19 +227,19 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillVector) {
       // Dimensions 0 and 1 both have size 1 so offset and expected value can
       // ignore them.
       float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-      ASSERT_NEAR(output_vector[offset++], expected_value, 1e-5);
+      EXPECT_NEAR(output_vector[offset++], expected_value, 1e-5);
     }
   }
 }
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillVectorBadOutputVector) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   std::vector<float> output_vector(4 * 32 + 1);
 
   int32_t token = 1;
-  ASSERT_THAT(
+  EXPECT_THAT(
       embedding->LookupPrefill(token, output_vector),
       testing::status::StatusIs(
           absl::StatusCode::kInvalidArgument,
@@ -243,12 +249,12 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillVectorBadOutputVector) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillVectorNegativeToken) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   std::vector<float> output_vector(4 * 32);
 
   int32_t token = -1;
-  ASSERT_OK(embedding->LookupPrefill(token, output_vector));
+  EXPECT_OK(embedding->LookupPrefill(token, output_vector));
 
   size_t offset = 0;
   // Dimensions 0 and 1 both have size 1.
@@ -257,20 +263,20 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillVectorNegativeToken) {
       // Dimensions 0 and 1 both have size 1 so offset and expected value can
       // ignore them.
       float expected_value = 10000.0 * 0 + 100.0 * idx2 + idx3;
-      ASSERT_NEAR(output_vector[offset++], expected_value, 1e-5);
+      EXPECT_NEAR(output_vector[offset++], expected_value, 1e-5);
     }
   }
 }
 
 TEST_F(EmbeddingLookupTextTest, GetFloatsPerToken) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
   EXPECT_EQ(embedding->GetFloatsPerToken(), 4 * 32);
 }
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefill) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 3, 4, 32});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -278,10 +284,10 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefill) {
 
   std::vector<int> tokens = {1, 2, 3};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
+  EXPECT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
 
-  auto output_tensor_lock_and_addr =
-      ::litert::TensorBufferScopedLock::Create(output_tensor);
+  auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+      output_tensor, ::litert::TensorBuffer::LockMode::kRead);
   auto output_tensor_ptr =
       reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
@@ -294,7 +300,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefill) {
         size_t offset =
             idx0 * dimensions[2] * dimensions[3] + idx2 * dimensions[3] + idx3;
         float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-        ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+        EXPECT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
       }
     }
   }
@@ -302,7 +308,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefill) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillDecendingTokens) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 3, 4, 32});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -310,10 +316,10 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillDecendingTokens) {
 
   std::vector<int> tokens = {3, 2, 1};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
+  EXPECT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
 
-  auto output_tensor_lock_and_addr =
-      ::litert::TensorBufferScopedLock::Create(output_tensor);
+  auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+      output_tensor, ::litert::TensorBuffer::LockMode::kRead);
   auto output_tensor_ptr =
       reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
@@ -326,7 +332,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillDecendingTokens) {
         size_t offset =
             idx0 * dimensions[2] * dimensions[3] + idx2 * dimensions[3] + idx3;
         float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-        ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+        EXPECT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
       }
     }
   }
@@ -334,7 +340,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillDecendingTokens) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillRepeatedToken) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 3, 4, 32});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -342,10 +348,10 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillRepeatedToken) {
 
   std::vector<int> tokens = {1, 1, 1};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
+  EXPECT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
 
-  auto output_tensor_lock_and_addr =
-      ::litert::TensorBufferScopedLock::Create(output_tensor);
+  auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+      output_tensor, ::litert::TensorBuffer::LockMode::kRead);
   auto output_tensor_ptr =
       reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
@@ -358,7 +364,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillRepeatedToken) {
         size_t offset =
             idx0 * dimensions[2] * dimensions[3] + idx2 * dimensions[3] + idx3;
         float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-        ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+        EXPECT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
       }
     }
   }
@@ -366,7 +372,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillRepeatedToken) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDimNum) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 3, 4});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -374,7 +380,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDimNum) {
 
   std::vector<int> tokens = {1, 2, 3};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_THAT(embedding->LookupPrefill(tokens_span, &output_tensor, 0),
+  EXPECT_THAT(embedding->LookupPrefill(tokens_span, &output_tensor, 0),
               testing::status::StatusIs(
                   absl::StatusCode::kInvalidArgument,
                   testing::HasSubstr("The output tensor from the Embedding "
@@ -384,7 +390,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDimNum) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDimSize) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 3, 4, 256});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -392,7 +398,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDimSize) {
 
   std::vector<int> tokens = {1, 2, 3};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_THAT(embedding->LookupPrefill(tokens_span, &output_tensor, 0),
+  EXPECT_THAT(embedding->LookupPrefill(tokens_span, &output_tensor, 0),
               testing::status::StatusIs(
                   absl::StatusCode::kInvalidArgument,
                   testing::HasSubstr("The output tensor from the Embedding "
@@ -402,7 +408,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDimSize) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDim0) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({3, 1, 4, 256});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -410,7 +416,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDim0) {
 
   std::vector<int> tokens = {1, 2, 3};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_THAT(
+  EXPECT_THAT(
       embedding->LookupPrefill(tokens_span, &output_tensor, 0),
       testing::status::StatusIs(
           absl::StatusCode::kUnimplemented,
@@ -420,7 +426,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDim0) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDim1) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 1, 4, 256});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -428,7 +434,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDim1) {
 
   std::vector<int> tokens = {1, 2, 3};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_THAT(
+  EXPECT_THAT(
       embedding->LookupPrefill(tokens_span, &output_tensor, 0),
       testing::status::StatusIs(
           absl::StatusCode::kInvalidArgument,
@@ -439,7 +445,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillBadOutputTensorDim1) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillLargerOutputTensor) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 4, 4, 32});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -447,10 +453,10 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillLargerOutputTensor) {
 
   std::vector<int> tokens = {1, 2, 3};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
+  EXPECT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
 
-  auto output_tensor_lock_and_addr =
-      ::litert::TensorBufferScopedLock::Create(output_tensor);
+  auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+      output_tensor, ::litert::TensorBuffer::LockMode::kRead);
   auto output_tensor_ptr =
       reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
@@ -466,7 +472,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillLargerOutputTensor) {
         size_t offset =
             idx0 * dimensions[2] * dimensions[3] + idx2 * dimensions[3] + idx3;
         float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-        ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+        EXPECT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
       }
     }
   }
@@ -474,11 +480,11 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillLargerOutputTensor) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillNullOutputTensor) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   std::vector<int> tokens = {1, 2, 3};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_THAT(embedding->LookupPrefill(tokens_span, nullptr, 0),
+  EXPECT_THAT(embedding->LookupPrefill(tokens_span, nullptr, 0),
               testing::status::StatusIs(
                   absl::StatusCode::kInvalidArgument,
                   testing::HasSubstr("Prefill output tensor buffer is null")));
@@ -486,7 +492,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillNullOutputTensor) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillNegativeToken) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 3, 4, 32});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -494,8 +500,8 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillNegativeToken) {
 
   float filler_value = 9999.0;
   {
-    auto output_tensor_lock_and_addr =
-        ::litert::TensorBufferScopedLock::Create(output_tensor);
+    auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+        output_tensor, ::litert::TensorBuffer::LockMode::kWrite);
     auto output_tensor_ptr =
         reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
@@ -508,10 +514,10 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillNegativeToken) {
 
   std::vector<int> tokens = {1, -1, 2};
   absl::Span<const int> tokens_span(tokens);
-  ASSERT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
+  EXPECT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, 0));
 
-  auto output_tensor_lock_and_addr =
-      ::litert::TensorBufferScopedLock::Create(output_tensor);
+  auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+      output_tensor, ::litert::TensorBuffer::LockMode::kRead);
   auto output_tensor_ptr =
       reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
@@ -531,7 +537,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillNegativeToken) {
         }
         size_t offset =
             idx0 * dimensions[2] * dimensions[3] + idx2 * dimensions[3] + idx3;
-        ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+        EXPECT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
       }
     }
   }
@@ -539,15 +545,15 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillNegativeToken) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffset) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 3, 4, 32});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
                               GetTensorBuffer(dimensions));
 
   {
-    auto output_tensor_lock_and_addr =
-        ::litert::TensorBufferScopedLock::Create(output_tensor);
+    auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+        output_tensor, ::litert::TensorBuffer::LockMode::kWrite);
     auto output_tensor_ptr =
         reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
@@ -562,16 +568,16 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffset) {
   const size_t float_offset = token_offset * 4 * 32;
   const size_t byte_offset = float_offset * sizeof(float);
 
-  ASSERT_OK(
+  EXPECT_OK(
       embedding->LookupPrefill(tokens_span, &output_tensor, token_offset));
 
-  auto output_tensor_lock_and_addr =
-      ::litert::TensorBufferScopedLock::Create(output_tensor);
+  auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+      output_tensor, ::litert::TensorBuffer::LockMode::kRead);
   auto output_tensor_ptr =
       reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
   for (int i = 0; i < byte_offset; ++i) {
-    ASSERT_EQ(reinterpret_cast<uint8_t*>(output_tensor_ptr)[i], 99);
+    EXPECT_EQ(reinterpret_cast<uint8_t*>(output_tensor_ptr)[i], 99);
   }
 
   for (int idx0 = 0; idx0 < tokens.size(); ++idx0) {
@@ -583,7 +589,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffset) {
         size_t offset = float_offset + idx0 * dimensions[2] * dimensions[3] +
                         idx2 * dimensions[3] + idx3;
         float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-        ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+        EXPECT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
       }
     }
   }
@@ -591,15 +597,15 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffset) {
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffsetAndDefaultEmbedding) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 3, 4, 32});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
                               GetTensorBuffer(dimensions));
 
   {
-    auto output_tensor_lock_and_addr =
-        ::litert::TensorBufferScopedLock::Create(output_tensor);
+    auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+        output_tensor, ::litert::TensorBuffer::LockMode::kWrite);
     auto output_tensor_ptr =
         reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
@@ -614,17 +620,17 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffsetAndDefaultEmbedding) {
   const size_t float_offset = token_offset * 4 * 32;
   const size_t byte_offset = float_offset * sizeof(float);
 
-  ASSERT_OK(
+  EXPECT_OK(
       embedding->LookupPrefill(tokens_span, &output_tensor, token_offset));
 
   // Check that the first token is not overwritten.
-  auto output_tensor_lock_and_addr =
-      ::litert::TensorBufferScopedLock::Create(output_tensor);
+  auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
+      output_tensor, ::litert::TensorBuffer::LockMode::kRead);
   auto output_tensor_ptr =
       reinterpret_cast<float*>(output_tensor_lock_and_addr->second);
 
   for (int i = 0; i < byte_offset; ++i) {
-    ASSERT_EQ(reinterpret_cast<uint8_t*>(output_tensor_ptr)[i], 99);
+    EXPECT_EQ(reinterpret_cast<uint8_t*>(output_tensor_ptr)[i], 99);
   }
 
   for (int idx0 = 0; idx0 < tokens.size(); ++idx0) {
@@ -636,7 +642,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffsetAndDefaultEmbedding) {
         size_t offset = float_offset + idx0 * dimensions[2] * dimensions[3] +
                         idx2 * dimensions[3] + idx3;
         float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-        ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+        EXPECT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
       }
     }
   }
@@ -649,14 +655,14 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffsetAndDefaultEmbedding) {
       // ignore it.
       size_t offset = float_offset * 2 + idx2 * dimensions[3] + idx3;
       float expected_value = 10000.0 * token + 100.0 * idx2 + idx3;
-      ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+      EXPECT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
     }
   }
 }
 
 TEST_F(EmbeddingLookupTextTest, LookupPrefillWithBadOffset) {
   std::unique_ptr<EmbeddingLookupText> embedding = GetEmbeddingLookupText();
-  ASSERT_NE(embedding, nullptr);
+  EXPECT_NE(embedding, nullptr);
 
   Dimensions dimensions({1, 2, 4, 32});
   LITERT_ASSERT_OK_AND_ASSIGN(TensorBuffer output_tensor,
@@ -666,7 +672,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithBadOffset) {
   absl::Span<const int> tokens_span(tokens);
   const size_t token_offset = 1;
 
-  ASSERT_THAT(
+  EXPECT_THAT(
       embedding->LookupPrefill(tokens_span, &output_tensor, token_offset),
       testing::status::StatusIs(
           absl::StatusCode::kInvalidArgument,

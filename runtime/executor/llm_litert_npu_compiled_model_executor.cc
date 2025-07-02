@@ -564,7 +564,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
         auto prefill_input_lock_and_addr,
         ::litert::TensorBufferScopedLock::Create(
             embedder_context_.inference_context
-                .prefill_input_buffers[EmbedderSignatures::kEmbedderInput]));
+                .prefill_input_buffers[EmbedderSignatures::kEmbedderInput],
+            ::litert::TensorBuffer::LockMode::kWrite));
     auto* prefill_input_ptr =
         static_cast<int32_t*>(prefill_input_lock_and_addr.second);
 
@@ -575,7 +576,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
     LITERT_ASSIGN_OR_RETURN(
         auto prefill_input_pos_lock_and_addr,
         ::litert::TensorBufferScopedLock::Create(
-            rope_context_.prefill_input_buffers[RopeSignatures::kInputPos]));
+            rope_context_.prefill_input_buffers[RopeSignatures::kInputPos],
+            ::litert::TensorBuffer::LockMode::kWrite));
     auto* prefill_input_pos_ptr =
         static_cast<int32_t*>(prefill_input_pos_lock_and_addr.second);
 
@@ -588,7 +590,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
         auto prefill_timestep_lock_and_addr,
         ::litert::TensorBufferScopedLock::Create(
             mask_context_
-                .prefill_input_buffers[MaskSignatures::kMaskInputTimeStep]));
+                .prefill_input_buffers[MaskSignatures::kMaskInputTimeStep],
+            ::litert::TensorBuffer::LockMode::kWrite));
     auto* prefill_timestep_ptr =
         static_cast<int32_t*>(prefill_timestep_lock_and_addr.second);
 
@@ -719,7 +722,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
         auto decode_input_lock_and_addr,
         ::litert::TensorBufferScopedLock::Create(
             embedder_context_.inference_context
-                .decode_input_buffers[EmbedderSignatures::kEmbedderInput]));
+                .decode_input_buffers[EmbedderSignatures::kEmbedderInput],
+            ::litert::TensorBuffer::LockMode::kWrite));
     auto* decode_input_ptr =
         static_cast<int32_t*>(decode_input_lock_and_addr.second);
     decode_input_ptr[0] = id;
@@ -728,7 +732,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
     LITERT_ASSIGN_OR_RETURN(
         auto decode_input_pos_lock_and_addr,
         ::litert::TensorBufferScopedLock::Create(
-            rope_context_.decode_input_buffers[RopeSignatures::kInputPos]));
+            rope_context_.decode_input_buffers[RopeSignatures::kInputPos],
+            ::litert::TensorBuffer::LockMode::kWrite));
     auto* decode_input_pos_ptr =
         static_cast<int32_t*>(decode_input_pos_lock_and_addr.second);
     decode_input_pos_ptr[0] = current_step_;
@@ -738,7 +743,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
         auto decode_timestep_lock_and_addr,
         ::litert::TensorBufferScopedLock::Create(
             mask_context_
-                .decode_input_buffers[MaskSignatures::kMaskInputTimeStep]));
+                .decode_input_buffers[MaskSignatures::kMaskInputTimeStep],
+            ::litert::TensorBuffer::LockMode::kWrite));
     auto* decode_timestep_ptr =
         static_cast<int32_t*>(decode_timestep_lock_and_addr.second);
     decode_timestep_ptr[0] = current_step_;

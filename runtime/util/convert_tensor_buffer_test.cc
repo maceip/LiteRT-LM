@@ -72,8 +72,8 @@ TEST(ConvertTensorBufferTest, CopyToTensorBuffer_Success) {
               IsOkAndHolds(kLiteRtTensorBufferTypeHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
-      auto lock_and_addr,
-      ::litert::TensorBufferScopedLock::Create(tensor_buffer));
+      auto lock_and_addr, ::litert::TensorBufferScopedLock::Create(
+                              tensor_buffer, TensorBuffer::LockMode::kRead));
   LITERT_ASSERT_OK_AND_ASSIGN(const size_t buffer_size, tensor_buffer.Size());
   const auto span = absl::MakeConstSpan(
       static_cast<int8_t*>(lock_and_addr.second), buffer_size);
@@ -91,8 +91,8 @@ TEST(ConvertTensorBufferTest, CopyToTensorBuffer_Success_MultipleBytes) {
               IsOkAndHolds(kLiteRtTensorBufferTypeHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
-      auto lock_and_addr,
-      ::litert::TensorBufferScopedLock::Create(tensor_buffer));
+      auto lock_and_addr, ::litert::TensorBufferScopedLock::Create(
+                              tensor_buffer, TensorBuffer::LockMode::kRead));
   LITERT_ASSERT_OK_AND_ASSIGN(const size_t buffer_size, tensor_buffer.Size());
   auto span = absl::MakeConstSpan(static_cast<int32_t*>(lock_and_addr.second),
                                   buffer_size / sizeof(int32_t));
@@ -111,8 +111,8 @@ TEST(ConvertTensorBufferTest, ConvertAndCopyToTensorBuffer_ToInt8) {
               IsOkAndHolds(kLiteRtTensorBufferTypeHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
-      auto lock_and_addr,
-      ::litert::TensorBufferScopedLock::Create(tensor_buffer));
+      auto lock_and_addr, ::litert::TensorBufferScopedLock::Create(
+                              tensor_buffer, TensorBuffer::LockMode::kRead));
   LITERT_ASSERT_OK_AND_ASSIGN(const size_t buffer_size, tensor_buffer.Size());
   auto span = absl::MakeConstSpan(static_cast<int8_t*>(lock_and_addr.second),
                                   buffer_size / sizeof(int8_t));
@@ -131,8 +131,8 @@ TEST(ConvertTensorBufferTest, ConvertAndCopyToTensorBuffer_ToInt32) {
               IsOkAndHolds(kLiteRtTensorBufferTypeHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
-      auto lock_and_addr,
-      ::litert::TensorBufferScopedLock::Create(tensor_buffer));
+      auto lock_and_addr, ::litert::TensorBufferScopedLock::Create(
+                              tensor_buffer, TensorBuffer::LockMode::kRead));
   LITERT_ASSERT_OK_AND_ASSIGN(const size_t buffer_size, tensor_buffer.Size());
   auto span = absl::MakeConstSpan(static_cast<int32_t*>(lock_and_addr.second),
                                   buffer_size / sizeof(int32_t));
@@ -151,8 +151,8 @@ TEST(ConvertTensorBufferTest, ConvertAndCopyToTensorBuffer_ToFloat) {
               IsOkAndHolds(kLiteRtTensorBufferTypeHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
-      auto lock_and_addr,
-      ::litert::TensorBufferScopedLock::Create(tensor_buffer));
+      auto lock_and_addr, ::litert::TensorBufferScopedLock::Create(
+                              tensor_buffer, TensorBuffer::LockMode::kRead));
   LITERT_ASSERT_OK_AND_ASSIGN(const size_t buffer_size, tensor_buffer.Size());
   auto span = absl::MakeConstSpan(static_cast<float*>(lock_and_addr.second),
                                   buffer_size / sizeof(float));
