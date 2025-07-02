@@ -585,7 +585,7 @@ absl::Status LlmLiteRtCompiledModelExecutor::SampleLogits(
             sampler_backend,
             /*batch_size=*/decoded_logits_tensor_type.Layout().Dimensions()[0],
             std::move(sampler_params), env_.Get(), vocab_size,
-            /*activation_data_type=*/ActivationDataType::FLOAT32));
+            logits_data_type_));
   }
 
   RETURN_IF_ERROR(sampler_->SampleToIdAndScoreBuffer(
@@ -625,6 +625,10 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
   // TODO(b/405424188): - Add support for NPU backends.
   auto compilation_options = ::litert::Options::Create();
   std::string weight_cache_path = executor_settings.GetCacheDir();
+  auto activation_data_type = ActivationDataType::FLOAT32;
+  if (executor_settings.GetActivationDataType().has_value()) {
+    activation_data_type = executor_settings.GetActivationDataType().value();
+  }
   const Backend backend = executor_settings.GetBackend();
   switch (backend) {
     case Backend::GPU: {
@@ -634,9 +638,7 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
       gpu_compilation_options.EnableConstantTensorSharing(true);
       gpu_compilation_options.EnableInfiniteFloatCapping(true);
       gpu_compilation_options.EnableAllowSrcQuantizedFcConvOps(true);
-      if (auto activation_data_type = executor_settings.GetActivationDataType();
-          activation_data_type.has_value() &&
-          activation_data_type.value() == ActivationDataType::FLOAT32) {
+      if (activation_data_type == ActivationDataType::FLOAT32) {
         gpu_compilation_options.SetDelegatePrecision(
             LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp32);
       } else {
@@ -660,6 +662,7 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
       // This option prevents KVCache handling from being affected by
       // NoExternalTensorsMode.
       gpu_compilation_options.AddExternalTensorPattern("kv_cache_");
+      gpu_compilation_options.AddExternalTensorPattern("logits");
       compilation_options->AddOpaqueOptions(std::move(gpu_compilation_options));
       compilation_options->SetHardwareAccelerators(kLiteRtHwAcceleratorGpu);
       break;
@@ -857,7 +860,7 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
       std::move(decode_output_buffers), std::move(input_kv_cache_buffers),
       std::move(output_kv_cache_buffers), std::move(prefill_runner_set),
       signatures, batch_size, weight_cache_path, std::move(embedding_lookup),
-      std::move(per_layer_embedding_lookup)));
+      std::move(per_layer_embedding_lookup), activation_data_type));
 }
 
 }  // namespace litert::lm

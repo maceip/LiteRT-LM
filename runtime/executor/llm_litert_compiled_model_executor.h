@@ -34,6 +34,7 @@
 #include "runtime/components/embedding_lookup_text.h"
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sampler.h"
+#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
@@ -105,6 +106,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
 
   absl::StatusOr<int> GetVocabSize() override;
 
+  using LogitsDataType = ActivationDataType;
+
  protected:
   LlmLiteRtCompiledModelExecutor(
       LlmExecutorSettings executor_settings, ::litert::Environment env,
@@ -125,7 +128,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
       SortedPrefillSignatureMap prefill_signature_map,
       ModelSignatures signatures, int batch_size, std::string weight_cache_path,
       std::unique_ptr<EmbeddingLookupText> embedding_lookup = nullptr,
-      std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup = nullptr)
+      std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup = nullptr,
+      LogitsDataType logits_data_type = LogitsDataType::FLOAT32)
       : executor_settings_(std::move(executor_settings)),
         env_(std::move(env)),
         model_(*model),
@@ -143,7 +147,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
         output_batch_size_(batch_size),
         weight_cache_path_(weight_cache_path),
         embedding_lookup_(std::move(embedding_lookup)),
-        per_layer_embedding_lookup_(std::move(per_layer_embedding_lookup)) {}
+        per_layer_embedding_lookup_(std::move(per_layer_embedding_lookup)),
+        logits_data_type_(logits_data_type) {}
 
  private:
   // Samples output logits and write to ids_tensor.
@@ -224,6 +229,9 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   std::unique_ptr<EmbeddingLookupText> embedding_lookup_;
   // The embedding lookup for the optional per layer embedder model.
   std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup_;
+  // The logits data type of the model, used to determine the data type of the
+  // logits tensor for gpu sampling.
+  LogitsDataType logits_data_type_;
 };
 
 }  // namespace litert::lm
