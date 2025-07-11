@@ -22,6 +22,7 @@
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/c/litert_common.h"  // from @litert
 #include "litert/cc/litert_compiled_model.h"  // from @litert
+#include "litert/cc/litert_element_type.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_layout.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
@@ -52,6 +53,19 @@ constexpr char cache_v25[] = "kv_cache_v_25";
 struct EmbedderSignatures {
   static constexpr absl::string_view kPrefillEmbedder = "prefill_embedder_128";
   static constexpr absl::string_view kDecodeEmbedder = "decode_embedder";
+  // Prefill and decode use identical tensor signature names.
+  static constexpr absl::string_view kEmbedderInput = "token_ids";
+  static constexpr absl::string_view kEmbedderOutput = "embeddings";
+};
+
+static constexpr absl::string_view kPerLayerEmbedderTensor =
+    "per_layer_embeddings";
+
+struct EmbedderPerLayerSignatures {
+  static constexpr absl::string_view kPrefillEmbedderPerLayer =
+      "prefill_per_layer_embedder_128";
+  static constexpr absl::string_view kDecodeEmbedderPerLayer =
+      "decode_per_layer_embedder";
   // Prefill and decode use identical tensor signature names.
   static constexpr absl::string_view kEmbedderInput = "token_ids";
   static constexpr absl::string_view kEmbedderOutput = "embeddings";
@@ -98,13 +112,45 @@ struct CacheUpdateSignatures {
   static constexpr absl::string_view kInputPos = "input_pos";
 };
 
+// Applies greedy sampling to the decoded logits. TODO(b/416702864) this logic
+// should be replaced by the LiteRT-LM sampler once it supports greedy sampling
+// for quantized tensors.
+absl::StatusOr<int> ApplyGreedySampling(const TensorBuffer& decoded_logits) {
+  int max_index = 0;
+  LITERT_ASSIGN_OR_RETURN(RankedTensorType logits_tensor_type,
+                          decoded_logits.TensorType());
+  if (logits_tensor_type.ElementType() == ::litert::ElementType::Float32) {
+    LITERT_ASSIGN_OR_RETURN(auto logits_buffer_float,
+                            CopyFromTensorBuffer<float>(decoded_logits));
+
+    float max_value = std::numeric_limits<float>::min();
+    for (int i = 0; i < logits_buffer_float.size(); ++i) {
+      if (logits_buffer_float[i] > max_value) {
+        max_value = logits_buffer_float[i];
+        max_index = i;
+      }
+    }
+  } else {
+    LITERT_ASSIGN_OR_RETURN(auto logits_buffer_int16,
+                            CopyFromTensorBuffer<int16_t>(decoded_logits));
+    int16_t max_value = std::numeric_limits<int16_t>::min();
+    for (int i = 0; i < logits_buffer_int16.size(); ++i) {
+      if (logits_buffer_int16[i] > max_value) {
+        max_value = logits_buffer_int16[i];
+        max_index = i;
+      }
+    }
+  }
+  return max_index;
+}
+
 }  // namespace
 
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::EmbedderContext>
 LlmLiteRtNpuCompiledModelExecutor::CreateEmbedderContextWithBufferSharing(
     ::litert::Environment& env, const litert::Model& embedder_model,
-    ::litert::TensorBuffer prefill_input_tokens,
-    ::litert::TensorBuffer decode_input_tokens,
+    const ::litert::TensorBuffer& prefill_input_tokens,
+    const ::litert::TensorBuffer& decode_input_tokens,
     absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
         gemma_prefill_input_buffers,
     absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -122,15 +168,17 @@ LlmLiteRtNpuCompiledModelExecutor::CreateEmbedderContextWithBufferSharing(
   absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
       decode_output_buffers;
 
-  prefill_input_buffers[EmbedderSignatures::kEmbedderInput] =
-      std::move(prefill_input_tokens);
+  LITERT_ASSIGN_OR_RETURN(
+      prefill_input_buffers[EmbedderSignatures::kEmbedderInput],
+      prefill_input_tokens.Duplicate());
 
   LITERT_ASSIGN_OR_RETURN(
       prefill_output_buffers[EmbedderSignatures::kEmbedderOutput],
       gemma_prefill_input_buffers[LlmSignatures::kInputEmbeddings].Duplicate());
 
-  decode_input_buffers[EmbedderSignatures::kEmbedderInput] =
-      std::move(decode_input_tokens);
+  LITERT_ASSIGN_OR_RETURN(
+      decode_input_buffers[EmbedderSignatures::kEmbedderInput],
+      decode_input_tokens.Duplicate());
 
   LITERT_ASSIGN_OR_RETURN(
       decode_output_buffers[EmbedderSignatures::kEmbedderOutput],
@@ -141,6 +189,52 @@ LlmLiteRtNpuCompiledModelExecutor::CreateEmbedderContextWithBufferSharing(
       std::move(prefill_output_buffers), std::move(decode_input_buffers),
       std::move(decode_output_buffers));
   return embedder_context;
+}
+
+absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::EmbedderPerLayerContext>
+LlmLiteRtNpuCompiledModelExecutor::
+    CreateEmbedderPerLayerContextWithBufferSharing(
+        ::litert::Environment& env, const litert::Model& embedder_model,
+        const ::litert::TensorBuffer& prefill_input_tokens,
+        const ::litert::TensorBuffer& decode_input_tokens,
+        absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+            gemma_prefill_input_buffers,
+        absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+            gemma_decode_input_buffers) {
+  LITERT_ASSIGN_OR_RETURN(
+      CompiledModel embedder_compiled_model,
+      CompiledModel::Create(env, embedder_model, kLiteRtHwAcceleratorCpu));
+
+  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+      prefill_input_buffers;
+  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+      prefill_output_buffers;
+  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+      decode_input_buffers;
+  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+      decode_output_buffers;
+
+  LITERT_ASSIGN_OR_RETURN(
+      prefill_input_buffers[EmbedderPerLayerSignatures::kEmbedderInput],
+      prefill_input_tokens.Duplicate());
+
+  LITERT_ASSIGN_OR_RETURN(
+      prefill_output_buffers[EmbedderPerLayerSignatures::kEmbedderOutput],
+      gemma_prefill_input_buffers[kPerLayerEmbedderTensor].Duplicate());
+
+  LITERT_ASSIGN_OR_RETURN(
+      decode_input_buffers[EmbedderPerLayerSignatures::kEmbedderInput],
+      decode_input_tokens.Duplicate());
+
+  LITERT_ASSIGN_OR_RETURN(
+      decode_output_buffers[EmbedderPerLayerSignatures::kEmbedderOutput],
+      gemma_decode_input_buffers[kPerLayerEmbedderTensor].Duplicate());
+
+  EmbedderPerLayerContext embedder_per_layer_context(
+      std::move(embedder_compiled_model), std::move(prefill_input_buffers),
+      std::move(prefill_output_buffers), std::move(decode_input_buffers),
+      std::move(decode_output_buffers));
+  return embedder_per_layer_context;
 }
 
 absl::StatusOr<LlmLiteRtNpuCompiledModelExecutor::NpuAuxiliaryContext>
@@ -301,21 +395,6 @@ LlmLiteRtNpuCompiledModelExecutor::CreateLlmInferenceContextWithBufferSharing(
     for (const auto& [key, value] : input_kv_cache_buffers) {
       LITERT_ASSIGN_OR_RETURN(decode_input_buffers[key], value.Duplicate());
     }
-
-    // TODO(b/405424188): Buffers kv_cache_{k,v}_25 have float element type for
-    // the prefill signature but int16_t for the decode signature. Therefore,
-    // unlike for the other KV cache tensors, we can not re-use the same tensor
-    // during prefill and decode (because trying to register a tensor of element
-    // type float for the decode signature that expects it in int16_t will
-    // fail). Luckily these buffers are not used, so we can simply create new
-    // ones to satisfy the compiled model run API.  We can remove this
-    // workaround once we have a model that removes these buffers.
-    LITERT_ASSIGN_OR_RETURN(
-        decode_input_buffers[cache_k25],
-        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k25));
-    LITERT_ASSIGN_OR_RETURN(
-        decode_input_buffers[cache_v25],
-        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v25));
   }
   absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
       decode_output_buffers;
@@ -525,16 +604,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
           .decode_output_buffers[LlmSignatures::kDecodeLogitsOutput];
   RETURN_IF_ERROR(Decode(ExecutorInputs(), decoded_logits));
   auto start_sample = absl::Now();
-  LITERT_ASSIGN_OR_RETURN(auto logits_buffer_int16,
-                          CopyFromTensorBuffer<int16_t>(decoded_logits));
-  int max_index = 0;
-  int16_t max_value = std::numeric_limits<int16_t>::min();
-  for (int i = 0; i < logits_buffer_int16.size(); ++i) {
-    if (logits_buffer_int16[i] > max_value) {
-      max_value = logits_buffer_int16[i];
-      max_index = i;
-    }
-  }
+
+  ASSIGN_OR_RETURN(const int max_index, ApplyGreedySampling(decoded_logits));
 
   latency_stats_.decode_sampling_latency_us +=
       absl::ToInt64Microseconds(absl::Now() - start_sample);
@@ -637,6 +708,21 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
     auto end = absl::Now();
     latency_stats_.prefill_embedder_inference_latency_us +=
         absl::ToInt64Microseconds(end - start);
+  }
+
+  {
+    if (embedder_per_layer_context_.has_value()) {
+      // Invoke embedder per layer signature.
+      auto res =
+          embedder_per_layer_context_->embedder_per_layer_compiled_model.Run(
+              EmbedderPerLayerSignatures::kPrefillEmbedderPerLayer,
+              embedder_per_layer_context_->inference_context
+                  .prefill_input_buffers,
+              embedder_per_layer_context_->inference_context
+                  .prefill_output_buffers);
+      RET_CHECK(res) << "Failed to run embedder per layer model."
+                     << res.Error().Message();
+    }
   }
 
   // Invoke RoPE signature.
@@ -766,6 +852,20 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
         absl::ToInt64Microseconds(end - start);
   }
 
+  {
+    if (embedder_per_layer_context_.has_value()) {
+      auto res =
+          embedder_per_layer_context_->embedder_per_layer_compiled_model.Run(
+              EmbedderPerLayerSignatures::kDecodeEmbedderPerLayer,
+              embedder_per_layer_context_->inference_context
+                  .decode_input_buffers,
+              embedder_per_layer_context_->inference_context
+                  .decode_output_buffers);
+      RET_CHECK(res) << "Failed to run embedder per layer model."
+                     << res.Error().Message();
+    }
+  }
+
   // Invoke RoPE signature.
   {
     auto start = absl::Now();
@@ -868,7 +968,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   // automatically.
   LITERT_ASSIGN_OR_RETURN(
       CompiledModel llm_compiled_model,
-      CompiledModel::Create(env, *llm_model, kLiteRtHwAcceleratorNpu));
+      CompiledModel::Create(env, *llm_model, kLiteRtHwAcceleratorCpu));
 
   // Allocate all input and output buffers of the LLM model that are meant to be
   // used by the NPU chip first, so that we can later duplicate the buffers into
@@ -890,6 +990,8 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   constexpr absl::string_view kv_cache_slice_k_root_name = "kv_slice_k_";
   constexpr absl::string_view kv_cache_slice_v_root_name = "kv_slice_v_";
 
+  bool has_per_layer_embeddings = false;
+
   for (auto input_name : prefill_signature->InputNames()) {
     if (absl::StartsWith(input_name, kv_cache_k_root_name) ||
         absl::StartsWith(input_name, kv_cache_v_root_name)) {
@@ -897,6 +999,10 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
           input_kv_cache_buffers[input_name],
           llm_compiled_model.CreateInputBuffer(kPrefillSignature, input_name));
     } else {
+      if (kPerLayerEmbedderTensor == input_name) {
+        has_per_layer_embeddings = true;
+      }
+
       LITERT_ASSIGN_OR_RETURN(
           gemma_prefill_input_buffers[input_name],
           llm_compiled_model.CreateInputBuffer(kPrefillSignature, input_name));
@@ -938,6 +1044,27 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
           decode_output_kv_cache_slice_buffers, gemma_prefill_input_buffers,
           gemma_decode_input_buffers));
 
+  if (!has_per_layer_embeddings) {
+    // TODO(b/416702118): Buffers kv_cache_{k,v}_25 have float element type for
+    // the prefill signature but int16_t for the decode signature. Therefore,
+    // unlike for the other KV cache tensors, we can not re-use the same tensor
+    // during prefill and decode (because trying to register a tensor of element
+    // type float for the decode signature that expects it in int16_t will
+    // fail). Luckily these buffers are not used, so we can simply create new
+    // ones to satisfy the compiled model run API.  We can remove this
+    // workaround once we have a model that removes these buffers.
+    //
+    // These extra buffers have been removed for Gemma3n, so we condition
+    // the creation of these buffers to only run for Gemma3 (which does not
+    // have per-layer embeddings).
+    LITERT_ASSIGN_OR_RETURN(
+        llm_inference_context.decode_input_buffers[cache_k25],
+        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k25));
+    LITERT_ASSIGN_OR_RETURN(
+        llm_inference_context.decode_input_buffers[cache_v25],
+        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v25));
+  }
+
   ASSIGN_OR_RETURN(auto npu_auxiliary_lrt_model,
                    resources.GetTFLiteModel(litert::lm::ModelType::kTfLiteAux));
 
@@ -949,27 +1076,16 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
                        npu_auxiliary_context, gemma_prefill_input_buffers,
                        gemma_decode_input_buffers));
 
-  // Duplicate the mask buffers that are used to store the prefill and
-  // decode input tokens, because they will need to be passed to the embedder
-  // inference context as well so that they can be shared.
-  LITERT_ASSIGN_OR_RETURN(
-      ::litert::TensorBuffer prefill_input_tokens,
-      mask_context.prefill_input_buffers[MaskSignatures::kMaskInputTokens]
-          .Duplicate());
-  LITERT_ASSIGN_OR_RETURN(
-      ::litert::TensorBuffer decode_input_tokens,
-      mask_context.decode_input_buffers[MaskSignatures::kMaskInputTokens]
-          .Duplicate());
-
   ASSIGN_OR_RETURN(
       auto embedder_lrt_model,
       resources.GetTFLiteModel(litert::lm::ModelType::kTfLiteEmbedder));
   ASSIGN_OR_RETURN(
       auto embedder_context,
       CreateEmbedderContextWithBufferSharing(
-          env, *embedder_lrt_model, std::move(prefill_input_tokens),
-          std::move(decode_input_tokens), gemma_prefill_input_buffers,
-          gemma_decode_input_buffers));
+          env, *embedder_lrt_model,
+          mask_context.prefill_input_buffers[MaskSignatures::kMaskInputTokens],
+          mask_context.decode_input_buffers[MaskSignatures::kMaskInputTokens],
+          gemma_prefill_input_buffers, gemma_decode_input_buffers));
 
   ASSIGN_OR_RETURN(auto rope_context,
                    CreateRopeContextWithBufferSharing(
@@ -1001,13 +1117,30 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   // For now we only support one prefill length in the model.
   SortedPrefillSignatureMap prefill_runner_set;
   prefill_runner_set[kPrefillSize] = kPrefillSignature;
+
+  std::optional<EmbedderPerLayerContext> embedder_per_layer_context =
+      std::nullopt;
+  if (has_per_layer_embeddings) {
+    ASSIGN_OR_RETURN(const litert::Model* embedder_per_layer_model,
+                     resources.GetTFLiteModel(
+                         litert::lm::ModelType::kTfLitePerLayerEmbedder));
+    ASSIGN_OR_RETURN(
+        embedder_per_layer_context,
+        CreateEmbedderPerLayerContextWithBufferSharing(
+            env, *embedder_per_layer_model,
+            mask_context
+                .prefill_input_buffers[MaskSignatures::kMaskInputTokens],
+            mask_context.decode_input_buffers[MaskSignatures::kMaskInputTokens],
+            gemma_prefill_input_buffers, gemma_decode_input_buffers));
+  }
+
   auto executor = absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
       executor_settings, std::move(embedder_context),
       std::move(npu_auxiliary_context), std::move(mask_context),
       std::move(rope_context), std::move(env), std::move(llm_compiled_model),
       std::move(llm_inference_context),
-      std::move(cache_update_inference_context),
-      std::move(prefill_runner_set)));
+      std::move(cache_update_inference_context), std::move(prefill_runner_set),
+      std::move(embedder_per_layer_context)));
   return executor;
 };
 

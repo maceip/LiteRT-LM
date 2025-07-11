@@ -161,6 +161,28 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
             decode_output_buffers);
   };
 
+  // Holds the context for the embedder per layer model.
+  struct EmbedderPerLayerContext {
+    ::litert::CompiledModel embedder_per_layer_compiled_model;
+    InferenceContext inference_context;
+    EmbedderPerLayerContext(
+        ::litert::CompiledModel embedder_per_layer_compiled_model,
+        absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+            prefill_input_buffers,
+        absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+            prefill_output_buffers,
+        absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+            decode_input_buffers,
+        absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+            decode_output_buffers)
+        : embedder_per_layer_compiled_model(
+              std::move(embedder_per_layer_compiled_model)),
+          inference_context(std::move(prefill_input_buffers),
+                            std::move(prefill_output_buffers),
+                            std::move(decode_input_buffers),
+                            std::move(decode_output_buffers)) {}
+  };
+
   // Holds the context for the NPU auxiliary model, which contains several
   // signatures for Mask, RoPE and KV cache update computation.
   struct NpuAuxiliaryContext {
@@ -178,7 +200,9 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
       ::litert::CompiledModel llm_compiled_model,
       InferenceContext llm_inference_context,
       InferenceContext cache_update_inference_context,
-      ::litert::lm::SortedPrefillSignatureMap prefill_signature_map)
+      ::litert::lm::SortedPrefillSignatureMap prefill_signature_map,
+      std::optional<EmbedderPerLayerContext> embedder_per_layer_context =
+          std::nullopt)
       : executor_settings_(std::move(executor_settings)),
         embedder_context_(std::move(embedder_context)),
         npu_auxiliary_context_(std::move(npu_auxiliary_context)),
@@ -186,6 +210,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
         rope_context_(std::move(rope_context)),
         env_(std::move(llm_env)),
         llm_compiled_model_(std::move(llm_compiled_model)),
+        embedder_per_layer_context_(std::move(embedder_per_layer_context)),
         llm_inference_context_(std::move(llm_inference_context)),
         cache_update_inference_context_(
             std::move(cache_update_inference_context)),
@@ -206,11 +231,28 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // of the provided 'gemma_prefill_input_buffers' and
   // 'gemma_decode_input_buffers'.  Similarly, instead of creating the buffers
   // for the input tokens the provided 'prefill_input_tokens' and
-  // 'decode_input_tokens' will be used.
+  // 'decode_input_tokens' will be duplicated and re-used as the input buffers.
   static absl::StatusOr<EmbedderContext> CreateEmbedderContextWithBufferSharing(
       ::litert::Environment& env, const litert::Model& embedder_model,
-      ::litert::TensorBuffer prefill_input_tokens,
-      ::litert::TensorBuffer decode_input_tokens,
+      const ::litert::TensorBuffer& prefill_input_tokens,
+      const ::litert::TensorBuffer& decode_input_tokens,
+      absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+          gemma_prefill_input_buffers,
+      absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+          gemma_decode_input_buffers);
+
+  // Creates the context for the embedder per layer model.  Instead of creating
+  // new output buffers for the embedder, the context will use the input buffers
+  // of the provided 'gemma_prefill_input_buffers',
+  // 'gemma_decode_input_buffers'.  Similarly, instead of creating the buffers
+  // for the input tokens the provided 'prefill_input_tokens' and
+  // 'decode_input_tokens' will be duplicated and re-used as the input buffers.
+  static absl::StatusOr<
+      LlmLiteRtNpuCompiledModelExecutor::EmbedderPerLayerContext>
+  CreateEmbedderPerLayerContextWithBufferSharing(
+      ::litert::Environment& env, const litert::Model& embedder_model,
+      const ::litert::TensorBuffer& prefill_input_tokens,
+      const ::litert::TensorBuffer& decode_input_tokens,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
           gemma_prefill_input_buffers,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
@@ -285,7 +327,8 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   InferenceContext rope_context_;
   ::litert::Environment env_;
   ::litert::CompiledModel llm_compiled_model_;
-
+  std::optional<EmbedderPerLayerContext> embedder_per_layer_context_ =
+      std::nullopt;
   InferenceContext llm_inference_context_;
   InferenceContext cache_update_inference_context_;
   ::litert::lm::SortedPrefillSignatureMap prefill_signature_map_;
