@@ -608,10 +608,10 @@ Task files are a zip of multiple LiteRT files, components, and metadata.
 `.litertlm` is an evolution of the `.task` file format to include additional
 metadata and enable better compression.
 
-During our LiteRT-LM preview, we will release a small number of `.litertlm
-files`. MediaPipe APIs will continue to use `.task` files. Once we have the
+During our LiteRT-LM preview, we will release a small number of `.litertlm`
+files. MediaPipe APIs will continue to use `.task` files. Once we have the
 first full release of LiteRT-LM, we will migrate MediaPipe APIs to use the new
-`.litertlm` files and release a wider collection of .litertlm files on the
+`.litertlm` files and release a wider collection of `.litertlm` files on the
 [LiteRT Hugging Face Community](https://huggingface.co/litert-community)
 
 ## Reporting Issues
