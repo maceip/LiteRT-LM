@@ -131,7 +131,8 @@ TEST(LlmExecutorIoTypesTest, ExecutorAudioDataPrint) {
 TEST(LlmExecutorIoTypesTest, ExecutorPrefillParamsPrint) {
   std::atomic_bool cancel = true;
   ExecutorPrefillParams params(
-      /*current_step=*/10, /*wait_for_completion=*/true, /*cancel=*/&cancel);
+      /*current_step=*/10, /*wait_for_completion=*/true, /*cancel=*/&cancel,
+      /*max_prefill_sequence_length=*/128);
   std::stringstream oss;
   oss << params;  // Invoke operator<< for ExecutorPrefillParams
   EXPECT_EQ(oss.str(),
@@ -139,17 +140,20 @@ TEST(LlmExecutorIoTypesTest, ExecutorPrefillParamsPrint) {
             "  CurrentStep: 10\n"
             "  WaitForCompletion: true\n"
             "  CancelFlag: true (atomic)\n"
+            "  MaxPrefillSequenceLength: 128\n"
             "}");
 
   // Test with a null cancel flag.
   oss.str("");  // Clear the stringstream
   params.SetCancelFlag(nullptr);
+  params.SetMaxPrefillSequenceLength(std::nullopt);
   oss << params;
   EXPECT_EQ(oss.str(),
             "ExecutorPrefillParams: {\n"
             "  CurrentStep: 10\n"
             "  WaitForCompletion: true\n"
             "  CancelFlag: nullptr\n"
+            "  MaxPrefillSequenceLength: nullopt\n"
             "}");
 }
 
@@ -738,6 +742,12 @@ TEST(LlmExecutorIoTypesTest, ExecutorPrefillParamsGetSet) {
   // Test SetCancelFlag
   params.SetCancelFlag(&new_cancel);
   EXPECT_EQ(params.GetCancelFlag(), &new_cancel);
+
+  // Test GetMaxPrefillSequenceLength
+  params.SetMaxPrefillSequenceLength(100);
+  auto max_prefill_sequence_length_or = params.GetMaxPrefillSequenceLength();
+  ASSERT_TRUE(max_prefill_sequence_length_or.ok());
+  EXPECT_EQ(max_prefill_sequence_length_or.value(), 100);
 }
 
 }  // namespace

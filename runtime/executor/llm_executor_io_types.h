@@ -234,8 +234,10 @@ class ExecutorPrefillParams {
   ExecutorPrefillParams() = default;
 
   // Parameterized constructor for all values
-  ExecutorPrefillParams(int current_step, bool wait_for_completion,
-                        const std::atomic_bool* cancel);
+  ExecutorPrefillParams(
+      int current_step, bool wait_for_completion,
+      const std::atomic_bool* cancel,
+      std::optional<int> max_prefill_sequence_length = std::nullopt);
 
   int GetCurrentStep() const;
   void SetCurrentStep(int current_step);
@@ -245,6 +247,10 @@ class ExecutorPrefillParams {
 
   const std::atomic_bool* GetCancelFlag() const;
   void SetCancelFlag(const std::atomic_bool* cancel);
+
+  absl::StatusOr<int> GetMaxPrefillSequenceLength() const;
+  void SetMaxPrefillSequenceLength(
+      std::optional<int> max_prefill_sequence_length);
 
  private:
   // The current step to prefill.
@@ -258,6 +264,13 @@ class ExecutorPrefillParams {
   // to true, the Executor is responsible to cancel the Prefill process as soon
   // as possible.
   const std::atomic_bool* cancel_ = nullptr;
+
+  // Maximum sequence length of the prefill signatures allowed to be used for
+  // this prefill call. Invoking a prefill signature with long sequence length
+  // will result in a long waiting time. To ensure in-time cancellation, we may
+  // need to limit the maximum sequence length used for prefill. If not set, all
+  // prefill signatures are considered during prefill.
+  std::optional<int> max_prefill_sequence_length_;
 };
 std::ostream& operator<<(std::ostream& os, const ExecutorPrefillParams& params);
 

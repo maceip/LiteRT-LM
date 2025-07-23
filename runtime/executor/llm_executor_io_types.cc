@@ -475,12 +475,13 @@ std::ostream& operator<<(std::ostream& os, const ExecutorInputs& inputs) {
 }
 
 // --- ExecutorPrefillParams Implementation ---
-ExecutorPrefillParams::ExecutorPrefillParams(int current_step,
-                                             bool wait_for_completion,
-                                             const std::atomic_bool* cancel)
+ExecutorPrefillParams::ExecutorPrefillParams(
+    int current_step, bool wait_for_completion, const std::atomic_bool* cancel,
+    std::optional<int> max_prefill_sequence_length)
     : current_step_(current_step),
       wait_for_completion_(wait_for_completion),
-      cancel_(cancel) {}
+      cancel_(cancel),
+      max_prefill_sequence_length_(max_prefill_sequence_length) {}
 
 int ExecutorPrefillParams::GetCurrentStep() const { return current_step_; }
 
@@ -504,6 +505,19 @@ void ExecutorPrefillParams::SetCancelFlag(const std::atomic_bool* cancel) {
   cancel_ = cancel;
 }
 
+absl::StatusOr<int> ExecutorPrefillParams::GetMaxPrefillSequenceLength() const {
+  if (max_prefill_sequence_length_.has_value()) {
+    return max_prefill_sequence_length_.value();
+  }
+  return absl::NotFoundError(
+      "ExecutorPrefillParams::max_prefill_sequence_length_ is not set.");
+}
+
+void ExecutorPrefillParams::SetMaxPrefillSequenceLength(
+    std::optional<int> max_prefill_sequence_length) {
+  max_prefill_sequence_length_ = max_prefill_sequence_length;
+}
+
 std::ostream& operator<<(std::ostream& os,
                          const ExecutorPrefillParams& params) {
   os << "ExecutorPrefillParams: {\n"
@@ -517,6 +531,14 @@ std::ostream& operator<<(std::ostream& os,
                : "false (atomic)");
   } else {
     os << "nullptr";
+  }
+  os << "\n" << kFieldIndent << "MaxPrefillSequenceLength: ";
+  absl::StatusOr<int> max_prefill_sequence_length =
+      params.GetMaxPrefillSequenceLength();
+  if (max_prefill_sequence_length.ok()) {
+    os << max_prefill_sequence_length.value();
+  } else {
+    os << "nullopt";
   }
   os << "\n"
      << "}";
