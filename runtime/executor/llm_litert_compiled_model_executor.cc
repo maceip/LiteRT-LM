@@ -619,7 +619,9 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
   // TODO(b/405424188): - Add support for NPU backends.
   auto compilation_options = ::litert::Options::Create();
   std::string weight_cache_path = executor_settings.GetCacheDir();
-  auto activation_data_type = ActivationDataType::FLOAT32;
+  auto activation_data_type = ActivationDataType::FLOAT16;
+  // TODO(b/433590109): Some GPUs do not support FP16, so we need to check the
+  // capabilities of the GPU and set the activation data type accordingly.
   if (executor_settings.GetActivationDataType().has_value()) {
     activation_data_type = executor_settings.GetActivationDataType().value();
   }
