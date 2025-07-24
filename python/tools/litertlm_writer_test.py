@@ -16,8 +16,8 @@ import os
 
 from absl.testing import absltest
 
-from python.tools import litertlm_peek
-from python.tools import litertlm_writer
+from litert_lm.python.tools import litertlm_peek
+from litert_lm.python.tools import litertlm_writer
 
 
 class LitertlmWriterPyTest(absltest.TestCase):

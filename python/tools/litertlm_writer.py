@@ -23,9 +23,9 @@ from typing import List
 import zlib
 import flatbuffers
 from google.protobuf import text_format
-from python.tools import litertlm_core
-from runtime.proto import llm_metadata_pb2
-from schema.core import litertlm_header_schema_py_generated as schema
+from litert_lm.python.tools import litertlm_core
+from litert_lm.runtime.proto import llm_metadata_pb2
+from litert_lm.schema.core import litertlm_header_schema_py_generated as schema
 
 INT64_MAX = 9223372036854775807
 

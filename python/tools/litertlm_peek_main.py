@@ -24,7 +24,7 @@ import argparse
 import struct
 import sys
 
-from python.tools import litertlm_peek
+from litert_lm.python.tools import litertlm_peek
 
 
 def main():

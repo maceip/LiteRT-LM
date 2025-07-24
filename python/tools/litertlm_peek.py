@@ -15,9 +15,9 @@
 
 import struct
 from google.protobuf import text_format
-from python.tools import litertlm_core
-from runtime.proto import llm_metadata_pb2
-from schema.core import litertlm_header_schema_py_generated as schema
+from litert_lm.python.tools import litertlm_core
+from litert_lm.runtime.proto import llm_metadata_pb2
+from litert_lm.schema.core import litertlm_header_schema_py_generated as schema
 
 # --- ANSI Escape Code Definitions ---
 ANSI_BOLD = "\033[1m"
@@ -158,7 +158,7 @@ def peek_litertlm_file(litertlm_path, output_stream):
     else:
       use_color = hasattr(output_stream, "isatty") and output_stream.isatty()
       bold = ANSI_BOLD if use_color else ""
-      reset = litertlm_core.ANSI_RESET if use_color else ""
+      reset = ANSI_RESET if use_color else ""
       for i in range(num_sections):
         sec_obj = section_metadata.Objects(i)
         output_stream.write(f"\n{bold}Section {i}:{reset}\n")

@@ -30,7 +30,7 @@ specified in the section_metadata argument.
 """
 
 import argparse
-from python.tools import litertlm_writer
+from litert_lm.python.tools import litertlm_writer
 
 
 def main():

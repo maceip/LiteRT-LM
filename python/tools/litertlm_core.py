@@ -15,7 +15,7 @@
 """Core library with shared constants and utilities for LiteRT-LM tools."""
 
 import os
-from schema.core import litertlm_header_schema_py_generated as schema
+from litert_lm.schema.core import litertlm_header_schema_py_generated as schema
 
 # --- File Format Constants ---
 LITERTLM_MAJOR_VERSION = 1
