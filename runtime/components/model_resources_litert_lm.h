@@ -20,6 +20,7 @@
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/litert_model.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/components/tokenizer.h"
@@ -35,6 +36,9 @@ class ModelResourcesLitertLm : public ModelResources {
       std::unique_ptr<LitertLmLoader> litert_lm_loader);
 
   absl::StatusOr<const litert::Model*> GetTFLiteModel(
+      ModelType model_type) override;
+
+  absl::StatusOr<absl::string_view> GetTFLiteModelBuffer(
       ModelType model_type) override;
 
   // Returns the tokenizer from the *.litertlm file. If both SentencePiece and

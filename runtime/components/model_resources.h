@@ -36,6 +36,10 @@ enum class ModelType {
   kTfLiteEmbedder = 2,
   kTfLitePerLayerEmbedder = 3,
   kTfLiteAux = 4,
+  kTfLiteAudioEncoderHw = 5,
+  kTfLiteEndOfAudio = 6,
+  kTfLiteVisionAdapter = 7,
+  kTfLiteVisionEncoder = 8,
 };
 
 // Utility function to convert a string to ModelType. It's case insensitive.
@@ -51,6 +55,14 @@ inline absl::StatusOr<ModelType> StringToModelType(
     return ModelType::kTfLitePerLayerEmbedder;
   } else if (lower_case_model_type_str == "tf_lite_aux") {
     return ModelType::kTfLiteAux;
+  } else if (lower_case_model_type_str == "tf_lite_audio_encoder_hw") {
+    return ModelType::kTfLiteAudioEncoderHw;
+  } else if (lower_case_model_type_str == "tf_lite_end_of_audio") {
+    return ModelType::kTfLiteEndOfAudio;
+  } else if (lower_case_model_type_str == "tf_lite_vision_adapter") {
+    return ModelType::kTfLiteVisionAdapter;
+  } else if (lower_case_model_type_str == "tf_lite_vision_encoder") {
+    return ModelType::kTfLiteVisionEncoder;
   } else {
     return absl::InvalidArgumentError(
         absl::StrCat("Unknown model type: ", model_type_str));
@@ -68,6 +80,14 @@ inline std::string ModelTypeToString(ModelType model_type) {
       return "TF_LITE_PER_LAYER_EMBEDDER";
     case ModelType::kTfLiteAux:
       return "TF_LITE_AUX";
+    case ModelType::kTfLiteAudioEncoderHw:
+      return "TF_LITE_AUDIO_ENCODER_HW";
+    case ModelType::kTfLiteEndOfAudio:
+      return "TF_LITE_END_OF_AUDIO";
+    case ModelType::kTfLiteVisionAdapter:
+      return "TF_LITE_VISION_ADAPTER";
+    case ModelType::kTfLiteVisionEncoder:
+      return "TF_LITE_VISION_ENCODER";
     case ModelType::kUnknown:
       return "UNKNOWN";
     default:
@@ -91,6 +111,15 @@ class ModelResources {
   // yet. And the model is created from memory mapped file, so physical memory
   // is only allocated when the model is actually used.
   virtual absl::StatusOr<const litert::Model*> GetTFLiteModel(
+      ModelType model_type) = 0;
+
+  // Returns the TFLite model buffer. Note that the returned string_view is
+  // valid only until the ModelResources is destroyed.
+  // When there is no model for the given model type, it will return an error
+  // status.
+  // Prefer to use GetTFLiteModel() if possible, as this function will leave
+  // the model lifecycle management to the caller.
+  virtual absl::StatusOr<absl::string_view> GetTFLiteModelBuffer(
       ModelType model_type) = 0;
 
   // Returns the tokenizer.

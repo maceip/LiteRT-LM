@@ -16,9 +16,11 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_MODEL_RESOURCES_TASK_H_
 
 #include <memory>
+#include <utility>
 
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/litert_model.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
@@ -35,6 +37,8 @@ class ModelResourcesTask : public ModelResources {
       std::unique_ptr<ModelAssetBundleResources> model_asset_bundle_resources);
 
   absl::StatusOr<const litert::Model*> GetTFLiteModel(
+      ModelType model_type) override;
+  absl::StatusOr<absl::string_view> GetTFLiteModelBuffer(
       ModelType model_type) override;
   absl::StatusOr<Tokenizer*> GetTokenizer() override;
   absl::StatusOr<const proto::LlmMetadata*> GetLlmMetadata() override;

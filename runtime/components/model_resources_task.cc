@@ -49,6 +49,12 @@ absl::StatusOr<std::unique_ptr<ModelResources>> ModelResourcesTask::Create(
   return model_resources;
 }
 
+absl::StatusOr<absl::string_view> ModelResourcesTask::GetTFLiteModelBuffer(
+    ModelType model_type) {
+  std::string model_file = litert::lm::ModelTypeToString(model_type);
+  return model_asset_bundle_resources_->GetFile(model_file);
+};
+
 absl::StatusOr<const litert::Model*> ModelResourcesTask::GetTFLiteModel(
     ModelType model_type) {
   auto it = model_map_.find(model_type);

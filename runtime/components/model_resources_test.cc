@@ -21,6 +21,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/status/status.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/components/model_resources_litert_lm.h"
 #include "runtime/components/model_resources_task.h"
@@ -108,6 +109,46 @@ TEST(ModelResourcesTest, InitializeWithValidModelAssetBundleResources) {
   auto tokenizer = model_resources.value()->GetTokenizer();
   ASSERT_OK(tokenizer);
   ASSERT_NE(tokenizer.value(), nullptr);
+}
+
+TEST(ModelResourcesTest, GetTFLiteModelNotFound) {
+  const auto model_path =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/runtime/testdata/test_lm.litertlm";
+  auto model_file = ScopedFile::Open(model_path.string());
+  ASSERT_TRUE(model_file.ok());
+  LitertLmLoader loader(std::move(model_file.value()));
+
+  auto model_resources = ModelResourcesLitertLm::Create(
+      std::make_unique<LitertLmLoader>(std::move(loader)));
+  ASSERT_OK(model_resources);
+
+  // Attempt to get a model type that doesn't exist in the test file.
+  auto tflite_model =
+      model_resources.value()->GetTFLiteModelBuffer(ModelType::kTfLiteEmbedder);
+  EXPECT_THAT(tflite_model,
+              testing::status::StatusIs(absl::StatusCode::kNotFound));
+}
+
+TEST(ModelResourcesTest, GetTFLiteModelNotFoundTask) {
+  const auto model_path =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/runtime/testdata/test_lm.task";
+  auto model_file = ScopedFile::Open(model_path.string());
+  ASSERT_TRUE(model_file.ok());
+  auto model_asset_bundle_resources =
+      ModelAssetBundleResources::Create("tag", std::move(model_file.value()));
+  ASSERT_OK(model_asset_bundle_resources);
+
+  auto model_resources = ModelResourcesTask::Create(
+      std::move(model_asset_bundle_resources.value()));
+  ASSERT_OK(model_resources);
+
+  // Attempt to get a model type that doesn't exist in the test file.
+  auto tflite_model =
+      model_resources.value()->GetTFLiteModelBuffer(ModelType::kTfLiteEmbedder);
+  EXPECT_THAT(tflite_model,
+              testing::status::StatusIs(absl::StatusCode::kNotFound));
 }
 #endif  // ENABLE_SENTENCEPIECE_TOKENIZER
 

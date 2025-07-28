@@ -23,13 +23,14 @@
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/util/litert_lm_loader.h"
-#include "runtime/util/status_macros.h"  //NOLINT
+#include "runtime/util/status_macros.h"  // NOLINT
 
 #ifdef ENABLE_SENTENCEPIECE_TOKENIZER
 #include "runtime/components/sentencepiece_tokenizer.h"
@@ -63,6 +64,19 @@ absl::StatusOr<const litert::Model*> ModelResourcesLitertLm::GetTFLiteModel(
   model_map_[model_type] = std::make_unique<litert::Model>(std::move(model));
   return model_map_[model_type].get();
 }
+
+absl::StatusOr<absl::string_view> ModelResourcesLitertLm::GetTFLiteModelBuffer(
+    ModelType model_type) {
+  litert::BufferRef<uint8_t> buffer_ref =
+      litert_lm_loader_->GetTFLiteModel(model_type);
+
+  ABSL_LOG(INFO) << "model_type: " << ModelTypeToString(model_type);
+  ABSL_LOG(INFO) << "litert model size: " << buffer_ref.Size();
+  if (buffer_ref.Size() == 0) {
+    return absl::NotFoundError("No TFLite model found in the model.");
+  }
+  return buffer_ref.StrView();
+};
 
 absl::StatusOr<Tokenizer*> ModelResourcesLitertLm::GetTokenizer() {
 #if !defined(ENABLE_SENTENCEPIECE_TOKENIZER) && \
