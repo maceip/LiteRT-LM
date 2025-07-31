@@ -27,6 +27,8 @@ limitations under the License.
 namespace litert::lm {
 
 struct OffsetAndSize {
+  auto operator<=>(const OffsetAndSize&) const = default;
+
   size_t offset;
   size_t size;
 };

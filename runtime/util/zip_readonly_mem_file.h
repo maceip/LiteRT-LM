@@ -17,9 +17,11 @@ limitations under the License.
 #define THIRD_PARTY_MEDIAPIPE_TASKS_CC_METADATA_UTILS_ZIP_MEM_FILE_H_
 
 #include <cstdlib>
+#include <vector>
 
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "minizip/ioapi.h"  // from @minizip
+#include "zconf.h"  // from @zlib
 
 namespace litert::lm {
 

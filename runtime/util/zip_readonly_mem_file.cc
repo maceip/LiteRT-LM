@@ -17,8 +17,10 @@ limitations under the License.
 
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/types/span.h"  // from @com_google_absl
 #include "minizip/ioapi.h"  // from @minizip
 #include "zconf.h"  // from @zlib
 
