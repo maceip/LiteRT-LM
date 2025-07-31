@@ -944,8 +944,8 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Reset() {
 // static
 absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
 LlmLiteRtNpuCompiledModelExecutor::Create(
-    const litert::lm::LlmExecutorSettings& executor_settings,
-    litert::lm::ModelResources& resources,
+    const LlmExecutorSettings& executor_settings,
+    std::unique_ptr<ModelResources> resources,
     const std::optional<std::string>& dispatch_library_path) {
   std::vector<::litert::Environment::Option> environment_options = {};
   if (dispatch_library_path.has_value()) {
@@ -962,7 +962,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
       ::litert::Environment::Create(absl::MakeConstSpan(environment_options)));
   ASSIGN_OR_RETURN(
       const litert::Model* llm_model,
-      resources.GetTFLiteModel(litert::lm::ModelType::kTfLitePrefillDecode));
+      resources->GetTFLiteModel(ModelType::kTfLitePrefillDecode));
   // If the model is fully AOT compiled for NPU, NPU accelerator is used
   // automatically.
   LITERT_ASSIGN_OR_RETURN(
@@ -1065,7 +1065,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   }
 
   ASSIGN_OR_RETURN(auto npu_auxiliary_lrt_model,
-                   resources.GetTFLiteModel(litert::lm::ModelType::kTfLiteAux));
+                   resources->GetTFLiteModel(ModelType::kTfLiteAux));
 
   ASSIGN_OR_RETURN(auto npu_auxiliary_context,
                    CreateNpuAuxiliaryContext(env, *npu_auxiliary_lrt_model));
@@ -1077,7 +1077,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
 
   ASSIGN_OR_RETURN(
       auto embedder_lrt_model,
-      resources.GetTFLiteModel(litert::lm::ModelType::kTfLiteEmbedder));
+      resources->GetTFLiteModel(ModelType::kTfLiteEmbedder));
   ASSIGN_OR_RETURN(
       auto embedder_context,
       CreateEmbedderContextWithBufferSharing(
@@ -1121,8 +1121,8 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
       std::nullopt;
   if (has_per_layer_embeddings) {
     ASSIGN_OR_RETURN(const litert::Model* embedder_per_layer_model,
-                     resources.GetTFLiteModel(
-                         litert::lm::ModelType::kTfLitePerLayerEmbedder));
+                     resources->GetTFLiteModel(
+                         ModelType::kTfLitePerLayerEmbedder));
     ASSIGN_OR_RETURN(
         embedder_per_layer_context,
         CreateEmbedderPerLayerContextWithBufferSharing(
@@ -1134,7 +1134,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   }
 
   auto executor = absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
-      executor_settings, std::move(embedder_context),
+      executor_settings, std::move(resources), std::move(embedder_context),
       std::move(npu_auxiliary_context), std::move(mask_context),
       std::move(rope_context), std::move(env), std::move(llm_compiled_model),
       std::move(llm_inference_context),

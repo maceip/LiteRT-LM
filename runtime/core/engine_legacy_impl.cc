@@ -51,8 +51,7 @@ namespace {
 namespace oi = ::odml::infra;
 
 absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildExecutor(
-    const std::unique_ptr<::odml::infra::ExecutorModelResources>&
-        model_resources,
+    std::unique_ptr<::odml::infra::ExecutorModelResources> model_resources,
     const EngineSettings& engine_settings) {
   if (!(model_resources && model_resources->model)) {
     return absl::InternalError("Failed to build TF_LITE_PREFILL_DECODE model.");
@@ -65,12 +64,12 @@ absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildExecutor(
   if (engine_settings.GetMainExecutorSettings().GetBackend() == Backend::CPU) {
     ASSIGN_OR_RETURN(executor, oi::LlmLiteRTXnnpackExecutor::Create(
                                    engine_settings.GetMainExecutorSettings(),
-                                   *model_resources));
+                                   std::move(model_resources)));
   } else if (engine_settings.GetMainExecutorSettings().GetBackend() ==
              Backend::GPU) {
     ASSIGN_OR_RETURN(executor, oi::LlmLiteRTOpenClExecutor::Create(
                                    engine_settings.GetMainExecutorSettings(),
-                                   *model_resources));
+                                   std::move(model_resources)));
   } else {
     return absl::InvalidArgumentError(
         absl::StrCat("Unsupported backend: ",
@@ -102,10 +101,9 @@ class EngineImpl : public Engine {
     ABSL_CHECK_OK(model_path);
     auto model_resources = oi::BuildModelResources(std::string(*model_path));
     ABSL_QCHECK_OK(model_resources);
-    model_resources_ = std::move(*model_resources);
 
     proto::LlmMetadata llm_metadata;
-    if (model_resources_->litert_lm_model_resources == nullptr) {
+    if (model_resources.value()->litert_lm_model_resources == nullptr) {
       // Handle the .task file format.
       auto scoped_file = ScopedFile::Open(*model_path);
       ABSL_CHECK_OK(scoped_file);
@@ -128,11 +126,11 @@ class EngineImpl : public Engine {
     } else {
       // Handle the .litert_lm file format.
       auto tokenizer =
-          model_resources_->litert_lm_model_resources->GetTokenizer();
+          model_resources.value()->litert_lm_model_resources->GetTokenizer();
       ABSL_CHECK_OK(tokenizer);
       tokenizer_ = tokenizer.value();
       auto metadata =
-          model_resources_->litert_lm_model_resources->GetLlmMetadata();
+          model_resources.value()->litert_lm_model_resources->GetLlmMetadata();
       ABSL_CHECK_OK(metadata);
       llm_metadata = *metadata.value();
     }
@@ -141,7 +139,8 @@ class EngineImpl : public Engine {
     ABSL_CHECK_OK(
         engine_settings_.MaybeUpdateAndValidate(*tokenizer_, &llm_metadata));
 
-    auto executor = BuildExecutor(model_resources_, engine_settings_);
+    auto executor =
+        BuildExecutor(*std::move(model_resources), engine_settings_);
     ABSL_QCHECK_OK(executor);
     executor_ = std::move(*executor);
     if (benchmark_info_.has_value()) {
@@ -198,8 +197,6 @@ class EngineImpl : public Engine {
   Tokenizer* tokenizer_ = nullptr;
   // Default stop token ids for all sessions loaded from the model file.
   std::vector<std::vector<int>> stop_token_ids_;
-
-  std::unique_ptr<oi::ExecutorModelResources> model_resources_;
 
   // Benchmark info for the engine.
   std::optional<BenchmarkInfo> benchmark_info_;

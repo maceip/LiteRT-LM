@@ -50,7 +50,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
  public:
   // Creates a LlmLiteRtCompiledModelExecutor from a LiteRt model.
   static absl::StatusOr<std::unique_ptr<LlmLiteRtCompiledModelExecutor>> Create(
-      LlmExecutorSettings executor_settings, ModelResources& resources);
+      LlmExecutorSettings executor_settings,
+      std::unique_ptr<ModelResources> resources);
 
   // Input APIs:
   // Basic API to trigger the "prefill" or "prefix" process.
@@ -106,7 +107,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
 
  protected:
   LlmLiteRtCompiledModelExecutor(
-      LlmExecutorSettings executor_settings, ::litert::Environment env,
+      LlmExecutorSettings executor_settings,
+      std::unique_ptr<ModelResources> resources, ::litert::Environment env,
       const ::litert::Model* absl_nonnull model,
       ::litert::CompiledModel compiled_model,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
@@ -127,6 +129,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
       std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup = nullptr,
       LogitsDataType logits_data_type = LogitsDataType::FLOAT32)
       : executor_settings_(std::move(executor_settings)),
+        resources_(std::move(resources)),
         env_(std::move(env)),
         model_(*model),
         compiled_model_(std::move(compiled_model)),
@@ -161,6 +164,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   absl::Status DecodeInternal(ExecutorInputs inputs);
 
   LlmExecutorSettings executor_settings_;
+  std::unique_ptr<ModelResources> resources_;
   ::litert::Environment env_;
   const ::litert::Model& model_;
   ::litert::CompiledModel compiled_model_;

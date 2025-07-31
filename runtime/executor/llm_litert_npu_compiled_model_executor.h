@@ -32,7 +32,6 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/model_resources.h"
-#include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
@@ -41,7 +40,7 @@
 namespace litert::lm {
 
 // Component intended to be used with an NPU variant of Gemma3.
-class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
+class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
  public:
   // Holds the latency breakdown stats for the executor.
   // TODO(b/405424188): Use 'litert::lm::BenchmarkInfo' instead.
@@ -69,20 +68,19 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // Creates an executor from the resources.
   static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
   Create(
-      const litert::lm::LlmExecutorSettings& executor_settings,
-      litert::lm::ModelResources& resources,
+      const LlmExecutorSettings& executor_settings,
+      std::unique_ptr<ModelResources> resources,
       const std::optional<std::string>& dispatch_library_path = std::nullopt);
 
   // Input APIs:
   // Basic API to trigger the "prefill" or "prefix" process.
   // Input is token ids with shape `[batch, sequence_length]`
-  absl::Status Prefill(const ::litert::lm::ExecutorInputs& inputs) override;
+  absl::Status Prefill(const ExecutorInputs& inputs) override;
 
   // Advanced API to allow customized query parameters.
   // Input is token ids with shape `[batch, sequence_length]`
-  absl::Status Prefill(
-      const ::litert::lm::ExecutorInputs& inputs,
-      const ::litert::lm::ExecutorPrefillParams& params) override;
+  absl::Status Prefill(const ExecutorInputs& inputs,
+                       const ExecutorPrefillParams& params) override;
 
   // Output APIs:
   // Basic API to trigger the "decode" process.
@@ -93,7 +91,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
   // Output is logits with shape `[batch, sequence_length, vocab_size]`
   // TODO: b/355310550 - Shall we change the function naming here to not
   // overload Decode?
-  absl::Status Decode(const ::litert::lm::ExecutorInputs& inputs,
+  absl::Status Decode(const ExecutorInputs& inputs,
                       ::litert::TensorBuffer& output_logits) override;
 
   absl::string_view ExecutorBackendName() const override {
@@ -110,8 +108,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
 
   absl::StatusOr<int> GetVocabSize() override;
 
-  absl::StatusOr<litert::lm::LlmExecutorSettings> GetExecutorSettings()
-      const override {
+  absl::StatusOr<LlmExecutorSettings> GetExecutorSettings() const override {
     return executor_settings_;
   };
   // Prints the latency stats for the executor.  Intended to be used for
@@ -193,14 +190,15 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
 
  protected:
   LlmLiteRtNpuCompiledModelExecutor(
-      litert::lm::LlmExecutorSettings executor_settings,
+      LlmExecutorSettings executor_settings,
+      std::unique_ptr<ModelResources> resources,
       EmbedderContext embedder_context,
       NpuAuxiliaryContext npu_auxiliary_context, InferenceContext mask_context,
       InferenceContext rope_context, ::litert::Environment llm_env,
       ::litert::CompiledModel llm_compiled_model,
       InferenceContext llm_inference_context,
       InferenceContext cache_update_inference_context,
-      ::litert::lm::SortedPrefillSignatureMap prefill_signature_map,
+      SortedPrefillSignatureMap prefill_signature_map,
       std::optional<EmbedderPerLayerContext> embedder_per_layer_context =
           std::nullopt)
       : executor_settings_(std::move(executor_settings)),
@@ -224,7 +222,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
 
   // Decode internal implementation, without result downloading.
   // Caller of this function is responsible for capturing the output.
-  absl::Status DecodeInternal(::litert::lm::ExecutorInputs inputs);
+  absl::Status DecodeInternal(ExecutorInputs inputs);
 
   // Creates the context for the embedder model.  Instead of creating new
   // output buffers for the embedder, the context will use the input buffers
@@ -319,7 +317,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
       const InferenceContext& mask_inference_context,
       const InferenceContext& cache_update_inference_context);
 
-  litert::lm::LlmExecutorSettings executor_settings_;
+  LlmExecutorSettings executor_settings_;
   LatencyStats latency_stats_;
   EmbedderContext embedder_context_;
   NpuAuxiliaryContext npu_auxiliary_context_;
@@ -331,7 +329,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public ::litert::lm::LlmExecutor {
       std::nullopt;
   InferenceContext llm_inference_context_;
   InferenceContext cache_update_inference_context_;
-  ::litert::lm::SortedPrefillSignatureMap prefill_signature_map_;
+  SortedPrefillSignatureMap prefill_signature_map_;
 
   // The sampled ids to use for external sampling.
   // The layout is batch-major.
