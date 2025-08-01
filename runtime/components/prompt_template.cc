@@ -20,14 +20,17 @@
 
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
-#include "third_party/json/src/json.hpp"
+#include "absl/time/time.h"  // from @com_google_absl
+#include "nlohmann/json.hpp"  // from @nlohmann_json
 
 namespace litert::lm {
 
 using json = nlohmann::ordered_json;
+using minja_chat_template = ::minja::chat_template;
+using minja_chat_template_inputs = ::minja::chat_template_inputs;
 
 PromptTemplate::PromptTemplate(absl::string_view template_content) {
-  minja_template_ = std::make_unique<minja::google::chat_template>(
+  minja_template_ = std::make_unique<minja_chat_template>(
       std::string(template_content), /*bos_token=*/"", /*eos_token=*/"");
 
   const auto& original_caps = minja_template_->original_caps();
@@ -46,14 +49,14 @@ PromptTemplate::PromptTemplate(absl::string_view template_content) {
 }
 
 PromptTemplate::PromptTemplate(const PromptTemplate& other) {
-  minja_template_ = std::make_unique<minja::google::chat_template>(
+  minja_template_ = std::make_unique<minja_chat_template>(
       other.minja_template_->source(), other.minja_template_->bos_token(),
       other.minja_template_->eos_token());
   capabilities_ = other.capabilities_;
 }
 
 PromptTemplate& PromptTemplate::operator=(const PromptTemplate& other) {
-  minja_template_ = std::make_unique<minja::google::chat_template>(
+  minja_template_ = std::make_unique<minja_chat_template>(
       other.minja_template_->source(), other.minja_template_->bos_token(),
       other.minja_template_->eos_token());
   capabilities_ = other.capabilities_;
@@ -73,12 +76,12 @@ PromptTemplate& PromptTemplate::operator=(PromptTemplate&& other) {
 
 absl::StatusOr<std::string> PromptTemplate::Apply(
     const PromptTemplateInput& input) const {
-  minja::google::chat_template_inputs minja_inputs;
+  minja_chat_template_inputs minja_inputs;
   minja_inputs.messages = input.messages;
   minja_inputs.tools = input.tools;
   minja_inputs.add_generation_prompt = input.add_generation_prompt;
   minja_inputs.extra_context = input.extra_context;
-  minja_inputs.now = input.now;
+  minja_inputs.now = absl::ToChronoTime(input.now);
   return minja_template_->apply(minja_inputs, {.apply_polyfills = false});
 }
 

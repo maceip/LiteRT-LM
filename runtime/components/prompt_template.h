@@ -22,8 +22,8 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/clock.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
-#include "third_party/json/src/json.hpp"
-#include "third_party/minja/include/minja/google/chat-template.h"
+#include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "minja/chat-template.hpp"  // from @minja
 
 namespace litert::lm {
 
@@ -153,7 +153,7 @@ class PromptTemplate {
   }
 
  private:
-  std::unique_ptr<::minja::google::chat_template> minja_template_;
+  std::unique_ptr<::minja::chat_template> minja_template_;
 
   // The capabilities of the prompt template. Auto inferred from the template
   // source string.

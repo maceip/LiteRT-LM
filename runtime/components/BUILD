@@ -517,3 +517,35 @@ cc_library(
         "//runtime/util:model_asset_bundle_resources",
     ],
 )
+
+cc_library(
+    name = "prompt_template",
+    srcs = ["prompt_template.cc"],
+    hdrs = ["prompt_template.h"],
+    deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/time",
+        "@nlohmann_json//:json",
+        "@minja//:minja_google",
+    ],
+)
+
+cc_test(
+    name = "prompt_template_test",
+    srcs = ["prompt_template_test.cc"],
+    data = ["//runtime/components/testdata"],
+    deps = [
+        ":prompt_template",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/time",
+        "@nlohmann_json//:json",
+        "//runtime/util:litert_status_util",
+        "//runtime/util:test_utils",
+    ],
+)

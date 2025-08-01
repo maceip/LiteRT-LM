@@ -284,6 +284,21 @@ http_archive(
     ],
 )
 
+http_archive(
+    name = "nlohmann_json",
+    sha256 = "34660b5e9a407195d55e8da705ed26cc6d175ce5a6b1fb957e701fb4d5b04022",
+    strip_prefix = "json-3.12.0",
+    urls = ["https://github.com/nlohmann/json/archive/refs/tags/v3.12.0.zip"],
+)
+
+http_archive(
+    name = "minja",
+    build_file = "@//:BUILD.minja",
+    sha256 = "752f47dd2a2f4920a66f497c952785073c1983f12f084b99e5c12bf89f96acfe",
+    strip_prefix = "minja-58568621432715b0ed38efd16238b0e7ff36c3ba",
+    urls = ["https://github.com/google/minja/archive/58568621432715b0ed38efd16238b0e7ff36c3ba.zip"],
+)
+
 # Android rules. Need latest rules_android_ndk to use NDK 26+.
 load("@rules_android_ndk//:rules.bzl", "android_ndk_repository")
 

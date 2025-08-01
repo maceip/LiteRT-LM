@@ -29,7 +29,8 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/civil_time.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
-#include "third_party/json/src/json.hpp"
+#include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
 namespace {
