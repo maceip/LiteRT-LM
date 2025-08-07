@@ -48,6 +48,8 @@ constexpr int kPrefillSize = 128;
 constexpr char kDecodeSignature[] = "decode";
 constexpr char cache_k25[] = "kv_cache_k_25";
 constexpr char cache_v25[] = "kv_cache_v_25";
+constexpr char cache_k19[] = "kv_cache_k_19";
+constexpr char cache_v19[] = "kv_cache_v_19";
 
 // Signature names for the embedder.
 struct EmbedderSignatures {
@@ -960,9 +962,8 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   LITERT_ASSIGN_OR_RETURN(
       Environment env,
       ::litert::Environment::Create(absl::MakeConstSpan(environment_options)));
-  ASSIGN_OR_RETURN(
-      const litert::Model* llm_model,
-      resources->GetTFLiteModel(ModelType::kTfLitePrefillDecode));
+  ASSIGN_OR_RETURN(const litert::Model* llm_model,
+                   resources->GetTFLiteModel(ModelType::kTfLitePrefillDecode));
   // If the model is fully AOT compiled for NPU, NPU accelerator is used
   // automatically.
   LITERT_ASSIGN_OR_RETURN(
@@ -1053,15 +1054,23 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
     // ones to satisfy the compiled model run API.  We can remove this
     // workaround once we have a model that removes these buffers.
     //
-    // These extra buffers have been removed for Gemma3n, so we condition
-    // the creation of these buffers to only run for Gemma3 (which does not
-    // have per-layer embeddings).
+    // In gemma3n, although these buffers have quantized types, they are not
+    // used in the prefill model, causing the tensor buffer created as host
+    // memory type. We need to use the similar workaround to create new buffers
+    // for decode.
     LITERT_ASSIGN_OR_RETURN(
         llm_inference_context.decode_input_buffers[cache_k25],
         llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k25));
     LITERT_ASSIGN_OR_RETURN(
         llm_inference_context.decode_input_buffers[cache_v25],
         llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v25));
+  } else {
+    LITERT_ASSIGN_OR_RETURN(
+        llm_inference_context.decode_input_buffers[cache_k19],
+        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k19));
+    LITERT_ASSIGN_OR_RETURN(
+        llm_inference_context.decode_input_buffers[cache_v19],
+        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v19));
   }
 
   ASSIGN_OR_RETURN(auto npu_auxiliary_lrt_model,
@@ -1075,9 +1084,8 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
                        npu_auxiliary_context, gemma_prefill_input_buffers,
                        gemma_decode_input_buffers));
 
-  ASSIGN_OR_RETURN(
-      auto embedder_lrt_model,
-      resources->GetTFLiteModel(ModelType::kTfLiteEmbedder));
+  ASSIGN_OR_RETURN(auto embedder_lrt_model,
+                   resources->GetTFLiteModel(ModelType::kTfLiteEmbedder));
   ASSIGN_OR_RETURN(
       auto embedder_context,
       CreateEmbedderContextWithBufferSharing(
@@ -1120,9 +1128,9 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   std::optional<EmbedderPerLayerContext> embedder_per_layer_context =
       std::nullopt;
   if (has_per_layer_embeddings) {
-    ASSIGN_OR_RETURN(const litert::Model* embedder_per_layer_model,
-                     resources->GetTFLiteModel(
-                         ModelType::kTfLitePerLayerEmbedder));
+    ASSIGN_OR_RETURN(
+        const litert::Model* embedder_per_layer_model,
+        resources->GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder));
     ASSIGN_OR_RETURN(
         embedder_per_layer_context,
         CreateEmbedderPerLayerContextWithBufferSharing(
