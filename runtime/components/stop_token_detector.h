@@ -69,12 +69,10 @@ class StopTokenDetector {
     return stop_token_found_;
   }
 
-  // Checks if a partial stop token sequence has been found for the given batch
-  // index.
-  //   - index: The index of the batch item to check.
-  // Returns True if a partial stop token sequence has been found for the given
-  // batch index.
-  bool IsPartialStopTokenFound(int index) const;
+  // Returns the maximum length of the partial stop token sequence found for the
+  // given batch index. zero if no partial stop token sequence is found or -1 if
+  // the stop token is already found.
+  int MaxPartialStopTokenLength(int index) const;
 
  private:
   // Stores all added stop sequences.
@@ -83,6 +81,10 @@ class StopTokenDetector {
   // batch_item_match_progress_[i][k]: current match length for batch item 'i'
   // against stop_sequences_storage_[k].
   std::vector<std::vector<int>> batch_item_match_progress_;
+
+  // max_batch_item_match_progress_[i]: maximum match length for batch item 'i'
+  // against all stop_sequences_storage_[k].
+  std::vector<int> max_batch_item_match_progress_;
 
   // stop_token_found_[i]: true if batch item 'i' has matched a stop sequence.
   std::vector<bool> stop_token_found_;

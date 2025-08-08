@@ -76,12 +76,14 @@ TEST(StopTokenDetectorTest, ProcessTokensMultipleStopTokens) {
     if (detector.AllDone().value()) {
       break;
     }
-    if (i >= 2 && i < 4) {
-      EXPECT_TRUE(detector.IsPartialStopTokenFound(0));
+    if (i < 2) {
+      EXPECT_EQ(0, detector.MaxPartialStopTokenLength(0));
+    } else if (i < 4) {
+      EXPECT_EQ(i - 1, detector.MaxPartialStopTokenLength(0));
     } else {
-      EXPECT_FALSE(detector.IsPartialStopTokenFound(0));
+      EXPECT_EQ(3, detector.MaxPartialStopTokenLength(0));
     }
-    EXPECT_FALSE(detector.IsPartialStopTokenFound(1));
+    EXPECT_EQ(0, detector.MaxPartialStopTokenLength(1));
   }
   // Stop tokens are found for all batch items at step 6.
   EXPECT_EQ(i, 6);

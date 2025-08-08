@@ -82,8 +82,24 @@ TEST(TokenizerTest, TokenIdsToTexts) {
   auto texts = tokenizer->TokenIdsToTexts(/*batch_size=*/2, ids);
   EXPECT_TRUE(texts.ok());
   EXPECT_EQ(texts.value().size(), 2);
-  EXPECT_EQ(texts.value()[0], "▁Hello▁World!");
-  EXPECT_EQ(texts.value()[1], "▁How's▁it▁going?");
+  EXPECT_EQ(texts.value()[0].value(), "▁Hello▁World!");
+  EXPECT_EQ(texts.value()[1].value(), "▁How's▁it▁going?");
+}
+
+TEST(TokenizerTest, TokenIdsToTextsWithIncompleteBPESequence) {
+  auto tokenizer = std::make_unique<MockTokenizer>();
+  EXPECT_CALL(*tokenizer, TokenIdsToText(::testing::_))
+      .WillOnce(testing::Return(absl::DataLossError("Incomplete BPE sequence")))
+      .WillOnce(testing::Return("▁How's▁it▁going?"));
+
+  const std::vector<std::vector<int>> ids = {{90, 547, 58, 735, 210, 466, 2294},
+                                             {224, 24, 8, 66, 246, 18, 2295}};
+
+  auto texts = tokenizer->TokenIdsToTexts(/*batch_size=*/2, ids);
+  EXPECT_TRUE(texts.ok());
+  EXPECT_EQ(texts.value().size(), 2);
+  EXPECT_EQ(texts.value()[0].status().code(), absl::StatusCode::kDataLoss);
+  EXPECT_EQ(texts.value()[1].value(), "▁How's▁it▁going?");
 }
 
 TEST(TokenizerTest, MergeTokenIds) {

@@ -61,6 +61,7 @@ absl::Status StopTokenDetector::AddStopTokenSequence(
 void StopTokenDetector::ResetBatch(size_t batch_size) {
   int new_batch_size = batch_size == 0 ? stop_token_found_.size() : batch_size;
   stop_token_found_.assign(new_batch_size, false);
+  max_batch_item_match_progress_.assign(new_batch_size, 0);
   // Initialize progress for each batch item for all currently defined stop
   // sequences.
   batch_item_match_progress_.assign(
@@ -88,7 +89,7 @@ absl::Status StopTokenDetector::ProcessTokens(
       matched_stop_sequence_length_[i]++;
       continue;
     }
-
+    max_batch_item_match_progress_[i] = 0;
     int current_token_id = latest_tokens[i];
     for (size_t k = 0; k < stop_sequences_storage_.size(); ++k) {
       const auto& stop_seq_k =
@@ -113,21 +114,15 @@ absl::Status StopTokenDetector::ProcessTokens(
         stop_token_found_[i] = true;
         matched_stop_sequence_length_[i] = stop_seq_k.size();
       }
+      max_batch_item_match_progress_[i] =
+          std::max(max_batch_item_match_progress_[i], current_match_len_for_k);
     }
   }
   return absl::OkStatus();
 }
 
-bool StopTokenDetector::IsPartialStopTokenFound(int index) const {
-  if (stop_token_found_[index]) {
-    return false;
-  }
-  for (int j = 0; j < batch_item_match_progress_[index].size(); ++j) {
-    if (batch_item_match_progress_[index][j] > 0) {
-      return true;
-    }
-  }
-  return false;
+int StopTokenDetector::MaxPartialStopTokenLength(int index) const {
+  return max_batch_item_match_progress_[index];
 }
 
 const std::vector<int>& StopTokenDetector::GetStepsBeforeStopTokens() const {

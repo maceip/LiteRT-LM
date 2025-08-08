@@ -170,18 +170,19 @@ TEST_F(PipelineTest, DecodeStreamingReachMaxNumTokens) {
 
 TEST_F(PipelineTest, DecodeBytePairEncodingTokens) {
   auto tokenizer = std::make_unique<BytePairEncodingTokenizer>();
-  // Pretend the first token is incomplete.
+  // Pretend the first and second tokens are incomplete.
   EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224}))
+      .WillOnce(
+          testing::Return(absl::DataLossError("Incomplete BPE sequence")));
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224, 24}))
       .WillOnce(
           testing::Return(absl::DataLossError("Incomplete BPE sequence")));
 
   // Now  return a valid token from two tokens.
-  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224, 24}))
-      .WillOnce(testing::Return(" How"));
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224, 24, 8}))
+      .WillOnce(testing::Return(" How's"));
 
   // Rest proceeds as normal.
-  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{8}))
-      .WillOnce(testing::Return("'s"));
   EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{66}))
       .WillOnce(testing::Return(" "));
   EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{246}))
@@ -202,6 +203,31 @@ TEST_F(PipelineTest, DecodeBytePairEncodingTokens) {
   // The response is " How's it going?" since "!" is the stop token which is
   // not included in the response.
   EXPECT_EQ(*(responses->GetResponseTextAt(0)), " How's it going?");
+}
+
+TEST_F(PipelineTest, DecodeStopTokenIsPartialBytePairEncodingTokens) {
+  auto tokenizer = std::make_unique<BytePairEncodingTokenizer>();
+  // Pretend the first and second tokens are incomplete.
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224}))
+      .WillOnce(
+          testing::Return(absl::DataLossError("Incomplete BPE sequence")));
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224, 24}))
+      .WillOnce(
+          testing::Return(absl::DataLossError("Incomplete BPE sequence")));
+
+  // No need to call the tokenizer again as the stop token is encoded as a
+  // partial byte pair encoding token.
+  ON_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224, 24, 8}));
+
+  std::optional<BenchmarkInfo> benchmark_info;
+  StopTokenDetector stop_token_detector(1);
+  EXPECT_OK(stop_token_detector.AddStopTokenSequence({224, 24}));
+  auto responses =
+      Decode(*executor_, *tokenizer, stop_token_detector, benchmark_info);
+  EXPECT_OK(responses);
+  // Empty response as the stop token is encoded as a partial byte pair encoding
+  // token.
+  EXPECT_EQ(*(responses->GetResponseTextAt(0)), "");
 }
 
 class PipelineCustomSamplingTest : public testing::Test {
@@ -353,36 +379,7 @@ TEST_F(PipelineCustomSamplingTest,
   EXPECT_EQ(observer.GetResponses()[1], " Hello");
 }
 
-class PipelineComplexStopTokenDetectorTest : public testing::Test {
- protected:
-  void SetUp() override {
-    auto tokenizer = SentencePieceTokenizer::CreateFromFile(
-        (std::filesystem::path(::testing::SrcDir()) / kTestdataDir /
-         "sentencepiece.model")
-            .string());
-    ASSERT_OK(tokenizer);
-    tokenizer_ = std::move(*tokenizer);
-
-    // The Prefill doesn't matter for this test.
-    std::vector<std::vector<int>> prefill_tokens = {
-        {2, 90, 547, 58, 735, 210, 466, 2294}};
-    // The decode tokens are the expected tokens that will be returned by the
-    // Decode function. The two values are the token ids of the output
-    // responses " How's it going?!" and " Hello World!" followed by the stop
-    // token id (0).
-    std::vector<std::vector<int>> decode_tokens = {
-        {224, 90}, {24, 547},    {8, 58},   {66, 735}, {246, 210},
-        {18, 466}, {2295, 2294}, {2294, 0}, {0, 0}};
-    // Vocab size needs to at least be larger than the largest token id 2294.
-    executor_ = std::make_unique<FakeLlmExecutor>(
-        /*vocab_size=*/2560, prefill_tokens, decode_tokens, /*batch_size=*/2);
-  }
-
-  std::unique_ptr<Tokenizer> tokenizer_;
-  std::unique_ptr<FakeLlmExecutor> executor_;
-};
-
-TEST_F(PipelineComplexStopTokenDetectorTest, DecodeComplexStopTokenDetector) {
+TEST_F(PipelineCustomSamplingTest, DecodeComplexStopTokenDetector) {
   auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
                                         /*batch_size=*/2, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
@@ -392,11 +389,18 @@ TEST_F(PipelineComplexStopTokenDetectorTest, DecodeComplexStopTokenDetector) {
   std::optional<BenchmarkInfo> benchmark_info;
   StopTokenDetector stop_token_detector(2);
   // This is only a partial stop token sequence matched for the first batch.
-  EXPECT_OK(stop_token_detector.AddStopTokenSequence({224, 24, 8, 9}));
+  EXPECT_OK(stop_token_detector.AddStopTokenSequence({24, 8, 9}));
+  // This is a partial stop token sequence matched for the first batch,
+  // overlapping with the previous stop token sequence.
+  EXPECT_OK(stop_token_detector.AddStopTokenSequence({224, 24, 9}));
   // This is a full stop token sequence matched for the first batch
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({0}));
+
   // This will be a full match for the second batch.
   EXPECT_OK(stop_token_detector.AddStopTokenSequence({90, 547, 58}));
+  // This will be a partial match for the second batch, overlapping with the
+  // previous stop token sequence.
+  EXPECT_OK(stop_token_detector.AddStopTokenSequence({90, 548}));
 
   auto responses = DecodeCustomSampling(
       *executor_, *tokenizer_, stop_token_detector,
@@ -415,6 +419,56 @@ TEST_F(PipelineComplexStopTokenDetectorTest, DecodeComplexStopTokenDetector) {
   // -inf.
   EXPECT_EQ(*(responses->GetScoreAt(1)),
             -std::numeric_limits<float>::infinity());
+}
+
+TEST_F(PipelineCustomSamplingTest, DecodeStopTokenAndBPEDetector) {
+  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                                        /*batch_size=*/2, /*seed=*/1);
+  EXPECT_TRUE(sampler_or.ok());
+  std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
+
+  auto tokenizer = std::make_unique<BytePairEncodingTokenizer>();
+  // batch 1: 224, 24, 8, 66
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224}))
+      .WillOnce(
+          testing::Return(absl::DataLossError("Incomplete BPE sequence")));
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224, 24}))
+      .WillOnce(
+          testing::Return(absl::DataLossError("Incomplete BPE sequence")));
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{224, 24, 8}))
+      .WillOnce(testing::Return("BPE"));
+  // Stop token: for first batch
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{66}))
+      .WillOnce(testing::Return("!"));
+
+  // batch 2: 90, 547, 58, 735
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{90}))
+      .WillOnce(testing::Return("a"));
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{547}))
+      .WillOnce(testing::Return("b"));
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{58}))
+      .WillOnce(testing::Return("c"));
+  // Already stopped, but increase the length of the matched stop sequence.
+  EXPECT_CALL(*tokenizer, TokenIdsToText(std::vector<int>{735}))
+      .WillOnce(testing::Return("d"));
+
+  std::optional<BenchmarkInfo> benchmark_info;
+  StopTokenDetector stop_token_detector(2);
+  // Stop right after the BPE sequence.
+  EXPECT_OK(stop_token_detector.AddStopTokenSequence({66}));
+  // Partial stop token sequence, no 544 token - should output
+  EXPECT_OK(stop_token_detector.AddStopTokenSequence({90, 544}));
+  // This will stop the decoding.
+  EXPECT_OK(stop_token_detector.AddStopTokenSequence({547, 58}));
+
+  auto decoded_ids = CreateTensorBuffer<int>({2, 1});
+  auto responses = DecodeCustomSampling(
+      *executor_, *tokenizer, stop_token_detector,
+      /*num_output_candidates=*/2, *sampler, *decoded_ids, benchmark_info);
+
+  EXPECT_OK(responses);
+  EXPECT_EQ(*(responses->GetResponseTextAt(0)), "BPE");
+  EXPECT_EQ(*(responses->GetResponseTextAt(1)), "a");
 }
 
 }  // namespace

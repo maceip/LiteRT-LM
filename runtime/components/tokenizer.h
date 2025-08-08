@@ -86,23 +86,17 @@ class Tokenizer {
   // Decodes the given sequence of token ids into a string. The input is a 2D
   // vector of token ids, each of which is a sequence of token ids. The output
   // Tokenizer is a vector of strings, each of which is a decoded string of the
-  // corresponding batch.
-  // Returns absl::DataLossError if any of the tokens are part of an incomplete
-  // BPE sequence.
-  absl::StatusOr<std::vector<std::string>> TokenIdsToTexts(
+  // corresponding batch or absl::DataLossError if an incomplete BPE sequence.
+  absl::StatusOr<std::vector<absl::StatusOr<std::string>>> TokenIdsToTexts(
       int batch_size, const std::vector<TokenIds>& token_ids) {
-    std::vector<std::string> decoded_strings(batch_size);
     if (token_ids.size() != batch_size) {
       return absl::InvalidArgumentError(
           "The token ID vector must have the same number of rows as the batch "
           "size.");
     }
+    std::vector<absl::StatusOr<std::string>> decoded_strings(batch_size);
     for (int i = 0; i < batch_size; ++i) {
-      auto text = this->TokenIdsToText(token_ids[i]);
-      if (!text.ok()) {
-        return text.status();
-      }
-      decoded_strings[i] = text.value();
+      decoded_strings[i] = this->TokenIdsToText(token_ids[i]);
     }
     return decoded_strings;
   }
