@@ -1036,6 +1036,23 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
     }
   }
 
+  // For the lack of a better way to identify the model variants, we use the
+  // presence of per-layer embeddings as the signal for Gemma3n.
+  const bool IsGemma3 = !has_per_layer_embeddings;
+  const bool IsGemma3n = has_per_layer_embeddings;
+
+  // Gemma3n specific fix: KV cache buffer 19 of *prefill* is not connected
+  // to any OPs in the model, making the LiteRT runtime allocate host memory
+  // for it. This is incompatible when running the transformer model on the NPU.
+  if (IsGemma3n) {
+    LITERT_ASSIGN_OR_RETURN(
+        input_kv_cache_buffers[cache_k19],
+        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k19));
+    LITERT_ASSIGN_OR_RETURN(
+        input_kv_cache_buffers[cache_v19],
+        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v19));
+  }
+
   ASSIGN_OR_RETURN(
       auto llm_inference_context,
       CreateLlmInferenceContextWithBufferSharing(
@@ -1044,7 +1061,9 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
           decode_output_kv_cache_slice_buffers, gemma_prefill_input_buffers,
           gemma_decode_input_buffers));
 
-  if (!has_per_layer_embeddings) {
+  if (IsGemma3) {
+    // Gemma3 specific fix:
+    //
     // TODO(b/416702118): Buffers kv_cache_{k,v}_25 have float element type for
     // the prefill signature but int16_t for the decode signature. Therefore,
     // unlike for the other KV cache tensors, we can not re-use the same tensor
@@ -1064,13 +1083,6 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
     LITERT_ASSIGN_OR_RETURN(
         llm_inference_context.decode_input_buffers[cache_v25],
         llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v25));
-  } else {
-    LITERT_ASSIGN_OR_RETURN(
-        llm_inference_context.decode_input_buffers[cache_k19],
-        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_k19));
-    LITERT_ASSIGN_OR_RETURN(
-        llm_inference_context.decode_input_buffers[cache_v19],
-        llm_compiled_model.CreateInputBuffer(kDecodeSignature, cache_v19));
   }
 
   ASSIGN_OR_RETURN(auto npu_auxiliary_lrt_model,
