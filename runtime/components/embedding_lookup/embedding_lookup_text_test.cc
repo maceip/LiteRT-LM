@@ -1,4 +1,4 @@
-#include "runtime/components/embedding_lookup_text.h"
+#include "runtime/components/embedding_lookup/embedding_lookup_text.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -568,8 +568,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffset) {
   const size_t float_offset = token_offset * 4 * 32;
   const size_t byte_offset = float_offset * sizeof(float);
 
-  EXPECT_OK(
-      embedding->LookupPrefill(tokens_span, &output_tensor, token_offset));
+  EXPECT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, byte_offset));
 
   auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
       output_tensor, ::litert::TensorBuffer::LockMode::kRead);
@@ -620,8 +619,7 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithOffsetAndDefaultEmbedding) {
   const size_t float_offset = token_offset * 4 * 32;
   const size_t byte_offset = float_offset * sizeof(float);
 
-  EXPECT_OK(
-      embedding->LookupPrefill(tokens_span, &output_tensor, token_offset));
+  EXPECT_OK(embedding->LookupPrefill(tokens_span, &output_tensor, byte_offset));
 
   // Check that the first token is not overwritten.
   auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
@@ -671,9 +669,11 @@ TEST_F(EmbeddingLookupTextTest, LookupPrefillWithBadOffset) {
   std::vector<int> tokens = {1, 2};
   absl::Span<const int> tokens_span(tokens);
   const size_t token_offset = 1;
+  const size_t float_offset = token_offset * 4 * 32;
+  const size_t byte_offset = float_offset * sizeof(float);
 
   EXPECT_THAT(
-      embedding->LookupPrefill(tokens_span, &output_tensor, token_offset),
+      embedding->LookupPrefill(tokens_span, &output_tensor, byte_offset),
       testing::status::StatusIs(
           absl::StatusCode::kInvalidArgument,
           testing::HasSubstr(

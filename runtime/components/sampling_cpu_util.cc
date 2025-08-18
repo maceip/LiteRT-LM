@@ -5,14 +5,10 @@
 #include <cstddef>
 #include <iterator>
 #include <limits>
-#include <memory>
 #include <numeric>
-#include <optional>
 #include <random>
-#include <utility>
 #include <vector>
 
-#include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/random/random.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -21,16 +17,6 @@
 #include "absl/types/span.h"  // from @com_google_absl
 
 namespace litert::lm {
-
-absl::StatusOr<std::unique_ptr<SampledIdsAndPerplexity>>
-SampledIdsAndPerplexity::CreateSampledIdsAndPerplexity(
-    std::vector<int> sampled_ids, std::optional<float> optional_float) {
-  if (optional_float.has_value() && optional_float.value() < 0.0f) {
-    return absl::InvalidArgumentError("Optional float cannot be negative.");
-  }
-  return absl::WrapUnique(
-      new SampledIdsAndPerplexity(std::move(sampled_ids), optional_float));
-}
 
 absl::StatusOr<std::vector<int>> TopKIndicies(absl::Span<const float> logits,
                                               int k, int batch_size) {
@@ -147,29 +133,9 @@ absl::StatusOr<std::vector<float>> Softmax(
   return probabilities;
 };
 
-absl::StatusOr<float> GetBatchPerplexity(const absl::Span<const float> logits,
-                                         const std::vector<int>& sampled_ids,
-                                         const float temperature,
-                                         const int vocab_size, int batch_size) {
-  // Get all indices and their probabilities for calculating perplexity.
-  auto all_indices = TopKIndicies(logits, vocab_size, batch_size);
-  if (!all_indices.ok()) return all_indices.status();
-  std::vector<float> all_logit_values;
-  auto all_probabilities =
-      Softmax(logits, *all_indices, temperature, batch_size, all_logit_values);
-  if (!all_probabilities.ok()) return all_probabilities.status();
-  float perplexity = 0.0f;
-  for (int b = 0; b < batch_size; ++b) {
-    int sampled_index = b * vocab_size + sampled_ids[b];
-    perplexity += -1 * std::log((*all_probabilities)[sampled_index]);
-  }
-  return perplexity;
-}
-
-absl::StatusOr<std::unique_ptr<SampledIdsAndPerplexity>> TopKTopPSampling(
+absl::StatusOr<std::vector<int>> TopKTopPSampling(
     absl::Span<const float> logits, int k, float p, float temperature,
-    absl::BitGen& rng, int batch_size, bool compute_perplexity,
-    std::vector<float>& sampled_scores) {
+    absl::BitGen& rng, int batch_size, std::vector<float>& sampled_scores) {
   if (logits.empty()) {
     return absl::InvalidArgumentError("Logits vector cannot be empty.");
   }
@@ -202,16 +168,7 @@ absl::StatusOr<std::unique_ptr<SampledIdsAndPerplexity>> TopKTopPSampling(
   if (k == 1) {  // Greedy sampling. Return the topk_indices directly.
     sampled_ids.assign(topk_indices->begin(), topk_indices->end());
     sampled_scores = std::vector<float>(batch_size, 1.0f);
-    std::optional<float> optional_perplexity = std::nullopt;
-    if (compute_perplexity) {
-      auto perplexity = GetBatchPerplexity(logits, sampled_ids, temperature,
-                                           vocab_size, batch_size);
-      if (!perplexity.ok()) return perplexity.status();
-      optional_perplexity = *perplexity;
-    }
-    auto result = SampledIdsAndPerplexity::CreateSampledIdsAndPerplexity(
-        std::move(sampled_ids), optional_perplexity);
-    return result.ok() ? std::move(result) : result.status();
+    return sampled_ids;
   }
   sampled_ids.resize(batch_size);
   sampled_scores.resize(batch_size);
@@ -273,16 +230,7 @@ absl::StatusOr<std::unique_ptr<SampledIdsAndPerplexity>> TopKTopPSampling(
       }
     }
   }
-  std::optional<float> optional_perplexity = std::nullopt;
-  if (compute_perplexity) {
-    auto perplexity = GetBatchPerplexity(logits, sampled_ids, temperature,
-                                         vocab_size, batch_size);
-    if (!perplexity.ok()) return perplexity.status();
-    optional_perplexity = *perplexity;
-  }
-  auto result = SampledIdsAndPerplexity::CreateSampledIdsAndPerplexity(
-      std::move(sampled_ids), optional_perplexity);
-  return result.ok() ? std::move(result) : result.status();
+  return sampled_ids;
 }
 
 }  // namespace litert::lm

@@ -16,7 +16,7 @@ r"""This tool is used to create a LiteRT-LM file from a set of input files.
 For example tokenizer, tflite model, llm parameters and metadata.
 
 Example usage:
-  bazel run  third_party/odml/litert_lm/python/tools:litertlm_writer_main -- \
+  bazel run  third_party/odml/litert_lm/schema/py:litertlm_writer_main -- \
     --output_path=/path/to/output.litertlm \
     /path/to/llm_metadata.pbtext \
     /path/to/tokenizer.spiece \
@@ -29,7 +29,7 @@ specified in the section_metadata argument.
 """
 
 import argparse
-from litert_lm.python.tools import litertlm_writer
+from litert_lm.schema.py import litertlm_writer
 
 
 def main():

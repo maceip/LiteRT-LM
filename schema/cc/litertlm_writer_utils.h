@@ -1,5 +1,5 @@
-#ifndef THIRD_PARTY_ODML_LITERT_LM_SCHEMA_LITERTLM_WRITER_UTILS_H_
-#define THIRD_PARTY_ODML_LITERT_LM_SCHEMA_LITERTLM_WRITER_UTILS_H_
+#ifndef THIRD_PARTY_ODML_LITERT_LM_SCHEMA_CC_LITERTLM_WRITER_UTILS_H_
+#define THIRD_PARTY_ODML_LITERT_LM_SCHEMA_CC_LITERTLM_WRITER_UTILS_H_
 #include <ios>
 #include <iostream>
 #include <string>
@@ -16,4 +16,4 @@ absl::Status LitertLmWrite(const std::vector<std::string>& command_args,
                            const std::string& output_path);
 
 }  // namespace litert::lm::schema
-#endif  // THIRD_PARTY_ODML_LITERT_LM_SCHEMA_LITERTLM_WRITER_UTILS_HU
+#endif  // THIRD_PARTY_ODML_LITERT_LM_SCHEMA_CC_LITERTLM_WRITER_UTILS_H_

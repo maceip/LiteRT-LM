@@ -31,6 +31,7 @@
 #include "runtime/components/model_resources.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
+#include "runtime/executor/llm_executor_processed_tokens.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/litert_status_util.h"
@@ -604,15 +605,32 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
   ::litert::TensorBuffer& decoded_logits =
       llm_inference_context_
           .decode_output_buffers[LlmSignatures::kDecodeLogitsOutput];
-  RETURN_IF_ERROR(Decode(ExecutorInputs(), decoded_logits));
-  auto start_sample = absl::Now();
 
+  if (processed_tokens_.TokenCount() != current_step_) {
+    RETURN_IF_ERROR(processed_tokens_.RollBackToStep(current_step_));
+  }
+
+  // We must have a pending input token to decode that's either coming from
+  // the previous prefill or decode.
+  auto [internal_start_step, pending_input_token] =
+      processed_tokens_.GetNextUnprocessedToken();
+  if (pending_input_token == nullptr) {
+    return absl::InvalidArgumentError("No id available to be decoded.");
+  }
+  RETURN_IF_ERROR(DecodeInternal(internal_start_step, pending_input_token));
+  RETURN_IF_ERROR(processed_tokens_.MarkPendingInputTokenAsProcessed());
+
+  auto start_sample = absl::Now();
   ASSIGN_OR_RETURN(const int max_index, ApplyGreedySampling(decoded_logits));
 
   latency_stats_.decode_sampling_latency_us +=
       absl::ToInt64Microseconds(absl::Now() - start_sample);
 
-  next_input_token_id_ = max_index;
+  // Store the sampled id as the pending input token for next Decode.
+  RETURN_IF_ERROR(processed_tokens_.AddPendingInputToken(
+      std::make_shared<TokenData>(max_index)));
+  ++current_step_;
+
   output_tokens.Write(absl::MakeConstSpan({max_index}));
   auto end = absl::Now();
   latency_stats_.decode_e2e_latency_us +=
@@ -672,29 +690,39 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
     memset(prefill_input_pos_ptr, 0, prefill_input_pos_size);
     memset(prefill_timestep_ptr, 0, prefill_timestep_size);
 
-    // We will not fill the last token of the current input into the interpreter
-    // now. It will be stored in next_input_token_id_ and used in the next
-    // prefill or decode.
-    int start_step = current_step_;
-    prefill_timestep_ptr[0] = start_step;
-    for (int i = 0, input_idx = 0; i < ids.size() - 1;
-         input_idx++, current_step_++) {
-      if (next_input_token_id_ != -1) {
-        // Use next_input_token_id_ if it is valid.
-        // Currently we use -1 to indicate that next_input_token_id_ is invalid.
-        prefill_input_ptr[input_idx] = next_input_token_id_;
-        // next_input_token_id_ should only be used once at the beginning of the
-        // loop.
-        next_input_token_id_ = -1;
-      } else {
-        prefill_input_ptr[input_idx] = ids[i];
-        // Only increase i if we used the token inside ids.
-        i++;
-      }
-      prefill_input_pos_ptr[input_idx] = current_step_;
+    if (processed_tokens_.TokenCount() != current_step_) {
+      RETURN_IF_ERROR(processed_tokens_.RollBackToStep(current_step_));
     }
+    // Check if have a pending input token. Note that 'internal_start_step' is
+    // always equal to the number of processed tokens plus 1.
+    auto [internal_start_step, pending_input_token] =
+        processed_tokens_.GetNextUnprocessedToken();
+    int input_idx = 0;
+    if (pending_input_token != nullptr) {
+      prefill_input_ptr[input_idx] = pending_input_token->id();
+      prefill_input_pos_ptr[input_idx] = internal_start_step;
+      RETURN_IF_ERROR(processed_tokens_.MarkPendingInputTokenAsProcessed());
+      ++input_idx;
+    }
+
+    prefill_timestep_ptr[0] = internal_start_step;
+    std::vector<int> processed_input_tokens;
+    // We will not fill the last token of the current input into the compiled
+    // model input buffers just yet. It will be stored in the
+    // 'processed_tokens_' and used in the next prefill or decode.
+    processed_input_tokens.reserve(ids.size() - 1);
+    for (int i = 0; i < ids.size() - 1; input_idx++, current_step_++, i++) {
+      prefill_input_ptr[input_idx] = ids[i];
+      prefill_input_pos_ptr[input_idx] = current_step_;
+      processed_input_tokens.push_back(ids[i]);
+    }
+    processed_tokens_.AddProcessedTokens(processed_input_tokens);
   }
-  next_input_token_id_ = ids[ids.size() - 1];
+  // Add the last input token to the pending input token list.
+  RETURN_IF_ERROR(processed_tokens_.AddPendingInputToken(
+      std::make_shared<TokenData>(ids.back())));
+  ++current_step_;
+
   auto end_prepare_inputs = absl::Now();
   latency_stats_.prefill_prepare_input_latency_us +=
       absl::ToInt64Microseconds(end_prepare_inputs - start_prepare_inputs);
@@ -780,29 +808,14 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::PrefillInternal(
   return absl::OkStatus();
 }
 
-absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
-    const ExecutorInputs& inputs, TensorBuffer& output_logits) {
+absl::Status LlmLiteRtNpuCompiledModelExecutor::DecodeInternal(
+    const int step, const std::shared_ptr<TokenData> token) {
   auto start_prepare_inputs = absl::Now();
-  int id = next_input_token_id_;
-  if (inputs.GetTextDataPtr().ok()) {
-    auto input_tensor_size = (*inputs.GetTextTokenIdsPtr())->Size();
-    if (input_tensor_size && *input_tensor_size != 0) {
-      // Input token ids provided, so use it regardless of whether next input
-      // token id is set. Only accept batch size 1 and a single token for now.
-      RET_CHECK_EQ(*input_tensor_size, 1 * sizeof(int32_t));
-      LITERT_ASSIGN_OR_RETURN_ABSL(
-          auto ids,
-          ReferTensorBufferAsSpan<int32_t>(*(*inputs.GetTextTokenIdsPtr())));
-      id = ids[0];
-    }
-  }
+
+  int id = token->id();
   if (id == -1) {
     return absl::InvalidArgumentError("No id available to be decoded.");
   }
-
-  // Invalidate the previous next_input_token_id_, regardless of whether it is
-  // used.
-  next_input_token_id_ = -1;
 
   {
     // Decode input tokens.
@@ -824,7 +837,7 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
             ::litert::TensorBuffer::LockMode::kWrite));
     auto* decode_input_pos_ptr =
         static_cast<int32_t*>(decode_input_pos_lock_and_addr.second);
-    decode_input_pos_ptr[0] = current_step_;
+    decode_input_pos_ptr[0] = step;
 
     // Timestep input.
     LITERT_ASSIGN_OR_RETURN(
@@ -835,7 +848,7 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
             ::litert::TensorBuffer::LockMode::kWrite));
     auto* decode_timestep_ptr =
         static_cast<int32_t*>(decode_timestep_lock_and_addr.second);
-    decode_timestep_ptr[0] = current_step_;
+    decode_timestep_ptr[0] = step;
   }
   auto end_prepare_inputs = absl::Now();
   latency_stats_.decode_prepare_input_latency_us +=
@@ -917,7 +930,6 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Decode(
     latency_stats_.decode_cache_update_inference_latency_us +=
         absl::ToInt64Microseconds(end - start);
   }
-  ++current_step_;
   return absl::OkStatus();
 }
 
@@ -937,7 +949,7 @@ LlmLiteRtNpuCompiledModelExecutor::GetLatencyStats() const {
 
 absl::Status LlmLiteRtNpuCompiledModelExecutor::Reset() {
   current_step_ = 0;
-  next_input_token_id_ = -1;
+  RETURN_IF_ERROR(processed_tokens_.RollBackToStep(0));
   sampled_ids_.clear();
   latency_stats_ = {};
   return absl::OkStatus();
@@ -946,8 +958,7 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Reset() {
 // static
 absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
 LlmLiteRtNpuCompiledModelExecutor::Create(
-    const LlmExecutorSettings& executor_settings,
-    std::unique_ptr<ModelResources> resources,
+    const LlmExecutorSettings& executor_settings, ModelResources& resources,
     const std::optional<std::string>& dispatch_library_path) {
   std::vector<::litert::Environment::Option> environment_options = {};
   if (dispatch_library_path.has_value()) {
@@ -963,7 +974,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
       Environment env,
       ::litert::Environment::Create(absl::MakeConstSpan(environment_options)));
   ASSIGN_OR_RETURN(const litert::Model* llm_model,
-                   resources->GetTFLiteModel(ModelType::kTfLitePrefillDecode));
+                   resources.GetTFLiteModel(ModelType::kTfLitePrefillDecode));
   // If the model is fully AOT compiled for NPU, NPU accelerator is used
   // automatically.
   LITERT_ASSIGN_OR_RETURN(
@@ -1086,7 +1097,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   }
 
   ASSIGN_OR_RETURN(auto npu_auxiliary_lrt_model,
-                   resources->GetTFLiteModel(ModelType::kTfLiteAux));
+                   resources.GetTFLiteModel(ModelType::kTfLiteAux));
 
   ASSIGN_OR_RETURN(auto npu_auxiliary_context,
                    CreateNpuAuxiliaryContext(env, *npu_auxiliary_lrt_model));
@@ -1097,7 +1108,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
                        gemma_decode_input_buffers));
 
   ASSIGN_OR_RETURN(auto embedder_lrt_model,
-                   resources->GetTFLiteModel(ModelType::kTfLiteEmbedder));
+                   resources.GetTFLiteModel(ModelType::kTfLiteEmbedder));
   ASSIGN_OR_RETURN(
       auto embedder_context,
       CreateEmbedderContextWithBufferSharing(
@@ -1142,7 +1153,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   if (has_per_layer_embeddings) {
     ASSIGN_OR_RETURN(
         const litert::Model* embedder_per_layer_model,
-        resources->GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder));
+        resources.GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder));
     ASSIGN_OR_RETURN(
         embedder_per_layer_context,
         CreateEmbedderPerLayerContextWithBufferSharing(
@@ -1154,7 +1165,7 @@ LlmLiteRtNpuCompiledModelExecutor::Create(
   }
 
   auto executor = absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
-      executor_settings, std::move(resources), std::move(embedder_context),
+      executor_settings, std::move(embedder_context),
       std::move(npu_auxiliary_context), std::move(mask_context),
       std::move(rope_context), std::move(env), std::move(llm_compiled_model),
       std::move(llm_inference_context),

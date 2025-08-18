@@ -20,6 +20,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -27,6 +28,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/proto/engine.pb.h"
 
 namespace litert::lm {
@@ -43,9 +45,89 @@ class InputText {
   std::string text_;
 };
 
+// A container to host the input image.
+class InputImage {
+ public:
+  // Constructs an InputImage from a raw image bytes. The InputImage takes
+  // ownership of the provided `image_bytes`.
+  explicit InputImage(std::string image_bytes)
+      : data_(std::move(image_bytes)) {}
+  // Constructs an InputImage from a TensorBuffer. The InputImage takes
+  // ownership of the provided `image_tensor`.
+  explicit InputImage(TensorBuffer image_tensor)
+      : data_(std::move(image_tensor)) {}
+
+  // Returns true if the image is preprocessed into a TensorBuffer.
+  bool IsPreprocessed() const {
+    return std::holds_alternative<TensorBuffer>(data_);
+  }
+
+  // Returns the raw image bytes. Returns an error if the image is preprocessed.
+  absl::StatusOr<absl::string_view> GetRawImageBytes() const {
+    if (std::holds_alternative<std::string>(data_)) {
+      return absl::string_view(std::get<std::string>(data_));
+    }
+    return absl::FailedPreconditionError(
+        "The image is preprocessed and does not have raw image bytes.");
+  }
+
+  // Returns the preprocessed image tensor. Returns an error if the image is
+  // not preprocessed.
+  absl::StatusOr<const TensorBuffer*> GetPreprocessedImageTensor() const {
+    if (std::holds_alternative<TensorBuffer>(data_)) {
+      return &std::get<TensorBuffer>(data_);
+    }
+    return absl::FailedPreconditionError(
+        "The image is not preprocessed and does not have a tensor.");
+  }
+
+ private:
+  std::variant<std::string, TensorBuffer> data_;
+};
+
+// A container to host the input audio.
+class InputAudio {
+ public:
+  // Constructs an InputAudio from a raw audio bytes. The InputAudio takes
+  // ownership of the provided `audio_bytes`.
+  explicit InputAudio(std::string audio_bytes)
+      : data_(std::move(audio_bytes)) {}
+  // Constructs an InputAudio from a TensorBuffer. The InputAudio takes
+  // ownership of the provided `audio_tensor`.
+  explicit InputAudio(TensorBuffer audio_tensor)
+      : data_(std::move(audio_tensor)) {}
+
+  // Returns true if the audio is preprocessed into a TensorBuffer.
+  bool IsPreprocessed() const {
+    return std::holds_alternative<TensorBuffer>(data_);
+  }
+
+  // Returns the raw audio bytes. Returns an error if the audio is preprocessed.
+  absl::StatusOr<absl::string_view> GetRawAudioBytes() const {
+    if (std::holds_alternative<std::string>(data_)) {
+      return absl::string_view(std::get<std::string>(data_));
+    }
+    return absl::FailedPreconditionError(
+        "The audio is preprocessed and does not have raw audio bytes.");
+  }
+
+  // Returns the preprocessed audio tensor. Returns an error if the audio is
+  // not preprocessed.
+  absl::StatusOr<const TensorBuffer*> GetPreprocessedAudioTensor() const {
+    if (std::holds_alternative<TensorBuffer>(data_)) {
+      return &std::get<TensorBuffer>(data_);
+    }
+    return absl::FailedPreconditionError(
+        "The audio is not preprocessed and does not have a tensor.");
+  }
+
+ private:
+  std::variant<std::string, TensorBuffer> data_;
+};
+
 // A container to host the input data. Will be extended to support more input
 // types in the future.
-using InputData = std::variant<InputText>;
+using InputData = std::variant<InputText, InputImage, InputAudio>;
 // Converts the input data to a string. It returns nullopt if the input data
 // is not an InputText.
 std::optional<std::string> ToString(const InputData& input_data);

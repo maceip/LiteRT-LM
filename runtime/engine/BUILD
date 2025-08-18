@@ -51,7 +51,14 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
         "//runtime/proto:engine_cc_proto",
-    ],
+    ] + select({
+        "//:litert_lm_link_capi_so": [
+            "@litert//litert/cc:litert_tensor_buffer",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc/internal:litert_tensor_buffer",
+        ],
+    }),
 )
 
 cc_test(
@@ -62,8 +69,24 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+        "@litert//litert/c:litert_environment",
+        "@litert//litert/c:litert_model_types",
+        "@litert//litert/c:litert_tensor_buffer_types",
+        "@litert//litert/cc:litert_environment",
+        "@litert//litert/cc:litert_layout",
+        "@litert//litert/cc:litert_model",
+        "@litert//litert/test:matchers",
+        "//runtime/util:convert_tensor_buffer",
         "//runtime/util:test_utils",
-    ],
+    ] + select({
+        "//:litert_lm_link_capi_so": [
+            "@litert//litert/cc:litert_tensor_buffer",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc/internal:litert_tensor_buffer",
+        ],
+    }),
 )
 
 cc_binary(

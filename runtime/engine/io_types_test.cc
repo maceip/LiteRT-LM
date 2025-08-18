@@ -1,21 +1,43 @@
 #include "runtime/engine/io_types.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <sstream>
 #include <string>
+#include <utility>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
-#include "absl/time/time.h"  // from @com_google_absl
 #include "absl/time/clock.h"  // from @com_google_absl
 #include "runtime/util/test_utils.h"  // NOLINT
+#include "absl/time/time.h"  // from @com_google_absl
+#include "absl/types/span.h"  // from @com_google_absl
+#include "litert/c/litert_model.h"  // from @litert
+#include "litert/c/litert_tensor_buffer_types.h"  // from @litert
+#include "litert/cc/litert_environment.h"  // from @litert
+#include "litert/cc/litert_layout.h"  // from @litert
+#include "litert/cc/litert_model.h"  // from @litert
+#include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "litert/test/matchers.h"  // from @litert
+#include "runtime/util/convert_tensor_buffer.h"
 
 namespace litert::lm {
 namespace {
 
+using ::testing::ElementsAreArray;
 using ::testing::status::IsOkAndHolds;
 using ::testing::status::StatusIs;
 using ::testing::ContainsRegex;
+
+constexpr const float kTensorData[] = {10, 20, 30, 40};
+
+constexpr const int32_t kTensorDimensions[] = {sizeof(kTensorData) /
+                                               sizeof(kTensorData[0])};
+
+constexpr const LiteRtRankedTensorType kTestTensorType = {
+    /*.element_type=*/kLiteRtElementTypeFloat32,
+    BuildLayout(kTensorDimensions)};
 
 std::string FloatToString(float val) {
   std::ostringstream oss;
@@ -29,8 +51,110 @@ TEST(InputTextTest, GetText) {
 }
 
 TEST(InputTextTest, ToString) {
-  InputData input_data = InputText("Hello World!");
-  EXPECT_EQ(ToString(input_data), "Hello World!");
+  InputText input_text("Hello World!");
+  EXPECT_EQ(ToString(input_text), "Hello World!");
+}
+
+TEST(InputImageTest, GetRawImageBytes) {
+  InputImage input_image("Hello Image!");
+  ASSERT_OK_AND_ASSIGN(auto raw_image_bytes, input_image.GetRawImageBytes());
+  EXPECT_EQ(raw_image_bytes, "Hello Image!");
+}
+
+TEST(InputImageTest, GetPreprocessedImageTensor) {
+  // Create a tensor buffer with kTensorData.
+  LITERT_ASSERT_OK_AND_ASSIGN(auto env, litert::Environment::Create({}));
+  const RankedTensorType kTensorType(kTestTensorType);
+  constexpr auto kTensorBufferType = kLiteRtTensorBufferTypeHostMemory;
+  const size_t kTensorSize = sizeof(kTensorData);
+
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      TensorBuffer original_tensor_buffer,
+      TensorBuffer::CreateManaged(env.Get(), kTensorBufferType, kTensorType,
+                                  kTensorSize));
+
+  LITERT_ASSERT_OK(
+      original_tensor_buffer.Write<float>(absl::MakeSpan(kTensorData, 4)));
+
+  // Create an InputImage from the tensor buffer. This InputImage takes
+  // ownership of the tensor buffer.
+  InputImage input_image(std::move(original_tensor_buffer));
+
+  // Confirm the InputImage is preprocessed.
+  EXPECT_TRUE(input_image.IsPreprocessed());
+
+  // Confirm the retrieved tensor buffer is identical to the original tensor
+  // buffer.
+  ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_buffer,
+                       input_image.GetPreprocessedImageTensor());
+
+  LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_buffer_size,
+                              retrieved_tensor_buffer->Size());
+  EXPECT_EQ(retrieved_tensor_buffer_size, kTensorSize);
+  LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_buffer_type,
+                              retrieved_tensor_buffer->BufferType());
+  EXPECT_EQ(retrieved_tensor_buffer_type, kTensorBufferType);
+  LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_type,
+                              retrieved_tensor_buffer->TensorType());
+  EXPECT_EQ(retrieved_tensor_type, kTensorType);
+
+  // Confirm the value of the retrieved_tensor_buffer is identical to
+  // kTensorData.
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto retrieved_data,
+      ::litert::lm::ReferTensorBufferAsSpan<float>(*retrieved_tensor_buffer));
+  EXPECT_THAT(retrieved_data, ElementsAreArray(kTensorData));
+}
+
+TEST(InputAudioTest, GetRawAudioBytes) {
+  InputAudio input_audio("Hello Audio!");
+  ASSERT_OK_AND_ASSIGN(auto raw_audio_bytes, input_audio.GetRawAudioBytes());
+  EXPECT_EQ(raw_audio_bytes, "Hello Audio!");
+}
+
+TEST(InputAudioTest, GetPreprocessedAudioTensor) {
+  // Create a tensor buffer with kTensorData.
+  LITERT_ASSERT_OK_AND_ASSIGN(auto env, litert::Environment::Create({}));
+  const RankedTensorType kTensorType(kTestTensorType);
+  constexpr auto kTensorBufferType = kLiteRtTensorBufferTypeHostMemory;
+  const size_t kTensorSize = sizeof(kTensorData);
+
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      TensorBuffer original_tensor_buffer,
+      TensorBuffer::CreateManaged(env.Get(), kTensorBufferType, kTensorType,
+                                  kTensorSize));
+
+  LITERT_ASSERT_OK(
+      original_tensor_buffer.Write<float>(absl::MakeSpan(kTensorData, 4)));
+
+  // Create an InputAudio from the tensor buffer. This InputAudio takes
+  // ownership of the tensor buffer.
+  InputAudio input_audio(std::move(original_tensor_buffer));
+
+  // Confirm the InputAudio is preprocessed.
+  EXPECT_TRUE(input_audio.IsPreprocessed());
+
+  // Confirm the retrieved tensor buffer is identical to the original tensor
+  // buffer.
+  ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_buffer,
+                       input_audio.GetPreprocessedAudioTensor());
+
+  LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_buffer_size,
+                              retrieved_tensor_buffer->Size());
+  EXPECT_EQ(retrieved_tensor_buffer_size, kTensorSize);
+  LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_buffer_type,
+                              retrieved_tensor_buffer->BufferType());
+  EXPECT_EQ(retrieved_tensor_buffer_type, kTensorBufferType);
+  LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_type,
+                              retrieved_tensor_buffer->TensorType());
+  EXPECT_EQ(retrieved_tensor_type, kTensorType);
+
+  // Confirm the value of the retrieved_tensor_buffer is identical to
+  // kTensorData.
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto retrieved_data,
+      ::litert::lm::ReferTensorBufferAsSpan<float>(*retrieved_tensor_buffer));
+  EXPECT_THAT(retrieved_data, ElementsAreArray(kTensorData));
 }
 
 TEST(ResponsesTest, GetResponseTextAt) {

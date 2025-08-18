@@ -1,12 +1,11 @@
 #include "runtime/components/sampling_cpu_util.h"
 
-#include <cmath>
 #include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include "absl/random/random.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
+#include "absl/random/random.h"  // from @com_google_absl
 
 namespace litert::lm {
 namespace {
@@ -102,56 +101,30 @@ TEST(SamplingCpuUtilTest, TopKTopPSampling_InvalidInputs) {
   absl::BitGen rng;
   // Negative k.
   std::vector<float> sampled_scores;
-  auto sampled_ids_and_perplexity =
-      TopKTopPSampling(absl::MakeConstSpan(probabilities), /*k=*/-1,
-                       /*p=*/0.5,
-                       /*temperature=*/1.0, rng, /*batch_size=*/1,
-                       /*compute_perplexity=*/false, sampled_scores);
-  EXPECT_FALSE(sampled_ids_and_perplexity.ok());
+  auto sampled_ids = TopKTopPSampling(
+      absl::MakeConstSpan(probabilities), /*k=*/-1,
+      /*p=*/0.5,
+      /*temperature=*/1.0, rng, /*batch_size=*/1, sampled_scores);
+  EXPECT_FALSE(sampled_ids.ok());
   // Negative p.
-  sampled_ids_and_perplexity =
-      TopKTopPSampling(absl::MakeConstSpan(probabilities),
-                       /*k=*/1,
-                       /*p=*/-0.5, /*temperature=*/1.0f, rng,
-                       /*batch_size=*/1,
-                       /*compute_perplexity=*/false, sampled_scores);
-  EXPECT_FALSE(sampled_ids_and_perplexity.ok());
+  sampled_ids = TopKTopPSampling(absl::MakeConstSpan(probabilities),
+                                 /*k=*/1,
+                                 /*p=*/-0.5, /*temperature=*/1.0f, rng,
+                                 /*batch_size=*/1, sampled_scores);
+  EXPECT_FALSE(sampled_ids.ok());
 }
 
 TEST(SamplingCpuUtilTest, TopKTopPSampling_BatchSize1) {
   const std::vector<float> probabilities = {0.0, 0.0, 0.3};
   absl::BitGen rng;
   std::vector<float> sampled_scores;
-  auto sampled_ids_and_perplexity =
-      TopKTopPSampling(absl::MakeConstSpan(probabilities), /*k=*/1,
-                       /*p=*/0.5, /*temperature=*/1.0, rng, /*batch_size=*/1,
-                       /*compute_perplexity=*/false, sampled_scores);
-  EXPECT_TRUE(sampled_ids_and_perplexity.ok());
-  auto sampled_ids = (*sampled_ids_and_perplexity)->GetSampleIds();
-  auto perplexity = (*sampled_ids_and_perplexity)->GetPerplexity();
-  EXPECT_THAT(sampled_ids, ElementsAre(2));
+  auto sampled_ids = TopKTopPSampling(
+      absl::MakeConstSpan(probabilities), /*k=*/1,
+      /*p=*/0.5,
+      /*temperature=*/1.0f, rng, /*batch_size=*/1, sampled_scores);
+  EXPECT_TRUE(sampled_ids.ok());
+  EXPECT_THAT((*sampled_ids), ElementsAre(2));
   EXPECT_THAT(sampled_scores, ElementsAre(1.0));
-  EXPECT_FALSE(perplexity.has_value());
-}
-
-TEST(SamplingCpuUtilTest, TopKTopPSampling_BatchSize1_Perplexity) {
-  const std::vector<float> probabilities = {0.0, 0.0, 0.3};
-  absl::BitGen rng;
-  std::vector<float> sampled_scores;
-  auto sampled_ids_and_perplexity =
-      TopKTopPSampling(absl::MakeConstSpan(probabilities), /*k=*/1,
-                       /*p=*/0.5, /*temperature=*/1.0, rng, /*batch_size=*/1,
-                       /*compute_perplexity=*/true, sampled_scores);
-  EXPECT_TRUE(sampled_ids_and_perplexity.ok());
-  auto sampled_ids = (*sampled_ids_and_perplexity)->GetSampleIds();
-  auto perplexity = (*sampled_ids_and_perplexity)->GetPerplexity();
-  EXPECT_THAT(sampled_ids, ElementsAre(2));
-  EXPECT_THAT(sampled_scores, ElementsAre(1.0));
-  // The probability of sampled token over the entire vocab is
-  // exp(-0.3)/(2+exp(-0.3))
-  EXPECT_TRUE(perplexity.has_value());
-  EXPECT_NEAR(*perplexity, -1 * std::log(exp(0.3f) / (2 + std::exp(0.3f))),
-              1e-6f);
 }
 
 TEST(SamplingCpuUtilTest, TopKTopPSampling_BatchSize1_TopK) {
@@ -160,17 +133,13 @@ TEST(SamplingCpuUtilTest, TopKTopPSampling_BatchSize1_TopK) {
   const std::vector<float> logits = {-1.0e7f, 1.0f, -1e3f};
   absl::BitGen rng;
   std::vector<float> sampled_scores;
-  auto sampled_ids_and_perplexity =
-      TopKTopPSampling(absl::MakeConstSpan(logits), /*k=*/3,
-                       /*p=*/1.0,
-                       /*temperature=*/1.0f, rng, /*batch_size=*/1,
-                       /*compute_perplexity=*/false, sampled_scores);
-  EXPECT_TRUE(sampled_ids_and_perplexity.ok());
-  auto sampled_ids = (*sampled_ids_and_perplexity)->GetSampleIds();
-  auto perplexity = (*sampled_ids_and_perplexity)->GetPerplexity();
-  EXPECT_THAT(sampled_ids, ElementsAre(1));
+  auto sampled_ids = TopKTopPSampling(
+      absl::MakeConstSpan(logits), /*k=*/3,
+      /*p=*/1.0,
+      /*temperature=*/1.0f, rng, /*batch_size=*/1, sampled_scores);
+  EXPECT_TRUE(sampled_ids.ok());
+  EXPECT_THAT((*sampled_ids), ElementsAre(1));
   EXPECT_THAT(sampled_scores, ElementsAre(1.0));
-  EXPECT_FALSE(perplexity.has_value());
 }
 
 TEST(SamplingCpuUtilTest, TopKTopPSampling_BatchSize2) {
@@ -179,36 +148,12 @@ TEST(SamplingCpuUtilTest, TopKTopPSampling_BatchSize2) {
                                             0.0, 1.0, 0.0, 0.0};
   absl::BitGen rng;
   std::vector<float> sampled_scores;
-  auto sampled_ids_and_perplexity =
-      TopKTopPSampling(absl::MakeConstSpan(logits), /*k=*/2, /*p=*/0.5,
-                       /*temperature=*/0.00001f, rng, /*batch_size=*/3,
-                       /*compute_perplexity=*/false, sampled_scores);
-  EXPECT_TRUE(sampled_ids_and_perplexity.ok());
-  auto sampled_ids = (*sampled_ids_and_perplexity)->GetSampleIds();
-  auto perplexity = (*sampled_ids_and_perplexity)->GetPerplexity();
-  EXPECT_THAT(sampled_ids, ElementsAre(2, 1, 0));
+  auto sampled_ids = TopKTopPSampling(
+      absl::MakeConstSpan(logits), /*k=*/2, /*p=*/0.5,
+      /*temperature=*/0.00001f, rng, /*batch_size=*/3, sampled_scores);
+  EXPECT_TRUE(sampled_ids.ok());
+  EXPECT_THAT((*sampled_ids), ElementsAre(2, 1, 0));
   EXPECT_THAT(sampled_scores, ElementsAre(1.0, 1.0, 1.0));
-  EXPECT_FALSE(perplexity.has_value());
-}
-
-TEST(SamplingCpuUtilTest, TopKTopPSampling_BatchSize2_Perplexity) {
-  // Batch of 3, vocab size of 3. The sampled ids are 2, 1, 0.
-  const std::vector<float> logits = {0.0, 0.0, 1.0, 0.0, 1.0,
-                                     0.0, 0.9, 0.1, 0.0};
-  absl::BitGen rng;
-  std::vector<float> sampled_scores;
-  auto sampled_ids_and_perplexity =
-      TopKTopPSampling(absl::MakeConstSpan(logits), /*k=*/2, /*p=*/0.5,
-                       /*temperature=*/0.00001f, rng, /*batch_size=*/3,
-                       /*compute_perplexity=*/true, sampled_scores);
-  EXPECT_TRUE(sampled_ids_and_perplexity.ok());
-  auto sampled_ids = (*sampled_ids_and_perplexity)->GetSampleIds();
-  auto perplexity = (*sampled_ids_and_perplexity)->GetPerplexity();
-  EXPECT_THAT((sampled_ids), ElementsAre(2, 1, 0));
-  // Low temperature will supress the 0.1 probability.
-  EXPECT_THAT(sampled_scores, ElementsAre(1.0, 1.0, 1.0));
-  EXPECT_TRUE(perplexity.has_value());
-  EXPECT_NEAR(*perplexity, 0.0f, 1e-6f);
 }
 
 }  // namespace

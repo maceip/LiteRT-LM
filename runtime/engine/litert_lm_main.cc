@@ -25,6 +25,7 @@
 #include <string>
 #include <utility>
 #include <iostream>
+#include <vector>
 
 #include "absl/base/log_severity.h"  // from @com_google_absl
 #include "absl/flags/flag.h"  // from @com_google_absl
@@ -80,6 +81,7 @@ using ::litert::lm::Backend;
 using ::litert::lm::Engine;
 using ::litert::lm::EngineSettings;
 using ::litert::lm::InferenceObservable;
+using ::litert::lm::InputData;
 using ::litert::lm::InputText;
 using ::litert::lm::LlmExecutorSettings;
 using ::litert::lm::ModelAssets;
@@ -118,6 +120,9 @@ void RunBenchmark(litert::lm::Engine* llm,
       absl::GetFlag(FLAGS_benchmark_decode_tokens) > 0;
   std::string input_prompt = absl::GetFlag(FLAGS_input_prompt);
 
+  std::vector<litert::lm::InputData> inputs;
+  inputs.emplace_back(InputText(input_prompt));
+
   if (absl::GetFlag(FLAGS_async)) {
     if (is_dummy_input) {
       ABSL_LOG(FATAL) << "Async mode does not support benchmarking with "
@@ -127,11 +132,11 @@ void RunBenchmark(litert::lm::Engine* llm,
     }
     InferenceObservable observable;
     absl::Status status =
-        session->GenerateContentStream({InputText(input_prompt)}, &observable);
+        session->GenerateContentStream(inputs, &observable);
     ABSL_CHECK_OK(status);
     ABSL_CHECK_OK(llm->WaitUntilDone(kWaitUntilDoneTimeout));
   } else {
-    auto responses = session->GenerateContent({InputText(input_prompt)});
+    auto responses = session->GenerateContent(inputs);
     ABSL_CHECK_OK(responses);
     if (!is_dummy_input) {
       ABSL_LOG(INFO) << "Responses: " << *responses;
@@ -145,14 +150,16 @@ void RunBenchmark(litert::lm::Engine* llm,
 void RunSingleTurn(litert::lm::Engine* llm,
                    litert::lm::Engine::Session* session,
                    std::string& input_prompt) {
+  std::vector<litert::lm::InputData> inputs;
+  inputs.emplace_back(InputText(input_prompt));
   if (absl::GetFlag(FLAGS_async)) {
     InferenceObservable observable;
     absl::Status status =
-        session->GenerateContentStream({InputText(input_prompt)}, &observable);
+        session->GenerateContentStream(inputs, &observable);
     ABSL_CHECK_OK(status);
     ABSL_CHECK_OK(llm->WaitUntilDone(kWaitUntilDoneTimeout));
   } else {
-    auto responses = session->GenerateContent({InputText(input_prompt)});
+    auto responses = session->GenerateContent(inputs);
     ABSL_CHECK_OK(responses);
     ABSL_LOG(INFO) << "Responses: " << *responses;
   }

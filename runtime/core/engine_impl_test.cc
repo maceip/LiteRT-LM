@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <filesystem>  // NOLINT: Required for path manipulation.
 #include <memory>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -61,7 +62,9 @@ TEST(EngineTest, CreateEngine_WithoutCache) {
       (*llm)->CreateSession(SessionConfig::CreateDefault());
   ABSL_CHECK_OK(session);
 
-  ABSL_CHECK_OK((*session)->RunPrefill({InputText("Hello world!")}));
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("Hello world!"));
+  ABSL_CHECK_OK((*session)->RunPrefill(inputs));
 
   auto responses = (*session)->RunDecode();
   EXPECT_OK(responses);
@@ -73,7 +76,7 @@ TEST(EngineTest, CreateEngine_WithoutCache) {
   session = (*llm)->CreateSession(SessionConfig::CreateDefault());
   ABSL_CHECK_OK(session);
 
-  ABSL_CHECK_OK((*session)->RunPrefill({InputText("Hello world!")}));
+  ABSL_CHECK_OK((*session)->RunPrefill(inputs));
 
   responses = (*session)->RunDecode();
   EXPECT_OK(responses);
@@ -111,7 +114,9 @@ TEST(EngineTest, CreateEngine_WithCache) {
       (*llm)->CreateSession(SessionConfig::CreateDefault());
   ABSL_CHECK_OK(session);
 
-  ABSL_CHECK_OK((*session)->RunPrefill({InputText("Hello world!")}));
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("Hello world!"));
+  ABSL_CHECK_OK((*session)->RunPrefill(inputs));
 
   auto responses = (*session)->RunDecode();
   EXPECT_OK(responses);
@@ -123,7 +128,7 @@ TEST(EngineTest, CreateEngine_WithCache) {
   session = (*llm)->CreateSession(SessionConfig::CreateDefault());
   ABSL_CHECK_OK(session);
 
-  ABSL_CHECK_OK((*session)->RunPrefill({InputText("Hello world!")}));
+  ABSL_CHECK_OK((*session)->RunPrefill(inputs));
 
   responses = (*session)->RunDecode();
   EXPECT_OK(responses);
@@ -139,7 +144,7 @@ TEST(EngineTest, CreateEngine_WithCache) {
   session = (*llm)->CreateSession(SessionConfig::CreateDefault());
   ABSL_CHECK_OK(session);
 
-  ABSL_CHECK_OK((*session)->RunPrefill({InputText("Hello world!")}));
+  ABSL_CHECK_OK((*session)->RunPrefill(inputs));
 
   responses = (*session)->RunDecode();
   EXPECT_OK(responses);

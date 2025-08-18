@@ -23,9 +23,9 @@ from typing import Dict, List, Tuple
 import zlib
 import flatbuffers
 from google.protobuf import text_format
-from litert_lm.python.tools import litertlm_core
 from litert_lm.runtime.proto import llm_metadata_pb2
 from litert_lm.schema.core import litertlm_header_schema_py_generated as schema
+from litert_lm.schema.py import litertlm_core
 
 INT64_MAX = 9223372036854775807
 
@@ -93,8 +93,7 @@ def parse_metadata_string(
   """Parses the section_metadata string into a dictionary.
 
   Args:
-    metadata_str: A string containing metadata for each section. The
-      format is:
+    metadata_str: A string containing metadata for each section. The format is:
       "section_name1:key1=value1,key2=value2;section_name2:key3=value3"
 
   Returns:

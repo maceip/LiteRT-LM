@@ -96,9 +96,7 @@ jobs:
             //... \
             //runtime/engine:litert_lm_main \
             -- \
-            -//python/tools:litertlm_core_test \
-            -//python/tools:litertlm_peek_test \
-            -//python/tools:litertlm_writer_test
+            -//schema/py:*
 
       - name: Update litert_lm_main prebuilt for iOS Simulator if new version tag is pushed.
         if: github.ref_type == 'tag'

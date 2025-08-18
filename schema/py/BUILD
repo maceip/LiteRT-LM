@@ -109,3 +109,27 @@ py_test(
         "@absl_py//absl/testing:parameterized",
     ],
 )
+
+pytype_strict_library(
+    name = "litertlm_builder",
+    srcs = ["litertlm_builder.py"],
+    deps = [
+        ":litertlm_core",
+        "@flatbuffers//:runtime_py",
+        "//runtime/proto:llm_metadata_py_pb2",
+        "//schema/core:litertlm_header_schema_py",
+        "@com_google_protobuf//:protobuf_python",
+    ],
+)
+
+py_test(
+    name = "litertlm_builder_test",
+    srcs = ["litertlm_builder_test.py"],
+    deps = [
+        ":litertlm_builder",
+        ":litertlm_peek",
+        "//runtime/proto:llm_metadata_py_pb2",
+        "@absl_py//absl/testing:absltest",
+        "@com_google_protobuf//:protobuf_python",
+    ],
+)

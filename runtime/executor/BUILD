@@ -121,12 +121,12 @@ cc_library(
         "@litert//litert/c:litert_environment_options",
         "@litert//litert/cc:litert_expected",
         "@litert//litert/cc:litert_model",
-        "//runtime/components:embedding_lookup_text",
         "//runtime/components:model_resources",
         "//runtime/components:model_resources_litert_lm",
         "//runtime/components:model_resources_task",
         "//runtime/components:sampler",
         "//runtime/components:sampler_factory",
+        "//runtime/components/embedding_lookup:embedding_lookup_text",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:file_util",
         "//runtime/util:litert_status_util",
@@ -275,6 +275,7 @@ cc_library(
         "//runtime/components:model_resources",
         "//runtime/components:model_resources_litert_lm",
         "//runtime/components:model_resources_task",
+        "//runtime/executor:llm_executor_processed_tokens",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:litert_status_util",
     ] + select({
@@ -293,6 +294,17 @@ cc_library(
             "@litert//litert/cc/internal:litert_tensor_buffer",
         ],
     }),
+)
+
+cc_library(
+    name = "llm_executor_processed_tokens",
+    hdrs = ["llm_executor_processed_tokens.h"],
+    deps = [
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+    ],
 )
 
 cc_library(

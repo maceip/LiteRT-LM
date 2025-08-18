@@ -17,7 +17,7 @@ It reads the file's header, system metadata, and section information, and prints
 them to the console.
 
 Example usage:
-  bazel run  third_party/odml/litert_lm/python/tools:litertlm_peek_main -- \
+  bazel run  third_party/odml/litert_lm/schema/py:litertlm_peek_main -- \
   --litertlm_file=<path/to/your/file.litertlm>
 """
 
@@ -25,7 +25,7 @@ import argparse
 import struct
 import sys
 
-from litert_lm.python.tools import litertlm_peek
+from litert_lm.schema.py import litertlm_peek
 
 
 def main():

@@ -40,55 +40,6 @@ config_setting(
 )
 
 cc_library(
-    name = "embedding_lookup",
-    hdrs = ["embedding_lookup.h"],
-    deps = [
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/types:span",
-    ] + select({
-        "//:litert_lm_link_capi_so": [
-            "@litert//litert/cc:litert_tensor_buffer",
-        ],
-        "//conditions:default": [
-            "@litert//litert/cc/internal:litert_tensor_buffer",
-        ],
-    }),
-)
-
-cc_library(
-    name = "embedding_lookup_text",
-    srcs = ["embedding_lookup_text.cc"],
-    hdrs = ["embedding_lookup_text.h"],
-    deps = [
-        ":embedding_lookup",
-        "@com_google_absl//absl/base:nullability",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:string_view",
-        "@com_google_absl//absl/types:span",
-        "@litert//litert/c:litert_common",
-        "@litert//litert/cc:litert_element_type",
-        "@litert//litert/cc:litert_macros",
-        "@litert//litert/cc:litert_model",
-        "//runtime/util:litert_status_util",
-    ] + select({
-        "//:litert_lm_link_capi_so": [
-            "@litert//litert/cc:litert_compiled_model",
-            "@litert//litert/cc:litert_environment",
-            "@litert//litert/cc:litert_options",
-            "@litert//litert/cc:litert_tensor_buffer",
-        ],
-        "//conditions:default": [
-            "@litert//litert/cc/internal:litert_compiled_model",
-            "@litert//litert/cc/internal:litert_environment",
-            "@litert//litert/cc/internal:litert_options",
-            "@litert//litert/cc/internal:litert_tensor_buffer",
-        ],
-    }),
-)
-
-cc_library(
     name = "tokenizer",
     hdrs = ["tokenizer.h"],
     deps = [
@@ -137,7 +88,6 @@ cc_library(
     hdrs = ["sampling_cpu_util.h"],
     deps = [
         "@com_google_absl//absl/log:absl_log",
-        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/random",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -151,10 +101,7 @@ cc_library(
 cc_library(
     name = "sampler",
     hdrs = ["sampler.h"],
-    deps = [
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-    ] + select({
+    deps = ["@com_google_absl//absl/status"] + select({
         "//:litert_lm_link_capi_so": [
             "@litert//litert/cc:litert_tensor_buffer",
         ],
@@ -317,8 +264,6 @@ cc_test(
     deps = [
         ":top_p_cpu_sampler",
         "@com_google_googletest//:gtest_main",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/types:span",
         "//runtime/util:convert_tensor_buffer",
     ] + select({
@@ -427,31 +372,6 @@ cc_test(
             "@litert//litert/cc/internal:litert_environment",
         ],
     }),
-)
-
-# Having this target here to avoid the build error caused by HF tokenizer.
-# TODO(b/426663511): Remove this target once the issue of HF tokenizer is resolved.
-cc_library(
-    name = "model_resources_litert_lm_only_with_sentencepiece",
-    srcs = ["model_resources_litert_lm.cc"],
-    hdrs = ["model_resources_litert_lm.h"],
-    deps = [
-        ":model_resources",
-        ":sentencepiece_tokenizer",
-        ":tokenizer",
-        "@com_google_absl//absl/container:flat_hash_map",
-        "@com_google_absl//absl/log:absl_log",
-        "@com_google_absl//absl/memory",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings:string_view",
-        "@litert//litert/cc:litert_buffer_ref",
-        "@litert//litert/cc:litert_macros",
-        "@litert//litert/cc:litert_model",
-        "//runtime/proto:llm_metadata_cc_proto",
-        "//runtime/util:litert_lm_loader",
-        "//runtime/util:litert_status_util",
-    ],
 )
 
 cc_library(

@@ -110,6 +110,10 @@ build --incompatible_enforce_config_setting_visibility
 # TODO: also enable this flag after fixing the visibility violations
 # build --incompatible_config_setting_private_default_visibility
 
+# Disable Hermetic CC toolchains
+build --@rules_ml_toolchain//common:enable_hermetic_cc=False
+build --repo_env USE_HERMETIC_CC_TOOLCHAIN=0
+
 # Default options should come above this line.
 
 # Enforce clang as C/C++ compiler on Linux.

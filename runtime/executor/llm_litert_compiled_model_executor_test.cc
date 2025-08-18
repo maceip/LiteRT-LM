@@ -41,9 +41,9 @@ const int kNumThreads = 4;
 
 using ::litert::lm::Backend;
 using ::litert::lm::LlmExecutorSettings;
-using ::litert::lm::ModelAssets;
 using ::litert::lm::LlmLiteRtCompiledModelExecutor;
 using ::litert::lm::ModelAssetBundleResources;
+using ::litert::lm::ModelAssets;
 using ::litert::lm::ModelResourcesTask;
 
 absl::StatusOr<std::unique_ptr<ModelResources>> CreateExecutorModelResources(
@@ -70,15 +70,15 @@ TEST(LlmLiteRTCompiledModelExecutorTest, CreateExecutorTest_WithoutCache) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
-  auto executor = LlmLiteRtCompiledModelExecutor::Create(
-      *executor_settings, std::move(model_resources));
+  auto executor = LlmLiteRtCompiledModelExecutor::Create(*executor_settings,
+                                                         *model_resources);
   ASSERT_OK(executor);
   ASSERT_NE(*executor, nullptr);
 }
 
 TEST(LlmLiteRTCompiledModelExecutorTest, CreateExecutorTest_WithCache) {
   auto cache_path = std::filesystem::path(::testing::TempDir()) /
-       absl::StrCat("cache-", std::rand());
+                    absl::StrCat("cache-", std::rand());
   std::filesystem::remove_all(cache_path);
   absl::Cleanup remove_cache = [cache_path] {
     std::filesystem::remove_all(cache_path);
@@ -98,8 +98,8 @@ TEST(LlmLiteRTCompiledModelExecutorTest, CreateExecutorTest_WithCache) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
-  auto executor = LlmLiteRtCompiledModelExecutor::Create(
-      *executor_settings, std::move(model_resources));
+  auto executor = LlmLiteRtCompiledModelExecutor::Create(*executor_settings,
+                                                         *model_resources);
   ASSERT_OK(executor);
   ASSERT_NE(*executor, nullptr);
 }

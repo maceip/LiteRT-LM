@@ -2,7 +2,6 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_SAMPLER_H_
 
 #include "absl/status/status.h"  // from @com_google_absl
-#include "absl/status/statusor.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 
 namespace litert::lm {
@@ -21,10 +20,6 @@ class Sampler {
   virtual absl::Status SampleToIdAndScoreBuffer(
       const TensorBuffer& logits_tensor, TensorBuffer& ids_tensor,
       TensorBuffer* scores_tensor) = 0;
-
-  virtual absl::StatusOr<float> GetPerplexity() {
-    return absl::UnimplementedError("Perplexity is not computed.");
-  }
 };
 
 }  // namespace litert::lm

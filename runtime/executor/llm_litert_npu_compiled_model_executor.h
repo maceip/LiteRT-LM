@@ -35,6 +35,7 @@
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
+#include "runtime/executor/llm_executor_processed_tokens.h"
 #include "runtime/executor/llm_executor_settings.h"
 
 namespace litert::lm {
@@ -68,8 +69,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
   // Creates an executor from the resources.
   static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
   Create(
-      const LlmExecutorSettings& executor_settings,
-      std::unique_ptr<ModelResources> resources,
+      const LlmExecutorSettings& executor_settings, ModelResources& resources,
       const std::optional<std::string>& dispatch_library_path = std::nullopt);
 
   // Input APIs:
@@ -86,25 +86,14 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
   // Basic API to trigger the "decode" process.
   absl::Status Decode(::litert::TensorBuffer& output_tokens) override;
 
-  // Basic API to trigger the "decode" process but without sampling.
-  // Input is token ids with shape `[batch, sequence_length]`
-  // Output is logits with shape `[batch, sequence_length, vocab_size]`
-  // TODO: b/355310550 - Shall we change the function naming here to not
-  // overload Decode?
-  absl::Status Decode(const ExecutorInputs& inputs,
-                      ::litert::TensorBuffer& output_logits) override;
-
   absl::string_view ExecutorBackendName() const override {
     return "LiteRT NPU Compiled Model";
   }
 
   // Gets the current step of the executor.
   // Public API, the return value is the current step that user expects (e.g.
-  // users prefill 100 tokens, then they expect the current step to be 100). It
-  // is different from the internal current step.
-  absl::StatusOr<int> GetCurrentStep() const override {
-    return current_step_ + (next_input_token_id_ == -1 ? 0 : 1);
-  }
+  // users prefill 100 tokens, then they expect the current step to be 100).
+  absl::StatusOr<int> GetCurrentStep() const override { return current_step_; }
 
   absl::StatusOr<int> GetVocabSize() override;
 
@@ -190,9 +179,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
 
  protected:
   LlmLiteRtNpuCompiledModelExecutor(
-      LlmExecutorSettings executor_settings,
-      std::unique_ptr<ModelResources> resources,
-      EmbedderContext embedder_context,
+      LlmExecutorSettings executor_settings, EmbedderContext embedder_context,
       NpuAuxiliaryContext npu_auxiliary_context, InferenceContext mask_context,
       InferenceContext rope_context, ::litert::Environment llm_env,
       ::litert::CompiledModel llm_compiled_model,
@@ -202,7 +189,6 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
       std::optional<EmbedderPerLayerContext> embedder_per_layer_context =
           std::nullopt)
       : executor_settings_(std::move(executor_settings)),
-        resources_(std::move(resources)),
         embedder_context_(std::move(embedder_context)),
         npu_auxiliary_context_(std::move(npu_auxiliary_context)),
         mask_context_(std::move(mask_context)),
@@ -221,9 +207,12 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
   absl::Status PrefillInternal(absl::string_view prefill_signature,
                                absl::Span<const int> ids);
 
-  // Decode internal implementation, without result downloading.
-  // Caller of this function is responsible for capturing the output.
-  absl::Status DecodeInternal(ExecutorInputs inputs);
+  // Decode internal implementation. Uses the specified 'token' as the input
+  // token and uses the specified 'step' as the current time step.  The
+  // logits from the decode step are stored in the 'logits' output buffer of
+  // the transformer model when this function returns absl::OkStatus().
+  absl::Status DecodeInternal(const int step,
+                              const std::shared_ptr<TokenData> token);
 
   // Creates the context for the embedder model.  Instead of creating new
   // output buffers for the embedder, the context will use the input buffers
@@ -342,9 +331,9 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
   // Internal timestep.
   int current_step_ = 0;
 
-  // The token served as the first input token to the model for next Prefill or
-  // Decode.
-  int next_input_token_id_ = -1;
+  // The processed tokens.  This is also used to store the pending input token
+  // for next prefill or decode steps.
+  litert::lm::ProcessedTokens processed_tokens_;
 };
 
 }  // namespace litert::lm

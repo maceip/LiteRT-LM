@@ -1,5 +1,5 @@
 
-#include "schema/litertlm_writer_utils.h"
+#include "schema/cc/litertlm_writer_utils.h"
 
 #include <cstddef>
 #include <cstdint>

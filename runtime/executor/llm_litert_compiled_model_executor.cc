@@ -41,7 +41,7 @@
 #include "litert/cc/options/litert_cpu_options.h"  // from @litert
 #include "litert/cc/options/litert_gpu_options.h"  // from @litert
 #include "litert/cc/options/litert_runtime_options.h"  // from @litert
-#include "runtime/components/embedding_lookup_text.h"
+#include "runtime/components/embedding_lookup/embedding_lookup_text.h"
 #include "runtime/components/model_resources.h"
 #include "runtime/components/sampler_factory.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -610,11 +610,10 @@ absl::StatusOr<int> LlmLiteRtCompiledModelExecutor::GetVocabSize() {
 // static
 // Creates a LlmLiteRtCompiledModelExecutor from a LiteRt model.
 absl::StatusOr<std::unique_ptr<LlmLiteRtCompiledModelExecutor>>
-LlmLiteRtCompiledModelExecutor::Create(
-    LlmExecutorSettings executor_settings,
-    std::unique_ptr<ModelResources> resources) {
+LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
+                                       ModelResources& resources) {
   ASSIGN_OR_RETURN(auto litert_model,
-                   resources->GetTFLiteModel(ModelType::kTfLitePrefillDecode));
+                   resources.GetTFLiteModel(ModelType::kTfLitePrefillDecode));
   // For the LlmLiteRtCompiledModelExecutor, ML_DRIFT backend is used by
   // default.
   // TODO(b/405424188): - Add support for NPU backends.
@@ -835,7 +834,7 @@ LlmLiteRtCompiledModelExecutor::Create(
 
   // Create embedding lookups from the resources.
   std::unique_ptr<EmbeddingLookupText> embedding_lookup;
-  auto embedder_model = resources->GetTFLiteModel(ModelType::kTfLiteEmbedder);
+  auto embedder_model = resources.GetTFLiteModel(ModelType::kTfLiteEmbedder);
   if (embedder_model.ok()) {
     ASSIGN_OR_RETURN(embedding_lookup,  // NOLINT
                      EmbeddingLookupText::Create(*embedder_model));
@@ -844,21 +843,20 @@ LlmLiteRtCompiledModelExecutor::Create(
   // Create per layer embedding lookups from the resources.
   std::unique_ptr<EmbeddingLookupText> per_layer_embedding_lookup;
   auto per_layer_embedder_model =
-      resources->GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder);
+      resources.GetTFLiteModel(ModelType::kTfLitePerLayerEmbedder);
   if (per_layer_embedder_model.ok()) {
     ASSIGN_OR_RETURN(per_layer_embedding_lookup,  // NOLINT
                      EmbeddingLookupText::Create(*per_layer_embedder_model));
   }
 
   return absl::WrapUnique(new LlmLiteRtCompiledModelExecutor(
-      std::move(executor_settings), std::move(resources), std::move(*lrt_env),
-      litert_model, std::move(*compiled_model),
-      std::move(prefill_input_buffers), std::move(prefill_output_buffers),
-      std::move(decode_input_buffers), std::move(decode_output_buffers),
-      std::move(input_kv_cache_buffers), std::move(output_kv_cache_buffers),
-      std::move(prefill_runner_set), signatures, batch_size, weight_cache_path,
-      std::move(embedding_lookup), std::move(per_layer_embedding_lookup),
-      activation_data_type));
+      std::move(executor_settings), std::move(*lrt_env), litert_model,
+      std::move(*compiled_model), std::move(prefill_input_buffers),
+      std::move(prefill_output_buffers), std::move(decode_input_buffers),
+      std::move(decode_output_buffers), std::move(input_kv_cache_buffers),
+      std::move(output_kv_cache_buffers), std::move(prefill_runner_set),
+      signatures, batch_size, weight_cache_path, std::move(embedding_lookup),
+      std::move(per_layer_embedding_lookup), activation_data_type));
 }
 
 }  // namespace litert::lm

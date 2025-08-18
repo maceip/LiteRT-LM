@@ -1,5 +1,5 @@
-#ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_EMBEDDING_LOOKUP_TEXT_H_
-#define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_EMBEDDING_LOOKUP_TEXT_H_
+#ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_EMBEDDING_LOOKUP_EMBEDDING_LOOKUP_TEXT_H_
+#define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_EMBEDDING_LOOKUP_EMBEDDING_LOOKUP_TEXT_H_
 
 #include <sys/types.h>
 
@@ -18,7 +18,7 @@
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
-#include "runtime/components/embedding_lookup.h"
+#include "runtime/components/embedding_lookup/embedding_lookup.h"
 
 namespace litert::lm {
 
@@ -79,7 +79,7 @@ class EmbeddingLookupText : public EmbeddingLookup {
   // had some embeddings written to it.
   absl::Status LookupPrefill(absl::Span<const int> tokens,
                              litert::TensorBuffer* prefill_output,
-                             size_t token_offset) override;
+                             size_t byte_offset) override;
 
   // Returns number of floats per token in the output tensor.
   size_t GetFloatsPerToken();
@@ -128,4 +128,4 @@ class EmbeddingLookupText : public EmbeddingLookup {
 
 }  // namespace litert::lm
 
-#endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_EMBEDDING_LOOKUP_TEXT_H_
+#endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_EMBEDDING_LOOKUP_EMBEDDING_LOOKUP_TEXT_H_

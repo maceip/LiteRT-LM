@@ -10,8 +10,8 @@
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
 #include "runtime/proto/llm_metadata.pb.h"  // For LlmMetadata
+#include "schema/cc/litertlm_writer_utils.h"
 #include "schema/core/litertlm_print.h"
-#include "schema/litertlm_writer_utils.h"
 #include "google/protobuf/text_format.h"  // from @com_google_protobuf  // For TextFormat::PrintToString
 
 namespace litert {

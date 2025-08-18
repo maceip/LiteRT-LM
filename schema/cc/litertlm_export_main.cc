@@ -4,7 +4,7 @@
 // Example usage:
 //
 // bazel run
-// //third_party/odml/litert_lm/schema:litertlm_export_main \
+// //third_party/odml/litert_lm/schema/cc:litertlm_export_main \
 //   -- --tokenizer_file=/path/to/tokenizer.model \
 //   --tflite_file=/path/to/model.tflite \
 //   --llm_metadata=/path/to/llm_metadata.pb

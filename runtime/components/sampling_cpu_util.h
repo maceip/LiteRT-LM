@@ -1,10 +1,6 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_SAMPLING_CPU_UTIL_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_COMPONENTS_SAMPLING_CPU_UTIL_H_
 
-#include <cstddef>
-#include <memory>
-#include <optional>
-#include <utility>
 #include <vector>
 
 #include "absl/random/random.h"  // from @com_google_absl
@@ -12,24 +8,6 @@
 #include "absl/types/span.h"  // from @com_google_absl
 
 namespace litert::lm {
-
-class SampledIdsAndPerplexity {
-  // The sampled ids of each batch.
- public:
-  static absl::StatusOr<std::unique_ptr<SampledIdsAndPerplexity>>
-  CreateSampledIdsAndPerplexity(std::vector<int> sampled_ids,
-                                std::optional<float> optional_float);
-
-  const std::vector<int>& GetSampleIds() const { return sampled_ids_; }
-  std::optional<float> GetPerplexity() const { return perplexity_; }
-
- private:
-  std::vector<int> sampled_ids_;
-  std::optional<float> perplexity_;
-  SampledIdsAndPerplexity(std::vector<int> sampled_ids,
-                          std::optional<float> perplexity)
-      : sampled_ids_(std::move(sampled_ids)), perplexity_(perplexity) {}
-};
 
 // Computes the top k indices of the given logits. The logits must be a 2D
 // tensor (in a flattened buffer) of shape [batch_size, vocab_size]. The output
@@ -65,12 +43,9 @@ absl::StatusOr<std::vector<float>> Softmax(
 //     true probabilities as they are calculated based on the top-k logits
 //     which are not normalized across the entire vocab. When k == 1, the
 //     sampled_scores are always 1.0.
-//   - compute_perplexity: a boolean flag to indicate whether the function
-//     should compute the perplexity or not.
-absl::StatusOr<std::unique_ptr<SampledIdsAndPerplexity>> TopKTopPSampling(
+absl::StatusOr<std::vector<int>> TopKTopPSampling(
     absl::Span<const float> logits, int k, float p, float temperature,
-    absl::BitGen& rng, int batch_size, bool compute_perplexity,
-    std::vector<float>& sampled_scores);
+    absl::BitGen& rng, int batch_size, std::vector<float>& sampled_scores);
 
 }  // namespace litert::lm
 

@@ -110,9 +110,7 @@ jobs:
             @litert//litert/vendors/mediatek/dispatch:dispatch_api_so \
             @litert//litert/vendors/qualcomm/dispatch:dispatch_api_so \
             -- \
-            -//python/tools:litertlm_core_test \
-            -//python/tools:litertlm_peek_test \
-            -//python/tools:litertlm_writer_test
+            -//schema/py:*
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 

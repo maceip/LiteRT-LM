@@ -23,3 +23,5 @@ config_setting(
     name = "litert_lm_link_capi_static",
     values = {"define": "litert_lm_link_capi_so=false"},
 )
+
+# A dummy comment to push changes not merged into github main branch.

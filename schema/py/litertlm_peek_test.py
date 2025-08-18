@@ -16,7 +16,7 @@ import os
 
 from absl.testing import absltest
 
-from litert_lm.python.tools import litertlm_peek
+from litert_lm.schema.py import litertlm_peek
 
 
 class LitertlmPeekPyTest(absltest.TestCase):
