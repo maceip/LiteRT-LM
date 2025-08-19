@@ -654,7 +654,7 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
         gpu_compilation_options.SetSerializeProgramCache(true);
         gpu_compilation_options.SetSerializeExternalTensors(true);
       }
-      gpu_compilation_options.EnableNoImmutableExternalTensorsMode(true);
+      gpu_compilation_options.EnableNoExternalTensorsMode(true);
       // This option prevents KVCache handling from being affected by
       // NoExternalTensorsMode.
       gpu_compilation_options.AddExternalTensorPattern("kv_cache_");

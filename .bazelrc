@@ -62,6 +62,8 @@ build --define framework_shared_object=true
 build --define tsl_protobuf_header_only=true
 
 build --define=allow_oversize_protos=true
+# protobuf will stop supporting MSVC.
+build:windows --define=protobuf_allow_msvc=true
 
 build --spawn_strategy=standalone
 build -c opt
