@@ -99,6 +99,24 @@ cc_library(
 )
 
 cc_library(
+    name = "scoring_cpu_util",
+    srcs = ["scoring_cpu_util.cc"],
+    hdrs = ["scoring_cpu_util.h"],
+    deps = [
+        ":sampling_cpu_util",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
     name = "sampler",
     hdrs = ["sampler.h"],
     deps = ["@com_google_absl//absl/status"] + select({
@@ -118,6 +136,24 @@ cc_test(
         ":sampling_cpu_util",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/random",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "scoring_cpu_util_test",
+    srcs = ["scoring_cpu_util_test.cc"],
+    deps = [
+        ":sampling_cpu_util",
+        ":scoring_cpu_util",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/random",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
     ],
 )
