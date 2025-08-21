@@ -33,8 +33,7 @@ constexpr char kTestdataDir[] =
 // is quite unusual because it is just a single constant op. However, the
 // issue is not limited to the test model because the real end of multi-modal
 // embedding model is also a single constant op.
-// TODO: b/438462241 - Re-enable these tests once LiteRT bug is fixed.
-class DISABLED_EndOfMultiModalEmbeddingTest : public testing::Test {
+class EndOfMultiModalEmbeddingTest : public testing::Test {
  protected:
   absl::Status CreateModelFromFile() {
     // The model is a dummy end of multi-modal embedding model that has no
@@ -95,7 +94,7 @@ class DISABLED_EndOfMultiModalEmbeddingTest : public testing::Test {
   std::optional<Model> model_;
 };
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupDecodeVector) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupDecodeVector) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);
@@ -110,7 +109,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupDecodeVector) {
                                      "EndOfMultiModalEmbedding.")));
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupDecode) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupDecode) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);
@@ -128,7 +127,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupDecode) {
               "LookupDecode is not implemented for EndOfMultiModalEmbedding")));
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefillVector) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupPrefillVector) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);
@@ -150,7 +149,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefillVector) {
   }
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
+TEST_F(EndOfMultiModalEmbeddingTest,
        LookupPrefillVectorBadOutputVector) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
@@ -166,7 +165,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
                                      "size for the end of multi-modal")));
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
+TEST_F(EndOfMultiModalEmbeddingTest,
        LookupPrefillVectorNonSpecialToken) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
@@ -185,7 +184,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
   }
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefill) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupPrefill) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);
@@ -232,7 +231,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefill) {
   }
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupAllSpecialTokens) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupAllSpecialTokens) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);
@@ -275,7 +274,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupAllSpecialTokens) {
   }
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupNoSpecialTokens) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupNoSpecialTokens) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);
@@ -310,7 +309,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupNoSpecialTokens) {
   }
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
+TEST_F(EndOfMultiModalEmbeddingTest,
        LookupPrefillBadOutputTensorDimNum) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
@@ -330,7 +329,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
                       "model must be have the same number of dimensions")));
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
+TEST_F(EndOfMultiModalEmbeddingTest,
        LookupPrefillBadOutputTensorDimSize) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
@@ -350,7 +349,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
                       "model must be have the same dimensions")));
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
+TEST_F(EndOfMultiModalEmbeddingTest,
        LookupPrefillBadOutputTensorDim0) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
@@ -371,7 +370,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
               "model must be have the 0th dimension as 1.")));
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
+TEST_F(EndOfMultiModalEmbeddingTest,
        LookupPrefillBadOutputTensorDim1) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
@@ -393,7 +392,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
               "the same size as the number of tokens")));
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefillLargerOutputTensor) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupPrefillLargerOutputTensor) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);
@@ -443,7 +442,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefillLargerOutputTensor) {
   }
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefillNullOutputTensor) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupPrefillNullOutputTensor) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);
@@ -455,7 +454,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefillNullOutputTensor) {
                                 testing::HasSubstr("Output tensor is null")));
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefillWithOffset) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupPrefillWithOffset) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);
@@ -506,7 +505,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefillWithOffset) {
   }
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
+TEST_F(EndOfMultiModalEmbeddingTest,
        LookupPrefillWithOffsetAndFewerTokensThanOutputTensor) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
@@ -564,7 +563,7 @@ TEST_F(DISABLED_EndOfMultiModalEmbeddingTest,
   }
 }
 
-TEST_F(DISABLED_EndOfMultiModalEmbeddingTest, LookupPrefillWithBadOffset) {
+TEST_F(EndOfMultiModalEmbeddingTest, LookupPrefillWithBadOffset) {
   std::unique_ptr<EndOfMultiModalEmbedding> embedding =
       GetEndOfMultiModalEmbedding();
   ASSERT_NE(embedding, nullptr);

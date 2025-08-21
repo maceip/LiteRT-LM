@@ -1394,11 +1394,8 @@ TEST_F(EmbeddingLookupManagerTest,
                              "multimodal embeddings must not be provided")));
 }
 
-// TODO: b/438462241 - Re-enable this test once the LiteRT model loading bug is
-// fixed.
-TEST_F(
-    EmbeddingLookupManagerTest,
-    DISABLED_CreateWithPartialMultiModalSupportAndEndOfMultiModalEmbeddings) {
+TEST_F(EmbeddingLookupManagerTest,
+       CreateWithPartialMultiModalSupportAndEndOfMultiModalEmbeddings) {
   absl::flat_hash_map<int, litert::Model*> end_of_multi_modal_embedding_models;
   end_of_multi_modal_embedding_models.insert({-3, &end_of_multi_modal_model_});
   auto status = EmbeddingLookupManager::Create(
@@ -1412,11 +1409,8 @@ TEST_F(
                       "end_of_multi_modal_embedding_models must be empty")));
 }
 
-// TODO: b/438462241 - Re-enable this test once the LiteRT model loading bug is
-// fixed.
-TEST_F(
-    EmbeddingLookupManagerTest,
-    DISABLED_LookupPrefillTextAndMultimodalMultipleTokensAndEndOfMultiModal) {
+TEST_F(EmbeddingLookupManagerTest,
+       LookupPrefillTextAndMultimodalMultipleTokensAndEndOfMultiModal) {
   ASSERT_NE(embedding_lookup_manager_, nullptr);
 
   ASSERT_OK(UpdateMultiModalEmbeddings());
@@ -1499,7 +1493,7 @@ TEST_F(
 // TODO: b/438462241 - Re-enable this test once the LiteRT model loading bug is
 // fixed.
 TEST_F(EmbeddingLookupManagerTest,
-       DISABLED_LookupPrefillMultimodalMultipleTokensAndEndOfMultiModal) {
+       LookupPrefillMultimodalMultipleTokensAndEndOfMultiModal) {
   ASSERT_NE(embedding_lookup_manager_, nullptr);
 
   ASSERT_OK(UpdateMultiModalEmbeddings());
@@ -1538,10 +1532,8 @@ TEST_F(EmbeddingLookupManagerTest,
   }
 }
 
-// TODO: b/438462241 - Re-enable this test once the LiteRT model loading bug is
-// fixed.
 TEST_F(EmbeddingLookupManagerTest,
-       DISABLED_LookupPrefillTextAndMultimodalAndEndOfMultiModalWithOffset) {
+       LookupPrefillTextAndMultimodalAndEndOfMultiModalWithOffset) {
   ASSERT_NE(embedding_lookup_manager_, nullptr);
 
   ASSERT_OK(UpdateMultiModalEmbeddings());
@@ -1631,10 +1623,11 @@ TEST_F(EmbeddingLookupManagerTest,
           size_t offset = float_offset + idx0 * dimensions[2] * dimensions[3] +
                           idx2 * dimensions[3] + idx3;
           if (token == -2) {
-            ASSERT_EQ(output_tensor_ptr[offset], multi_modal_embedding_value++);
+            ASSERT_EQ(output_tensor_float_ptr[offset],
+                      multi_modal_embedding_value++);
           } else if (token == -3) {
             float expected_value = (100.0 * idx2 + idx3) * 2;
-            ASSERT_NEAR(output_tensor_ptr[offset], expected_value, 1e-5);
+            ASSERT_NEAR(output_tensor_float_ptr[offset], expected_value, 1e-5);
           } else {
             // Since dimension 1 is of size 1, the offset and expected value can
             // ignore it.
