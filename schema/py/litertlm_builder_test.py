@@ -14,11 +14,46 @@
 
 import io
 import os
+import pathlib
 from absl.testing import absltest
 from google.protobuf import text_format
 from litert_lm.runtime.proto import llm_metadata_pb2
 from litert_lm.schema.py import litertlm_builder
 from litert_lm.schema.py import litertlm_peek
+
+_TOML_TEMPLATE = """
+# A template for testing the TOML parser.
+
+[system_metadata]
+entries = [
+  { key = "author", value_type = "String", value = "The ODML Authors" }
+]
+
+[[section]]
+# Section 0: LlmMetadataProto
+section_type = "LlmMetadata"
+data_path = "{LLM_METADATA_PATH}"
+
+[[section]]
+# Section 1: SP_Tokenizer
+section_type = "SP_Tokenizer"
+data_path = "{SP_TOKENIZER_PATH}"
+
+[[section]]
+# Section 2: TFLiteModel (Embedder)
+section_type = "TFLiteModel"
+model_type = "EMBEDDER"
+data_path = "{EMBEDDER_PATH}"
+
+[[section]]
+# Section 3: TFLiteModel (Prefill/Decode)
+section_type = "TFLiteModel"
+model_type = "PREFILL_DECODE"
+data_path = "{PREFILL_DECODE_PATH}"
+additional_metadata = [
+  { key = "License", value_type = "String", value = "Example" }
+]
+"""
 
 
 class LitertlmBuilderTest(absltest.TestCase):
@@ -239,6 +274,40 @@ class LitertlmBuilderTest(absltest.TestCase):
         tflite_path, model_type=litertlm_builder.TfLiteModelType.PREFILL_DECODE
     )
     builder.add_llm_metadata(metadata_path)
+    ss = self._build_and_read_litertlm(builder)
+    self.assertIn("Sections (4)", ss)
+    self.assertIn("Data Type:    SP_Tokenizer", ss)
+    self.assertIn("Data Type:    TFLiteModel", ss)
+    self.assertIn("Key: model_type, Value (String): tf_lite_embedder", ss)
+    self.assertIn("Key: model_type, Value (String): tf_lite_prefill_decode", ss)
+    self.assertIn("Data Type:    LlmMetadataProto", ss)
+    self.assertIn("max_num_tokens: 123", ss)
+
+  def test_from_toml(self):
+    """Tests that a LitertLmFileBuilder can be initialized from a TOML file."""
+    sp_path = pathlib.Path(
+        self._create_dummy_file("sp.model", b"dummy sp content")
+    ).as_posix()
+    tflite_path = pathlib.Path(
+        self._create_dummy_file("model.tflite", b"dummy tflite content")
+    ).as_posix()
+    metadata_path = pathlib.Path(
+        self._create_dummy_file(
+            "llm.pb",
+            llm_metadata_pb2.LlmMetadata(
+                max_num_tokens=123
+            ).SerializeToString(),
+        )
+    ).as_posix()
+    toml_path = self._create_dummy_file(
+        "test.toml",
+        _TOML_TEMPLATE.replace("{LLM_METADATA_PATH}", metadata_path)
+        .replace("{SP_TOKENIZER_PATH}", sp_path)
+        .replace("{EMBEDDER_PATH}", tflite_path)
+        .replace("{PREFILL_DECODE_PATH}", tflite_path)
+        .encode("utf-8"),
+    )
+    builder = litertlm_builder.LitertLmFileBuilder.from_toml_file(toml_path)
     ss = self._build_and_read_litertlm(builder)
     self.assertIn("Sections (4)", ss)
     self.assertIn("Data Type:    SP_Tokenizer", ss)

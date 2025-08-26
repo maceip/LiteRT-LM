@@ -39,6 +39,7 @@ with open(output_path, "wb") as f:
 import dataclasses
 import enum
 import os
+import tomllib
 from typing import Any, BinaryIO, Callable, Optional, TypeVar
 import zlib
 import flatbuffers
@@ -101,7 +102,11 @@ class TfLiteModelType(enum.Enum):
   VISION_ENCODER = "tf_lite_vision_encoder"
   VISION_ADAPTER = "tf_lite_vision_adapter"
 
-
+  @classmethod
+  def get_enum_from_tf_free_value(cls, tf_free_value: str) -> "TfLiteModelType":
+    """A helper method to get the enum value from the TF-free value."""
+    value = "tf_lite_" + tf_free_value.lower()
+    return cls(value)
 
 
 @dataclasses.dataclass
@@ -152,6 +157,83 @@ class LitertLmFileBuilder:
     self._sections: list[_SectionObject] = []
     self._has_llm_metadata = False
     self._has_tokenizer = False
+
+  @classmethod
+  def from_toml_str(cls, toml_str: str) -> LitertLmFileBuilderT:
+    """Initializes a LitertLmFileBuilder from a loaded TOML string."""
+    builder = cls()
+    toml_data = tomllib.loads(toml_str)
+
+    for key in toml_data.keys():
+      if key not in ["section", "system_metadata"]:
+        raise ValueError(f"Unexpected key: {key}")
+
+    if "system_metadata" in toml_data:
+      assert (
+          "entries" in toml_data["system_metadata"]
+      ), "System metadata does not have entries."
+      for entry in toml_data["system_metadata"]["entries"]:
+        builder.add_system_metadata(
+            Metadata(
+                key=entry["key"],
+                value=entry["value"],
+                dtype=DType(str(entry["value_type"]).lower()),
+            )
+        )
+
+    if "section" in toml_data:
+      for section in toml_data["section"]:
+        assert "section_type" in section, "Section does not have section_type."
+        assert "data_path" in section, "Section does not have data_path."
+
+        additional_metadata = None
+        if "additional_metadata" in section and section["additional_metadata"]:
+          additional_metadata = []
+          for m in section["additional_metadata"]:
+            additional_metadata.append(
+                Metadata(
+                    key=m["key"],
+                    value=m["value"],
+                    dtype=DType(str(m["value_type"]).lower()),
+                )
+            )
+
+        if section["section_type"] == "LlmMetadata":
+          builder.add_llm_metadata(
+              section["data_path"], additional_metadata=additional_metadata
+          )
+        elif section["section_type"] == "TFLiteModel":
+          assert (
+              "model_type" in section
+          ), "TFLiteModel section does not have model_type."
+          model_type = TfLiteModelType.get_enum_from_tf_free_value(
+              section["model_type"]
+          )
+          builder.add_tflite_model(
+              section["data_path"],
+              model_type,
+              additional_metadata=additional_metadata,
+          )
+        elif section["section_type"] == "SP_Tokenizer":
+          builder.add_sentencepiece_tokenizer(
+              section["data_path"], additional_metadata=additional_metadata
+          )
+        elif section["section_type"] == "HF_Tokenizer":
+          builder.add_hf_tokenizer(
+              section["data_path"], additional_metadata=additional_metadata
+          )
+        else:
+          raise ValueError(
+              f"Unexpected section type: {section['section_type']}"
+          )
+
+    return builder
+
+  @classmethod
+  def from_toml_file(cls, toml_path: str) -> LitertLmFileBuilderT:
+    """Initializes a LitertLmFileBuilder from a TOML file."""
+    with open(toml_path, "r") as f:
+      return cls.from_toml_str(f.read())
 
   def add_system_metadata(
       self,
