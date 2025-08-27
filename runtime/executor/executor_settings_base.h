@@ -51,7 +51,7 @@ enum class Backend {
   NPU,
 };
 std::ostream& operator<<(std::ostream& os, const Backend& backend);
-// Returns the backend from the string.
+// Returns the backend enum from the string. Case-insensitive.
 absl::StatusOr<Backend> GetBackendFromString(absl::string_view backend_str);
 
 enum class ActivationDataType {
