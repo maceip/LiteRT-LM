@@ -25,6 +25,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "runtime/components/preprocessor/image_preprocessor.h"
 #include "runtime/components/sampler.h"
 #include "runtime/components/stop_token_detector.h"
 #include "runtime/components/tokenizer.h"
@@ -32,6 +33,7 @@
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/llm_executor.h"
+#include "runtime/executor/vision_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
 
@@ -51,6 +53,7 @@ class SessionBasic : public Engine::Session {
   //   handled by the LLM Executor.
   static absl::StatusOr<std::unique_ptr<SessionBasic>> Create(
       LlmExecutor* absl_nonnull executor, Tokenizer* absl_nonnull tokenizer,
+      ImagePreprocessor* image_preprocessor, VisionExecutor* vision_executor,
       const SessionConfig& session_config,
       std::optional<BenchmarkInfo> benchmark_info,
       ThreadPool* absl_nonnull worker_thread_pool);
@@ -77,6 +80,8 @@ class SessionBasic : public Engine::Session {
  private:
   explicit SessionBasic(LlmExecutor* absl_nonnull executor,
                         Tokenizer* absl_nonnull tokenizer,
+                        ImagePreprocessor* image_preprocessor,
+                        VisionExecutor* vision_executor,
                         std::unique_ptr<Sampler> sampler,
                         const SessionConfig& session_config,
                         std::optional<BenchmarkInfo> benchmark_info,
@@ -84,6 +89,8 @@ class SessionBasic : public Engine::Session {
                         const StopTokenDetector& stop_token_detector)
       : executor_(*executor),
         tokenizer_(*tokenizer),
+        image_preprocessor_(image_preprocessor),
+        vision_executor_(vision_executor),
         sampler_(std::move(sampler)),
         session_config_(session_config),
         benchmark_info_(benchmark_info),
@@ -118,6 +125,12 @@ class SessionBasic : public Engine::Session {
 
   // The tokenizer used for converting between text to token ids.
   Tokenizer& tokenizer_;
+
+  // The image preprocessor used for preprocessing the image input.
+  ImagePreprocessor* image_preprocessor_;
+
+  // The vision executor used for run the LLM for prefill/decode.
+  VisionExecutor* vision_executor_;
 
   // The session config used for the session.
   std::unique_ptr<Sampler> sampler_;

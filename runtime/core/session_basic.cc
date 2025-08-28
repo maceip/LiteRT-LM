@@ -28,6 +28,8 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "litert/cc/litert_layout.h"  // from @litert
+#include "runtime/components/preprocessor/image_preprocessor.h"
 #include "runtime/components/sampler.h"
 #include "runtime/components/sampler_factory.h"
 #include "runtime/components/stop_token_detector.h"
@@ -39,6 +41,7 @@
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
+#include "runtime/executor/vision_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/convert_tensor_buffer.h"
@@ -50,6 +53,7 @@ namespace litert::lm {
 // static
 absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
     LlmExecutor* executor, Tokenizer* tokenizer,
+    ImagePreprocessor* image_preprocessor, VisionExecutor* vision_executor,
     const SessionConfig& session_config,
     std::optional<BenchmarkInfo> benchmark_info,
     ThreadPool* worker_thread_pool) {
@@ -77,9 +81,10 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
     RETURN_IF_ERROR(
         stop_token_detector.AddStopTokenSequence(stop_token_sequence));
   }
-  return absl::WrapUnique(new SessionBasic(
-      executor, tokenizer, std::move(sampler), session_config, benchmark_info,
-      worker_thread_pool, stop_token_detector));
+  return absl::WrapUnique(
+      new SessionBasic(executor, tokenizer, image_preprocessor, vision_executor,
+                       std::move(sampler), session_config, benchmark_info,
+                       worker_thread_pool, stop_token_detector));
 }
 
 SessionBasic::~SessionBasic() {
@@ -127,7 +132,6 @@ absl::StatusOr<std::vector<InputData>> SessionBasic::PreprocessContents(
           // count to set the prefill token count.
           ids.resize(benchmark_prefill_token_count);
         } else {
-          // TODO(hoko): Ask @ztenghui what is the original design intent here.
           ids.insert(ids.begin(), session_config_.GetStartTokenId());
         }
         ASSIGN_OR_RETURN(auto ids_buffer,
@@ -135,7 +139,23 @@ absl::StatusOr<std::vector<InputData>> SessionBasic::PreprocessContents(
         preprocessed_contents.emplace_back(InputText(std::move(ids_buffer)));
       }
     } else if (const auto* input_image = std::get_if<InputImage>(&input)) {
-      return absl::UnimplementedError("Image prefill is not implemented yet.");
+      RET_CHECK(image_preprocessor_) << "Image preprocessor is not available.";
+
+      ASSIGN_OR_RETURN(const auto& target_dims_vector,
+                       vision_executor_->GetExpectedInputDimension());
+
+      Dimensions target_dims(target_dims_vector.begin(),
+                             target_dims_vector.end());
+
+      ImagePreprocessParameter input_preprocess_parameters;
+      input_preprocess_parameters.SetTargetDimensions(target_dims);
+
+      ASSIGN_OR_RETURN(auto preprocessed_image,
+                       image_preprocessor_->Preprocess(
+                           *input_image, input_preprocess_parameters));
+
+      preprocessed_contents.emplace_back(
+          InputImage(std::move(preprocessed_image)));
     } else if (const auto* input_audio = std::get_if<InputAudio>(&input)) {
       return absl::UnimplementedError("Audio prefill is not implemented yet.");
     }

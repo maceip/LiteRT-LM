@@ -61,7 +61,9 @@ TEST(SessionFactoryTest, InitializeSession) {
   session_config.SetSamplerBackend(Backend::CPU);
   ThreadPool worker_thread_pool("testpool", /*max_num_threads=*/1);
   auto session =
-      InitializeSession(&executor, &tokenizer, session_config,
+      InitializeSession(&executor, &tokenizer,
+                        /*image_preprocessor=*/nullptr,
+                        /*vision_executor=*/nullptr, session_config,
                         /*benchmark_info=*/std::nullopt, &worker_thread_pool);
   EXPECT_OK(session);
 }

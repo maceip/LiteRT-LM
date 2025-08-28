@@ -33,7 +33,6 @@
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/fake_llm_executor.h"
 #include "runtime/executor/llm_executor.h"
-#include "runtime/framework/thread_options.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
@@ -86,7 +85,9 @@ TEST_F(SessionBasicTest, RunPrefill) {
   session_config.SetStartTokenId(2);
   session_config.SetSamplerBackend(Backend::CPU);
   auto session = SessionBasic::Create(
-      executor_.get(), tokenizer_.get(), session_config,
+      executor_.get(), tokenizer_.get(),
+      /*image_preprocessor=*/nullptr,
+      /*vision_executor=*/nullptr, session_config,
       /*benchmark_info=*/std::nullopt, worker_thread_pool_.get());
   std::vector<InputData> inputs;
   inputs.emplace_back(InputText("Hello World!"));
@@ -101,7 +102,9 @@ TEST_F(SessionBasicTest, RunDecode) {
   session_config.SetStartTokenId(2);
   session_config.SetSamplerBackend(Backend::CPU);
   auto session =
-      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+      SessionBasic::Create(executor_.get(), tokenizer_.get(),
+                           /*image_preprocessor=*/nullptr,
+                           /*vision_executor=*/nullptr, session_config,
                            std::nullopt, worker_thread_pool_.get());
   std::vector<InputData> inputs;
   inputs.emplace_back(InputText("Hello World!"));
@@ -132,7 +135,9 @@ TEST_F(SessionBasicTest, RunPrefillAsync) {
   session_config.GetMutableStopTokenIds() = stop_token_ids;
   session_config.SetSamplerBackend(Backend::CPU);
   auto session =
-      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+      SessionBasic::Create(executor_.get(), tokenizer_.get(),
+                           /*image_preprocessor=*/nullptr,
+                           /*vision_executor=*/nullptr, session_config,
                            std::nullopt, worker_thread_pool_.get());
 
   std::vector<InputData> inputs;
@@ -151,7 +156,9 @@ TEST_F(SessionBasicTest, RunDecodeAsync) {
   session_config.GetMutableStopTokenIds() = stop_token_ids;
   session_config.SetSamplerBackend(Backend::CPU);
   auto session =
-      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+      SessionBasic::Create(executor_.get(), tokenizer_.get(),
+                           /*image_preprocessor=*/nullptr,
+                           /*vision_executor=*/nullptr, session_config,
                            std::nullopt, worker_thread_pool_.get());
 
   std::vector<InputData> inputs;
@@ -198,7 +205,10 @@ TEST_F(SessionBasicTest, GenerateContentStream) {
   session_config.SetStartTokenId(2);
   session_config.SetSamplerBackend(Backend::CPU);
   auto session =
-      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+      SessionBasic::Create(executor_.get(), tokenizer_.get(),
+                           /*image_preprocessor=*/nullptr,
+                           /*vision_executor=*/nullptr,
+                           session_config,
                            std::nullopt, worker_thread_pool_.get());
 
   std::vector<InputData> inputs;
@@ -219,7 +229,10 @@ TEST_F(SessionBasicTest, GenerateContentStreamEmptyInput) {
   session_config.SetStartTokenId(2);
   session_config.SetSamplerBackend(Backend::CPU);
   auto session =
-      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+      SessionBasic::Create(executor_.get(), tokenizer_.get(),
+                           /*image_preprocessor=*/nullptr,
+                           /*vision_executor=*/nullptr,
+                           session_config,
                            std::nullopt, worker_thread_pool_.get());
 
   std::vector<InputData> inputs;
@@ -241,7 +254,10 @@ TEST_F(SessionBasicTest, GenerateContentStreamPrefillError) {
   session_config.SetStartTokenId(2);
   session_config.SetSamplerBackend(Backend::CPU);
   auto session =
-      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+      SessionBasic::Create(executor_.get(), tokenizer_.get(),
+                           /*image_preprocessor=*/nullptr,
+                           /*vision_executor=*/nullptr,
+                           session_config,
                            std::nullopt, worker_thread_pool_.get());
 
   std::vector<InputData> inputs;
@@ -266,7 +282,10 @@ TEST_F(SessionBasicTest, GenerateContentStreamDecodeError) {
   session_config.SetStartTokenId(2);
   session_config.SetSamplerBackend(Backend::CPU);
   auto session =
-      SessionBasic::Create(executor_.get(), tokenizer_.get(), session_config,
+      SessionBasic::Create(executor_.get(), tokenizer_.get(),
+                           /*image_preprocessor=*/nullptr,
+                           /*vision_executor=*/nullptr,
+                           session_config,
                            std::nullopt, worker_thread_pool_.get());
 
   std::vector<InputData> inputs;

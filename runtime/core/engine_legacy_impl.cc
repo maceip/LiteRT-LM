@@ -175,7 +175,9 @@ class EngineImpl : public Engine {
     // sampler component.
     config.GetMutableSamplerParams().set_type(
         proto::SamplerParameters::TYPE_UNSPECIFIED);
-    return InitializeSession(executor_.get(), tokenizer_, config,
+    return InitializeSession(executor_.get(), tokenizer_,
+                             /*image_preprocessor=*/nullptr,
+                             /*vision_executor=*/nullptr, config,
                              benchmark_info_, worker_thread_pool_.get());
   }
 

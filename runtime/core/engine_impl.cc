@@ -152,7 +152,9 @@ class EngineImpl : public Engine {
 
     ABSL_CHECK(litert_model_resources_ != nullptr);
     ASSIGN_OR_RETURN(auto* tokenizer, litert_model_resources_->GetTokenizer());
-    return InitializeSession(executor_.get(), tokenizer, config,
+    return InitializeSession(executor_.get(), tokenizer,
+                             /*image_preprocessor=*/nullptr,
+                             /*vision_executor=*/nullptr, config,
                              benchmark_info_, worker_thread_pool_.get());
   }
   absl::Status WaitUntilDone(absl::Duration timeout) override {
