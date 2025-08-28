@@ -53,21 +53,39 @@ class BytePairEncodingTokenizer : public Tokenizer {
               (const std::vector<int>& token_ids), (override));
 };
 
-// Test observer to collect the streaming results.
+// Test observer to collect the streaming results, also ensure that no more
+// events is received after OnError or OnDone.
 class TestObserver : public InferenceObservable {
  public:
-  explicit TestObserver(int num_candidates) {
+  explicit TestObserver(int num_candidates) : done_(false) {
     responses_.resize(num_candidates);
   }
   void OnNext(const Responses& responses) override {
+    EXPECT_FALSE(done_);
     for (int i = 0; i < responses.GetNumOutputCandidates(); ++i) {
       responses_[i] += *(responses.GetResponseTextAt(i));
     }
   }
+
+  void OnError(const absl::Status& status) override {
+    EXPECT_FALSE(done_);
+    status_ = status;
+    done_ = true;
+  }
+
+  void OnDone() override {
+    EXPECT_FALSE(done_);
+    done_ = true;
+  }
+
   const std::vector<std::string>& GetResponses() const { return responses_; }
+  const absl::Status& GetStatus() const { return status_; }
+  bool IsDone() const { return done_; }
 
  private:
   std::vector<std::string> responses_;
+  absl::Status status_;
+  bool done_;
 };
 
 class PipelineTest : public testing::Test {
@@ -522,6 +540,35 @@ TEST_F(PipelineCustomSamplingTest, DecodeStopTokenAndBPEDetector) {
   EXPECT_OK(responses);
   EXPECT_EQ(*(responses->GetResponseTextAt(0)), "BPE");
   EXPECT_EQ(*(responses->GetResponseTextAt(1)), "a");
+}
+
+using PipelineObserverTest = PipelineTest;
+
+TEST_F(PipelineObserverTest, DecodeStreaming_SuccessfulCompletion) {
+  std::optional<BenchmarkInfo> benchmark_info;
+  TestObserver observer(/*num_candidates=*/1);
+  StopTokenDetector stop_token_detector(1);
+  EXPECT_OK(stop_token_detector.AddStopTokenSequence({2294}));
+  EXPECT_OK(DecodeStreaming(*executor_, *tokenizer_, stop_token_detector,
+                            benchmark_info, &observer));
+  EXPECT_EQ(observer.GetResponses()[0], " How's it going?");
+  EXPECT_TRUE(observer.IsDone());
+  EXPECT_OK(observer.GetStatus());
+}
+
+TEST_F(PipelineObserverTest, DecodeStreaming_ErrorCompletion) {
+  // Set the max number of tokens to 3 to trigger an error.
+  executor_->GetMutableExecutorSettings().value()->SetMaxNumTokens(3);
+  std::optional<BenchmarkInfo> benchmark_info;
+  TestObserver observer(/*num_candidates=*/1);
+  StopTokenDetector stop_token_detector(1);
+  EXPECT_OK(stop_token_detector.AddStopTokenSequence({2294}));
+  EXPECT_OK(DecodeStreaming(*executor_, *tokenizer_, stop_token_detector,
+                            benchmark_info, &observer));
+  EXPECT_EQ(observer.GetResponses()[0], " How's");
+  EXPECT_TRUE(observer.IsDone());
+  EXPECT_THAT(observer.GetStatus(), StatusIs(absl::StatusCode::kInternal,
+                                             "Maximum kv-cache size reached."));
 }
 
 }  // namespace

@@ -62,8 +62,7 @@ int TryGetMaxNumTokens(const LlmExecutor& executor) {
 
 // Check whether the decoding loop should stop.
 bool ShouldStop(bool hit_stop_tokens, int benchmark_decode_token_count,
-                int num_decoded_steps, int current_step, int max_num_tokens,
-                InferenceObservable* observer) {
+                int num_decoded_steps, int current_step, int max_num_tokens) {
   // Stopping conditions.
   if (hit_stop_tokens && benchmark_decode_token_count == 0) {
     // Only early stop if no decode step
@@ -76,9 +75,6 @@ bool ShouldStop(bool hit_stop_tokens, int benchmark_decode_token_count,
     return true;
   } else if (current_step >= max_num_tokens) {
     // Reaching maximum number of kv-cache size.
-    if (observer != nullptr) {
-      observer->OnError(absl::InternalError("Maximum kv-cache size reached."));
-    }
     return true;
   }
   return false;
@@ -318,8 +314,7 @@ absl::StatusOr<Responses> DecodeLoop(
     }
 
     if (ShouldStop(*all_done, benchmark_decode_token_count, num_decode_steps,
-                   executor.GetCurrentStep().value(), max_num_tokens,
-                   observer.value_or(nullptr))) {
+                   executor.GetCurrentStep().value(), max_num_tokens)) {
       break;
     }
   }
@@ -330,7 +325,12 @@ absl::StatusOr<Responses> DecodeLoop(
   }
 
   if (is_streaming) {
-    observer.value()->OnDone();
+    if (executor.GetCurrentStep().value() >= max_num_tokens) {
+      observer.value()->OnError(
+          absl::InternalError("Maximum kv-cache size reached."));
+    } else {
+      observer.value()->OnDone();
+    }
     return Responses(0);  // Return empty response for streaming.
   }
 
