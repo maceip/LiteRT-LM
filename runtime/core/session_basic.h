@@ -33,6 +33,7 @@
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/llm_executor.h"
+#include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/executor/vision_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
@@ -88,6 +89,13 @@ class SessionBasic : public Engine::Session {
   absl::StatusOr<std::string> ApplyPromptTemplates(absl::string_view input,
                                                    bool is_first_chunk,
                                                    bool is_last_chunk);
+
+  // Util function for creating the combined ExecutorInputs from the
+  // preprocessed contents.
+  // TODO - b/436674053: Modulize the preprocessing logic into a separate
+  // preprocessor class.
+  absl::StatusOr<ExecutorInputs> ProcessAndCombineContents(
+      const std::vector<InputData>& preprocessed_contents);
 
  private:
   explicit SessionBasic(LlmExecutor* absl_nonnull executor,

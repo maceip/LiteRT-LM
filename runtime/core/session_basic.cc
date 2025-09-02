@@ -50,6 +50,12 @@
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
 
 namespace litert::lm {
+namespace {
+
+constexpr int kStartOfImageTokenId = 255999;
+constexpr int kNumSpecialTokens = 257;
+
+}  // namespace
 
 // static
 absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
@@ -139,6 +145,62 @@ absl::StatusOr<std::string> SessionBasic::ApplyPromptTemplates(
   return absl::StrCat(turn_prefix, input, turn_suffix);
 }
 
+absl::StatusOr<ExecutorInputs> SessionBasic::ProcessAndCombineContents(
+    const std::vector<InputData>& preprocessed_contents) {
+  std::vector<int> combined_token_ids;
+  std::optional<ExecutorVisionData> single_image_data = std::nullopt;
+  for (const auto& preprocessed_content : preprocessed_contents) {
+    if (const auto* input_text =
+            std::get_if<InputText>(&preprocessed_content)) {
+      ASSIGN_OR_RETURN(const auto* token_ids,
+                       input_text->GetPreprocessedTextTensor());
+      if (token_ids == nullptr) {
+        return absl::InvalidArgumentError(
+            "Token IDs is null in preprocessed_contents.");
+      }
+      LITERT_ASSIGN_OR_RETURN_ABSL(auto ids_buffer_span,
+                                   ReferTensorBufferAsSpan<int>(*token_ids));
+      combined_token_ids.insert(combined_token_ids.end(),
+                                ids_buffer_span.begin(), ids_buffer_span.end());
+    } else if (const auto* input_image =
+                   std::get_if<InputImage>(&preprocessed_content)) {
+      if (single_image_data.has_value()) {
+        return absl::InvalidArgumentError(
+            "Only one image is supported per prefill call.");
+      }
+      ASSIGN_OR_RETURN(const auto* image_tensor,
+                       input_image->GetPreprocessedImageTensor());
+      if (image_tensor == nullptr) {
+        return absl::InvalidArgumentError(
+            "Image tensor is null in preprocessed_contents.");
+      }
+      ASSIGN_OR_RETURN(single_image_data,
+                       vision_executor_->Encode(*image_tensor));
+      // Hardcoded token id for start of image token.
+      combined_token_ids.push_back(kStartOfImageTokenId);
+      for (int i = 0; i < kNumSpecialTokens; ++i) {
+        combined_token_ids.push_back(ExecutorVisionData::kSpecialToken);
+      }
+    } else if (const auto* input_audio =
+                   std::get_if<InputAudio>(&preprocessed_content)) {
+      return absl::UnimplementedError("Audio prefill is not implemented yet.");
+    }
+  }
+
+  if (combined_token_ids.empty()) {
+    return absl::InvalidArgumentError(
+        "No token IDs found in preprocessed_contents.");
+  }
+
+  ASSIGN_OR_RETURN(auto token_ids_buffer,
+                   tokenizer_.TokenIdsToTensorBuffer(combined_token_ids));
+
+  ExecutorInputs inputs(ExecutorTextData(std::move(token_ids_buffer)),
+                        std::move(single_image_data), std::nullopt);
+
+  return inputs;
+}
+
 // TODO - b/436674053: Modulize the preprocessing logic into a separate
 // preprocessor class, please refer to the bug for more details.
 absl::StatusOr<std::vector<InputData>> SessionBasic::PreprocessContents(
@@ -221,39 +283,9 @@ absl::StatusOr<std::vector<InputData>> SessionBasic::PreprocessContents(
 absl::Status SessionBasic::PrefillInternal(
     const std::vector<InputData>& preprocessed_contents,
     bool wait_for_completion) {
-  // TODO(b/397975034): Consider to utilize a prompt formatting logic in a
-  // separate library/class.
-  // Update the input with prompt formatting.
-  std::vector<int> combined_token_ids;
-  for (const auto& preprocessed_content : preprocessed_contents) {
-    if (const auto* input_text =
-            std::get_if<InputText>(&preprocessed_content)) {
-      ASSIGN_OR_RETURN(const auto* token_ids,
-                       input_text->GetPreprocessedTextTensor());
-      if (token_ids == nullptr) {
-        return absl::InvalidArgumentError(
-            "Token IDs is null in preprocessed_contents.");
-      }
-      LITERT_ASSIGN_OR_RETURN_ABSL(auto ids_buffer_span,
-                                   ReferTensorBufferAsSpan<int>(*token_ids));
-      combined_token_ids.insert(combined_token_ids.end(),
-                                ids_buffer_span.begin(), ids_buffer_span.end());
-    } else {
-      return absl::InvalidArgumentError(
-          "PrefillInternal currently only supports concatenating InputText "
-          "elements.");
-    }
-  }
+  ASSIGN_OR_RETURN(ExecutorInputs inputs,
+                   ProcessAndCombineContents(preprocessed_contents));
 
-  if (combined_token_ids.empty()) {
-    return absl::InvalidArgumentError(
-        "No token IDs found in preprocessed_contents.");
-  }
-
-  ASSIGN_OR_RETURN(auto token_ids_buffer,
-                   tokenizer_.TokenIdsToTensorBuffer(combined_token_ids));
-  ExecutorInputs inputs(ExecutorTextData(std::move(token_ids_buffer)),
-                        std::nullopt, std::nullopt);
   // This should be added to the beginning of the next prefill call as will no?
   // Also, this is not thread safe. More discussion with @ztenghui is needed.
   ASSIGN_OR_RETURN(
