@@ -52,18 +52,19 @@ cc_library(
         "@litert//litert/c:litert_common",
         "@litert//litert/cc:litert_element_type",
         "@litert//litert/cc:litert_macros",
-        "@litert//litert/cc:litert_model",
         "//runtime/util:litert_status_util",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_compiled_model",
             "@litert//litert/cc:litert_environment",
+            "@litert//litert/cc:litert_model",
             "@litert//litert/cc:litert_options",
             "@litert//litert/cc:litert_tensor_buffer",
         ],
         "//conditions:default": [
             "@litert//litert/cc/internal:litert_compiled_model",
             "@litert//litert/cc/internal:litert_environment",
+            "@litert//litert/cc/internal:litert_model",
             "@litert//litert/cc/internal:litert_options",
             "@litert//litert/cc/internal:litert_tensor_buffer",
         ],
@@ -116,7 +117,6 @@ cc_library(
         "@litert//litert/cc:litert_element_type",
         "@litert//litert/cc:litert_layout",
         "@litert//litert/cc:litert_macros",
-        "@litert//litert/cc:litert_model",
         "//runtime/util:litert_status_util",
         "@litert//tflite:framework_stable",
         "@litert//tflite:model_builder",
@@ -125,12 +125,14 @@ cc_library(
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_compiled_model",
             "@litert//litert/cc:litert_environment",
+            "@litert//litert/cc:litert_model",
             "@litert//litert/cc:litert_options",
             "@litert//litert/cc:litert_tensor_buffer",
         ],
         "//conditions:default": [
             "@litert//litert/cc/internal:litert_compiled_model",
             "@litert//litert/cc/internal:litert_environment",
+            "@litert//litert/cc/internal:litert_model",
             "@litert//litert/cc/internal:litert_options",
             "@litert//litert/cc/internal:litert_tensor_buffer",
         ],
@@ -151,7 +153,6 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
-        "@litert//litert/cc:litert_model",
         "//runtime/executor:llm_executor_io_types",
         "//runtime/util:litert_status_util",
         "@litert//tflite:framework_stable",
@@ -161,9 +162,11 @@ cc_library(
         "@litert//tflite/kernels:builtin_ops",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
+            "@litert//litert/cc:litert_model",
             "@litert//litert/cc:litert_tensor_buffer",
         ],
         "//conditions:default": [
+            "@litert//litert/cc/internal:litert_model",
             "@litert//litert/cc/internal:litert_tensor_buffer",
         ],
     }),
