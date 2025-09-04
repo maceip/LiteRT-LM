@@ -242,10 +242,16 @@ template <typename T>
 //   reset_remainder_to_zero: If true, the remainder of the target dimension
 //     after rotation will be reset to zero.
 //     Otherwise the remainder will be left as is.
+//   init_tokens_to_retain: The number of tokens to retain from the target
+//     dimension before dropping the `num_tokens_to_drop` tokens.
+//     It must be non-negative and less than the size of the target dimension -
+//     num_tokens_to_drop.
+//      If not specified, it defaults to 0, retaining all tokens.
 template <typename T>
 ::litert::Expected<void> DropTokensfromTensorBuffer(
     ::litert::TensorBuffer& tensor_buffer, int num_tokens_to_drop = 0,
-    int dimension = 0, bool reset_remainder_to_zero = true) {
+    int dimension = 0, int init_tokens_to_retain = 0,
+    bool reset_remainder_to_zero = true) {
   auto type = tensor_buffer.TensorType();
   if (!type.HasValue() || type->ElementType() != ElementTypeFor<T>::kType) {
     return ::litert::Unexpected(
@@ -275,13 +281,29 @@ template <typename T>
         kLiteRtStatusErrorInvalidArgument,
         "num_tokens_to_drop is larger than the target dimension.");
   }
+  if (init_tokens_to_retain > target_dims_size) {
+    return ::litert::Unexpected(
+        kLiteRtStatusErrorInvalidArgument,
+        "init_tokens_to_retain is larger than the target dimension.");
+  }
+  if (init_tokens_to_retain < 0) {
+    return ::litert::Unexpected(kLiteRtStatusErrorInvalidArgument,
+                                "init_tokens_to_retain is negative.");
+  }
+  if (init_tokens_to_retain + num_tokens_to_drop > target_dims_size) {
+    return ::litert::Unexpected(
+        kLiteRtStatusErrorInvalidArgument,
+        "the total number of tokens retained and dropped is greater than the "
+        "target dimension. This will result in an out of bounds access.");
+  }
   LITERT_ASSIGN_OR_RETURN(
       auto lock_and_addr,
       ::litert::TensorBufferScopedLock::Create(
           tensor_buffer, TensorBuffer::LockMode::kReadWrite));
   auto* target_ptr = static_cast<T*>(lock_and_addr.second);
   for (int i = 0; i < prev_dims_size; ++i) {
-    for (int j = 0; j < target_dims_size - num_tokens_to_drop; ++j) {
+    for (int j = init_tokens_to_retain;
+         j < target_dims_size - num_tokens_to_drop; ++j) {
       int dst_offset =
           i * next_dims_size * target_dims_size + j * next_dims_size;
       int src_offset = i * next_dims_size * target_dims_size +

@@ -333,6 +333,84 @@ TEST(ConvertTensorBufferTest, DropTokensfromTensorBuffer4D_Dim_2_Success) {
                                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
 }
 
+TEST(ConvertTensorBufferTest,
+     DropTokensfromTensorBuffer4D_Dim_2_Offset_1_Retain_neg1_Failure) {
+  std::vector<int32_t> source_data = {1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
+                                      11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                                      21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+                                      31, 32, 33, 34, 35, 36, 37, 38, 39, 40};
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto source_tensor_buffer,
+      CopyToTensorBuffer<int32_t>(source_data, {2, 1, 4, 5}));
+  EXPECT_THAT(DropTokensfromTensorBuffer<int32_t>(source_tensor_buffer,
+                                                  /*num_tokens_to_drop=*/2,
+                                                  /*dimension=*/2,
+                                                  /*init_tokens_to_retain=*/-1),
+              IsError(kLiteRtStatusErrorInvalidArgument,
+                      "init_tokens_to_retain is negative."));
+}
+
+TEST(ConvertTensorBufferTest,
+     DropTokensfromTensorBuffer4D_Dim_2_Offset_1_Retain_too_large_Failure) {
+  std::vector<int32_t> source_data = {1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
+                                      11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                                      21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+                                      31, 32, 33, 34, 35, 36, 37, 38, 39, 40};
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto source_tensor_buffer,
+      CopyToTensorBuffer<int32_t>(source_data, {2, 1, 4, 5}));
+  EXPECT_THAT(
+      DropTokensfromTensorBuffer<int32_t>(source_tensor_buffer,
+                                          /*num_tokens_to_drop=*/2,
+                                          /*dimension=*/2,
+                                          /*init_tokens_to_retain=*/10),
+      IsError(kLiteRtStatusErrorInvalidArgument,
+              "init_tokens_to_retain is larger than the target dimension."));
+}
+
+TEST(ConvertTensorBufferTest, DropTokensFromTensorBuffer_TotalTokens_TooLarge) {
+  std::vector<int32_t> source_data = {1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
+                                      11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                                      21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+                                      31, 32, 33, 34, 35, 36, 37, 38, 39, 40};
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto source_tensor_buffer,
+      CopyToTensorBuffer<int32_t>(source_data, {2, 1, 4, 5}));
+  EXPECT_THAT(
+      DropTokensfromTensorBuffer<int32_t>(source_tensor_buffer,
+                                          /*num_tokens_to_drop=*/3,
+                                          /*dimension=*/2,
+                                          /*init_tokens_to_retain=*/2),
+      IsError(kLiteRtStatusErrorInvalidArgument,
+              "the total number of tokens retained and dropped is greater than "
+              "the target dimension. This will result in an out of bounds "
+              "access."));
+}
+
+TEST(ConvertTensorBufferTest,
+     DropTokensfromTensorBuffer4D_Dim_2_Offset_1_Success) {
+  std::vector<int32_t> source_data = {1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
+                                      11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                                      21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+                                      31, 32, 33, 34, 35, 36, 37, 38, 39, 40};
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto source_tensor_buffer,
+      CopyToTensorBuffer<int32_t>(source_data, {2, 1, 4, 5}));
+  LITERT_ASSERT_OK(
+      DropTokensfromTensorBuffer<int32_t>(source_tensor_buffer,
+                                          /*num_tokens_to_drop=*/2,
+                                          /*dimension=*/2,
+                                          /*init_tokens_to_retain=*/1));
+  EXPECT_THAT(source_tensor_buffer.TensorType(),
+              IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 1, 4, 5}))));
+  EXPECT_THAT(source_tensor_buffer.Size(), IsOkAndHolds(160));
+  EXPECT_THAT(
+      ReferTensorBufferAsSpan<int32_t>(source_tensor_buffer),
+      IsOkAndHolds(ElementsAre(1, 2, 3, 4, 5, 16, 17, 18, 19, 20, 0, 0, 0, 0, 0,
+                               0, 0, 0, 0, 0, 21, 22, 23, 24, 25, 36, 37, 38,
+                               39, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+}
+
 TEST(ConvertTensorBufferTest, DropTokensfromTensorBuffer4D_Dim_3_Success) {
   std::vector<int32_t> source_data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
                                       11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
@@ -353,6 +431,30 @@ TEST(ConvertTensorBufferTest, DropTokensfromTensorBuffer4D_Dim_3_Success) {
                                        13, 14, 15, 0, 0, 18, 19, 20, 0, 0,
                                        23, 24, 25, 0, 0, 28, 29, 30, 0, 0,
                                        33, 34, 35, 0, 0, 38, 39, 40, 0, 0)));
+}
+
+TEST(ConvertTensorBufferTest,
+     DropTokensfromTensorBuffer4D_Dim_3_Offset_1_Success) {
+  std::vector<int32_t> source_data = {1,  2,  3,  4,  5,  6,  7,  8,  9,  10,
+                                      11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                                      21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+                                      31, 32, 33, 34, 35, 36, 37, 38, 39, 40};
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto source_tensor_buffer,
+      CopyToTensorBuffer<int32_t>(source_data, {2, 1, 4, 5}));
+  LITERT_ASSERT_OK(
+      DropTokensfromTensorBuffer<int32_t>(source_tensor_buffer,
+                                          /*num_tokens_to_drop=*/2,
+                                          /*dimension=*/3,
+                                          /*init_tokens_to_retain=*/1));
+  EXPECT_THAT(source_tensor_buffer.TensorType(),
+              IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 1, 4, 5}))));
+  EXPECT_THAT(source_tensor_buffer.Size(), IsOkAndHolds(160));
+  EXPECT_THAT(
+      ReferTensorBufferAsSpan<int32_t>(source_tensor_buffer),
+      IsOkAndHolds(ElementsAre(1, 4, 5, 0, 0, 6, 9, 10, 0, 0, 11, 14, 15, 0, 0,
+                               16, 19, 20, 0, 0, 21, 24, 25, 0, 0, 26, 29, 30,
+                               0, 0, 31, 34, 35, 0, 0, 36, 39, 40, 0, 0)));
 }
 
 }  // namespace
