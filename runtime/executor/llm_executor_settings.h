@@ -19,6 +19,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <ostream>
 #include <string>
 #include <utility>
 #include <variant>
@@ -84,6 +85,26 @@ struct CpuConfig {
 };
 std::ostream& operator<<(std::ostream& os, const CpuConfig& config);
 
+// Optional advanced settings for the LLM executor.
+struct AdvancedSettings {
+  // For debugging purpose, whether to clear kv cache before the first prefill
+  // step which may help to disclose any issues related to kv cache.
+  bool clear_kv_cache_before_prefill = false;
+
+  // For debugging purpose, the number of values at the beginning of logits, in
+  // the middle of logits, and at the end of logits to print after each decode
+  // step. If 0, disables printing logits.
+  uint32_t num_logits_to_print_after_decode = 0;
+
+  bool operator==(const AdvancedSettings& other) const {
+    return clear_kv_cache_before_prefill ==
+               other.clear_kv_cache_before_prefill &&
+           num_logits_to_print_after_decode ==
+               other.num_logits_to_print_after_decode;
+  }
+};
+std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings);
+
 // Settings for the LLM executor.
 //
 // This class holds the settings for the LLM executor, including the
@@ -99,44 +120,47 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
   static absl::StatusOr<LlmExecutorSettings> CreateDefault(
       ModelAssets model_assets, Backend backend = Backend::CPU);
 
-  // Getter APIs.
   uint32_t GetMaxNumTokens() const { return max_num_tokens_; }
+  void SetMaxNumTokens(uint64_t max_num_tokens) {
+    max_num_tokens_ = max_num_tokens;
+  }
+
   uint32_t GetMaxNumImages() const { return max_num_images_; }
+  void SetMaxNumImages(uint32_t max_num_images) {
+    max_num_images_ = max_num_images;
+  }
 
   template <typename T>
   absl::StatusOr<const T> GetBackendConfig() const {
     if (std::holds_alternative<T>(backend_config_)) {
       return std::get<T>(backend_config_);
-    } else {
-      return absl::InvalidArgumentError("Backend config is not valid.");
     }
+    return absl::InvalidArgumentError("Backend config is not valid.");
   }
 
   template <typename T>
   absl::StatusOr<T> MutableBackendConfig() {
     if (std::holds_alternative<T>(backend_config_)) {
       return std::get<T>(backend_config_);
-    } else {
-      return absl::InvalidArgumentError("Backend config is not valid.");
     }
+    return absl::InvalidArgumentError("Backend config is not valid.");
+  }
+
+  void SetBackendConfig(
+      const std::variant<GpuArtisanConfig, GpuConfig, CpuConfig>& config) {
+    backend_config_ = config;
   }
 
   Backend GetSamplerBackend() const { return sampler_backend_; }
-
-  void SetMaxNumTokens(uint64_t max_num_tokens) {
-    max_num_tokens_ = max_num_tokens;
-  }
-  void SetMaxNumImages(uint32_t max_num_images) {
-    max_num_images_ = max_num_images;
-  }
-
-  void SetBackendConfig(const std::variant<GpuArtisanConfig, GpuConfig,
-                                           CpuConfig>& backend_config) {
-    backend_config_ = backend_config;
-  }
-
   void SetSamplerBackend(Backend sampler_backend) {
     sampler_backend_ = sampler_backend;
+  }
+
+  const std::optional<AdvancedSettings>& GetAdvancedSettings() const {
+    return advanced_settings_;
+  }
+  void SetAdvancedSettings(const AdvancedSettings& advanced_settings) {
+    advanced_settings_ = advanced_settings;
   }
 
  private:
@@ -155,6 +179,9 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
 
   // Backend to use for sampling.
   Backend sampler_backend_ = Backend::UNSPECIFIED;
+
+  // Optional advanced settings.
+  std::optional<AdvancedSettings> advanced_settings_;
 
   // Declare the output stream operator as a friend such that it can be used
   // to print the LlmExecutorSettings private member.

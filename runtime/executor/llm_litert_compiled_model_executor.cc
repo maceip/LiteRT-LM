@@ -28,6 +28,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "absl/strings/str_join.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/c/litert_common.h"  // from @litert
@@ -121,8 +122,8 @@ absl::Status InitializeEmbeddingLookups(
 
 // Returns the backend to be used for sampling.
 absl::StatusOr<Backend> GetSamplerBackend(
-    LlmExecutorSettings& executor_settings) {
-  const Backend backend = executor_settings.GetBackend();
+    const LlmExecutorSettings& executor_settings) {
+  Backend backend = executor_settings.GetBackend();
   Backend sampler_backend = executor_settings.GetSamplerBackend();
 
   if (sampler_backend == Backend::UNSPECIFIED) {
@@ -136,6 +137,45 @@ absl::StatusOr<Backend> GetSamplerBackend(
   }
 
   return sampler_backend;
+}
+
+void LogValues(absl::Span<const float> values, size_t num_values_to_log,
+               absl::string_view debug) {
+  constexpr size_t kNumExtraValuesToLog = 10;
+  if (num_values_to_log * 3 + kNumExtraValuesToLog >= values.size()) {
+    ABSL_LOG(INFO) << debug << "(size=" << values.size()
+                   << "): " << absl::StrJoin(values, ", ");
+    return;
+  }
+
+  size_t end_offset = values.size() - num_values_to_log;
+  size_t mid_offset = end_offset / 2;
+  ABSL_LOG(INFO)
+      << debug << "(size=" << values.size() << "): "
+      << absl::StrJoin(values.subspan(0, num_values_to_log), ", ") << " ... "
+      << absl::StrJoin(values.subspan(mid_offset, num_values_to_log), ", ")
+      << " ... "
+      << absl::StrJoin(values.subspan(mid_offset, num_values_to_log), ", ")
+      << " ... " << absl::StrJoin(values.subspan(end_offset), ", ");
+}
+
+void LogTensor(TensorBuffer& tensor, size_t num_values_to_log,
+               absl::string_view debug) {
+  // Try to get the reference if tensor is in CPU memory.
+  auto values_span = ReferTensorBufferAsSpan<float>(tensor);
+  if (values_span) {
+    LogValues(*values_span, num_values_to_log, debug);
+    return;
+  }
+
+  // Otherwise, copy the logits from the tensor buffer to a vector.
+  auto values_vector = CopyFromTensorBuffer<float>(tensor);
+  if (values_vector) {
+    LogValues(*values_vector, num_values_to_log, debug);
+    return;
+  }
+
+  ABSL_LOG(ERROR) << debug << ": Failed to log logits.";
 }
 
 }  // namespace
@@ -608,6 +648,13 @@ LlmLiteRtCompiledModelExecutor::DecodeLogits(const ExecutorInputs& inputs) {
   if (!output_logits.HasValue()) {
     return absl::InternalError(output_logits.Error().Message());
   }
+
+  const auto& settings = executor_settings_.GetAdvancedSettings();
+  if (settings && settings->num_logits_to_print_after_decode > 0) {
+    LogTensor(*output_logits, settings->num_logits_to_print_after_decode,
+              "Logits");
+  }
+
   return std::move(*output_logits);
 }
 
@@ -826,6 +873,15 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
         output_kv_cache_buffers[input_name] = std::move(*output_buffer);
       }
       input_kv_cache_buffers[input_name] = std::move(*input_buffer);
+      const auto& settings = executor_settings.GetAdvancedSettings();
+      if (settings && settings->clear_kv_cache_before_prefill) {
+        auto kv_cache_span =
+            ReferTensorBufferAsSpan<float>(input_kv_cache_buffers[input_name]);
+        if (kv_cache_span) {
+          ABSL_LOG(INFO) << "Clearing kv cache: " << input_name;
+          for (float& v : *kv_cache_span) v = 0.0f;
+        }
+      }
     } else {
       prefill_input_buffers[input_name] = std::move(*input_buffer);
     }

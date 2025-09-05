@@ -51,6 +51,14 @@ std::ostream& operator<<(std::ostream& os, const CpuConfig& config) {
   return os;
 }
 
+std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings) {
+  os << "clear_kv_cache_before_prefill: "
+     << settings.clear_kv_cache_before_prefill << "\n";
+  os << "num_logits_to_print_after_decode: "
+     << settings.num_logits_to_print_after_decode << "\n";
+  return os;
+}
+
 std::ostream& operator<<(std::ostream& os, const LlmExecutorSettings& config) {
   os << "backend: " << config.GetBackend() << "\n";
   std::visit(
@@ -65,9 +73,14 @@ std::ostream& operator<<(std::ostream& os, const LlmExecutorSettings& config) {
   if (config.GetScopedCacheFile()) {
     os << "cache_file: " << config.GetScopedCacheFile()->file() << "\n";
   } else {
-    os << "cache_file: Not set.\n";
+    os << "cache_file: Not set\n";
   }
   os << "model_assets: " << config.GetModelAssets() << "\n";
+  if (config.GetAdvancedSettings().has_value()) {
+    os << "advanced_settings: " << *config.GetAdvancedSettings() << "\n";
+  } else {
+    os << "advanced_settings: Not set\n";
+  }
   return os;
 }
 

@@ -1,5 +1,6 @@
 #include "runtime/engine/litert_lm_lib.h"
 
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -157,6 +158,17 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
       executor_settings.SetSamplerBackend(*sampler_backend);
     }
   }
+
+  AdvancedSettings advanced_settings{
+      .clear_kv_cache_before_prefill = settings.clear_kv_cache_before_prefill,
+      .num_logits_to_print_after_decode =
+          static_cast<uint32_t>(settings.num_logits_to_print_after_decode),
+  };
+  if (advanced_settings != AdvancedSettings()) {
+    engine_settings.GetMutableMainExecutorSettings().SetAdvancedSettings(
+        advanced_settings);
+  }
+
   ABSL_LOG(INFO) << "executor_settings: "
                  << engine_settings.GetMainExecutorSettings();
 

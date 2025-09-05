@@ -63,6 +63,13 @@ ABSL_FLAG(bool, multi_turns, false,
 ABSL_FLAG(int, num_cpu_threads, 0,
           "If greater than 0, the number of CPU threads to use for the LLM "
           "execution with CPU backend.");
+ABSL_FLAG(bool, clear_kv_cache_before_prefill, false,
+          "If true, clear kv cache before the first prefill step. This may "
+          "help to disclose any issues related to kv cache.");
+ABSL_FLAG(int, num_logits_to_print_after_decode, 0,
+          "The number of values at the beginning of logits, in the middle of "
+          "logits, and at the end of logits to print after each decode step. "
+          "If 0, disables printing logits.");
 
 namespace {
 
@@ -102,8 +109,11 @@ absl::Status MainHelper(int argc, char** argv) {
            "[--benchmark_prefill_tokens=<num_prefill_tokens>] "
            "[--benchmark_decode_tokens=<num_decode_tokens>] "
            "[--async=<true|false>] "
-           "[--report_peak_memory_footprint]"
-           "[--multi_turns=<true|false>]";
+           "[--report_peak_memory_footprint] "
+           "[--multi_turns=<true|false>] "
+           "[--num_cpu_threads=<num_cpu_threads>] "
+           "[--clear_kv_cache_before_prefill=<true|false>] "
+           "[--num_logits_to_print_after_decode=<num_logits_to_print>] ";
     return absl::InvalidArgumentError("No arguments provided.");
   }
 
@@ -123,6 +133,10 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.force_f32 = absl::GetFlag(FLAGS_force_f32);
   settings.multi_turns = absl::GetFlag(FLAGS_multi_turns);
   settings.num_cpu_threads = absl::GetFlag(FLAGS_num_cpu_threads);
+  settings.clear_kv_cache_before_prefill =
+      absl::GetFlag(FLAGS_clear_kv_cache_before_prefill);
+  settings.num_logits_to_print_after_decode =
+      absl::GetFlag(FLAGS_num_logits_to_print_after_decode);
 
   return litert::lm::RunLiteRtLm(settings);
 }

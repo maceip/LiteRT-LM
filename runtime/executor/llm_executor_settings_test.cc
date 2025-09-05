@@ -193,9 +193,51 @@ max_tokens: 1024
 activation_data_type: FLOAT16
 max_num_images: 1
 cache_dir: /path/to/cache
-cache_file: Not set.
+cache_file: Not set
 model_assets: model_path: /path/to/model1
 fake_weights_mode: FAKE_WEIGHTS_NONE
+
+advanced_settings: Not set
+)";
+  EXPECT_EQ(oss.str(), expected_output);
+}
+
+TEST(LlmExecutorConfigTest, LlmExecutorSettingsWithAdvancedSettings) {
+  auto model_assets = ModelAssets::Create("/path/to/model1");
+  ASSERT_OK(model_assets);
+  auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets),
+                                                     Backend::GPU_ARTISAN);
+  (*settings).SetBackendConfig(CreateGpuArtisanConfig());
+  (*settings).SetMaxNumTokens(1024);
+  (*settings).SetActivationDataType(ActivationDataType::FLOAT16);
+  (*settings).SetMaxNumImages(1);
+  (*settings).SetCacheDir("/path/to/cache");
+  (*settings).SetAdvancedSettings(AdvancedSettings{
+      .clear_kv_cache_before_prefill = true,
+      .num_logits_to_print_after_decode = 10,
+  });
+
+  std::stringstream oss;
+  oss << (*settings);
+  const std::string expected_output = R"(backend: GPU_ARTISAN
+backend_config: num_output_candidates: 1
+wait_for_weight_uploads: 1
+num_decode_steps_per_sync: 3
+sequence_batch_size: 16
+supported_lora_ranks: vector of 2 elements: [4, 16]
+max_top_k: 40
+enable_decode_logits: 1
+
+max_tokens: 1024
+activation_data_type: FLOAT16
+max_num_images: 1
+cache_dir: /path/to/cache
+cache_file: Not set
+model_assets: model_path: /path/to/model1
+fake_weights_mode: FAKE_WEIGHTS_NONE
+
+advanced_settings: clear_kv_cache_before_prefill: 1
+num_logits_to_print_after_decode: 10
 
 )";
   EXPECT_EQ(oss.str(), expected_output);

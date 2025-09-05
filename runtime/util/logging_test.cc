@@ -42,7 +42,7 @@ TEST(LoggingTest, LogOptional) {
   std::optional<int> data = std::nullopt;
   std::stringstream oss;
   oss << data;
-  EXPECT_EQ(oss.str(), "Not set.");
+  EXPECT_EQ(oss.str(), "Not set");
 
   // Test with a value.
   oss.str("");

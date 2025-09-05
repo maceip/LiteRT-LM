@@ -21,6 +21,8 @@ struct LiteRtLmSettings {
   bool force_f32 = false;
   bool multi_turns = false;
   int num_cpu_threads = 0;
+  bool clear_kv_cache_before_prefill = false;
+  int num_logits_to_print_after_decode = 0;
 };
 
 absl::Status RunLiteRtLm(const LiteRtLmSettings& settings);

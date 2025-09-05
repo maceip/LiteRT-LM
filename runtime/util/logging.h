@@ -37,7 +37,7 @@ std::ostream& operator<<(std::ostream& os, const std::optional<T>& data) {
   if (data.has_value()) {
     return os << *data;
   }
-  return os << "Not set.";
+  return os << "Not set";
 }
 
 // Helper function to print a std::variant of data.
