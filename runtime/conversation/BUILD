@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# [Google-internal load of `cc_library`]
+# [Google-internal load of `cc_test`]
+
 package(
     default_hdrs_check = "strict",
     default_visibility = [
@@ -20,9 +23,64 @@ package(
 )
 
 cc_library(
-    name = "types",
-    hdrs = ["types.h"],
+    name = "io_types",
+    hdrs = ["io_types.h"],
     deps = [
+        "@com_google_absl//absl/status",
         "@nlohmann_json//:json",
+    ],
+)
+
+cc_library(
+    name = "conversation",
+    srcs = ["conversation.cc"],
+    hdrs = ["conversation.h"],
+    deps = [
+        ":io_types",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
+        "@nlohmann_json//:json",
+        "//runtime/components:prompt_template",
+        "//runtime/conversation/model_data_processor",
+        "//runtime/conversation/model_data_processor:config_registry",
+        "//runtime/conversation/model_data_processor:gemma3_data_processor",
+        "//runtime/conversation/model_data_processor:gemma3_data_processor_config",
+        "//runtime/engine:engine_interface",
+        "//runtime/engine:io_types",
+        "//runtime/util:litert_status_util",
+    ],
+)
+
+cc_test(
+    name = "conversation_test",
+    srcs = ["conversation_test.cc"],
+    data = [
+        "//runtime/components/testdata",
+        "//runtime/testdata",
+    ],
+    deps = [
+        ":conversation",
+        ":io_types",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
+        "@com_google_absl//absl/time",
+        "@nlohmann_json//:json",
+        "//runtime/components:prompt_template",
+        "//runtime/engine:engine_interface",
+        "//runtime/engine:engine_settings",
+        "//runtime/engine:litert_lm_lib",
+        "//runtime/executor:executor_settings_base",
+        "//runtime/util:test_utils",
     ],
 )

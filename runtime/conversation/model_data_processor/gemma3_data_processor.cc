@@ -22,8 +22,8 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
-#include "runtime/conversation/types.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/util/status_macros.h"
 

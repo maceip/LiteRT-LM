@@ -22,8 +22,8 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/config_registry.h"
-#include "runtime/conversation/types.h"
 #include "runtime/engine/io_types.h"
 
 namespace litert::lm {

@@ -29,7 +29,7 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
 #include "runtime/components/prompt_template.h"
-#include "runtime/conversation/types.h"
+#include "runtime/conversation/io_types.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
