@@ -121,12 +121,20 @@ cc_library(
 cc_binary(
     name = "litert_lm_main",
     srcs = ["litert_lm_main.cc"],
+    additional_linker_inputs = select({
+        "@platforms//os:windows": [
+            "@litert//litert/c:windows_exported_symbols.def",
+        ],
+        "//conditions:default": [],
+    }),
     linkopts = select({
         "@litert//litert:litert_link_capi_so": [],
         # Export LiteRt* symbols for LiteRt accelerator shlibs.
         "@platforms//os:ios": ["-Wl,-exported_symbol,_LiteRt*"],
         "@platforms//os:macos": ["-Wl,-exported_symbol,_LiteRt*"],
-        "@platforms//os:windows": [],
+        "@platforms//os:windows": [
+            "/DEF:$(location @litert//litert/c:windows_exported_symbols.def)",
+        ],
         "//conditions:default": ["-Wl,--export-dynamic-symbol=LiteRt*"],
     }) + select({
         "@platforms//os:android": ["-lEGL", "-lGLESv3"],
