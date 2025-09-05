@@ -121,6 +121,8 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
     }
   }
 
+  Backend GetSamplerBackend() const { return sampler_backend_; }
+
   void SetMaxNumTokens(uint64_t max_num_tokens) {
     max_num_tokens_ = max_num_tokens;
   }
@@ -131,6 +133,10 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
   void SetBackendConfig(const std::variant<GpuArtisanConfig, GpuConfig,
                                            CpuConfig>& backend_config) {
     backend_config_ = backend_config;
+  }
+
+  void SetSamplerBackend(Backend sampler_backend) {
+    sampler_backend_ = sampler_backend;
   }
 
  private:
@@ -146,6 +152,9 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
 
   // Backend specific config.
   std::variant<GpuArtisanConfig, GpuConfig, CpuConfig> backend_config_;
+
+  // Backend to use for sampling.
+  Backend sampler_backend_ = Backend::UNSPECIFIED;
 
   // Declare the output stream operator as a friend such that it can be used
   // to print the LlmExecutorSettings private member.

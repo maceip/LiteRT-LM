@@ -255,8 +255,6 @@ absl::StatusOr<std::unique_ptr<Sampler>> CreateSampler(
     std::optional<ActivationDataType> activation_data_type) {
   switch (backend) {
     case Backend::GPU: {
-      // TODO: b/441627719 - Make this behavior runtime configurable.
-#if !defined(LITERT_USE_WEBGPU_ACCELERATOR)
       RET_CHECK(env != nullptr)
           << "LiteRT environment is needed for GPU sampling.";
       RET_CHECK(vocab_size.has_value())
@@ -269,7 +267,6 @@ absl::StatusOr<std::unique_ptr<Sampler>> CreateSampler(
         // For a normal failure or success, return the result.
         return sampler_or;
       }
-#endif  // !defined(LITERT_USE_WEBGPU_ACCELERATOR)
     }
       // For a failure due to GPU sampler unavailable, fall back to CPU.
       ABSL_LOG(WARNING)

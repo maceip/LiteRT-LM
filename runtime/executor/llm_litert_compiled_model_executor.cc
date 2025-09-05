@@ -31,7 +31,6 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/c/litert_common.h"  // from @litert
-#include "litert/c/litert_environment_options.h"  // from @litert
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_expected.h"  // from @litert
@@ -118,6 +117,25 @@ absl::Status InitializeEmbeddingLookups(
                                        /*fully_supports_multi_modal=*/false));
   }
   return absl::OkStatus();
+}
+
+// Returns the backend to be used for sampling.
+absl::StatusOr<Backend> GetSamplerBackend(
+    LlmExecutorSettings& executor_settings) {
+  const Backend backend = executor_settings.GetBackend();
+  Backend sampler_backend = executor_settings.GetSamplerBackend();
+
+  if (sampler_backend == Backend::UNSPECIFIED) {
+    sampler_backend = backend;
+  }
+
+  if (sampler_backend != Backend::CPU && sampler_backend != Backend::GPU) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unsupported sampler backend: ", sampler_backend,
+                     " for backend: ", backend));
+  }
+
+  return sampler_backend;
 }
 
 }  // namespace
@@ -598,11 +616,8 @@ absl::Status LlmLiteRtCompiledModelExecutor::SampleLogits(
   ASSIGN_OR_RETURN(auto vocab_size, GetVocabSize());
 
   if (sampler_ == nullptr) {
-    LITERT_ASSIGN_OR_RETURN_ABSL(auto env_options, env_.GetOptions());
-    Backend sampler_backend = Backend::CPU;
-    if (env_options.GetOption(kLiteRtEnvOptionTagOpenClDeviceId)) {
-      sampler_backend = Backend::GPU;
-    }
+    ASSIGN_OR_RETURN(auto sampler_backend,
+                     GetSamplerBackend(executor_settings_));
     LITERT_ASSIGN_OR_RETURN_ABSL(const auto decoded_logits_tensor_type,
                                  logits.TensorType());
     proto::SamplerParameters sampler_params;
@@ -692,11 +707,18 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
         gpu_compilation_options.SetSerializeProgramCache(true);
         gpu_compilation_options.SetSerializeExternalTensors(true);
       }
+      // Use NoExternalTensorsMode to get better performance.
       gpu_compilation_options.EnableNoExternalTensorsMode(true);
       // This option prevents KVCache handling from being affected by
-      // NoExternalTensorsMode.
+      // BHWC conversion in NoExternalTensorsMode.
       gpu_compilation_options.AddExternalTensorPattern("kv_cache_");
-      gpu_compilation_options.AddExternalTensorPattern("logits");
+      ASSIGN_OR_RETURN(auto sampler_backend,
+                       GetSamplerBackend(executor_settings));
+      if (sampler_backend == Backend::GPU) {
+        // GPU Sampler requires logits to be external tensors (PHWC4 format).
+        gpu_compilation_options.AddExternalTensorPattern("logits");
+      }
+      // TODO b/441627719 - Select backend by runtime options.
 #if defined(LITERT_USE_WEBGPU_ACCELERATOR)
       gpu_compilation_options.SetGpuBackend(kLiteRtGpuBackendWebGpu);
 #endif  // defined(LITERT_USE_WEBGPU_ACCELERATOR)

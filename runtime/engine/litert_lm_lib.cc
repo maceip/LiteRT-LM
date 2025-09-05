@@ -152,6 +152,9 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
                         << sampler_backend.status();
     } else {
       session_config.SetSamplerBackend(*sampler_backend);
+      auto& executor_settings =
+          engine_settings.GetMutableMainExecutorSettings();
+      executor_settings.SetSamplerBackend(*sampler_backend);
     }
   }
   ABSL_LOG(INFO) << "executor_settings: "
