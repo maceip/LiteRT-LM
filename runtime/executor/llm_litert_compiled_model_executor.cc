@@ -154,8 +154,6 @@ void LogValues(absl::Span<const float> values, size_t num_values_to_log,
       << debug << "(size=" << values.size() << "): "
       << absl::StrJoin(values.subspan(0, num_values_to_log), ", ") << " ... "
       << absl::StrJoin(values.subspan(mid_offset, num_values_to_log), ", ")
-      << " ... "
-      << absl::StrJoin(values.subspan(mid_offset, num_values_to_log), ", ")
       << " ... " << absl::StrJoin(values.subspan(end_offset), ", ");
 }
 
