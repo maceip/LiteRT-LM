@@ -66,6 +66,7 @@ cc_test(
         "//runtime/components/testdata",
         "//runtime/testdata",
     ],
+    tags = ["requires-mac-inputs:hard"],  # Required for running on Forge on Mac.
     deps = [
         ":conversation",
         ":io_types",

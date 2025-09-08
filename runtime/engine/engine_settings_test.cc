@@ -52,7 +52,7 @@ proto::LlmMetadata CreateLlmMetadata() {
   return llm_metadata;
 }
 
-TEST(EngineSettingsTest, GetModelPath) {
+TEST(EngineSettingsTest, MainExecutorSettingsGetModelPath) {
   auto model_assets = ModelAssets::Create("test_model_path_1");
   ASSERT_OK(model_assets);
   auto settings = EngineSettings::CreateDefault(*model_assets, Backend::CPU);
@@ -64,7 +64,7 @@ TEST(EngineSettingsTest, GetModelPath) {
   EXPECT_EQ(*model_path, "test_model_path_1");
 }
 
-TEST(EngineSettingsTest, SetAndGetCacheDir) {
+TEST(EngineSettingsTest, MainExecutorSettingsSetAndGetCacheDir) {
   auto model_assets = ModelAssets::Create("test_model_path_1");
   ASSERT_OK(model_assets);
   auto settings = EngineSettings::CreateDefault(*model_assets, Backend::CPU);
@@ -74,7 +74,7 @@ TEST(EngineSettingsTest, SetAndGetCacheDir) {
             "test_cache_dir");
 }
 
-TEST(EngineSettingsTest, SetAndGetMaxNumTokens) {
+TEST(EngineSettingsTest, MainExecutorSettingsSetAndGetMaxNumTokens) {
   auto model_assets = ModelAssets::Create("test_model_path_1");
   ASSERT_OK(model_assets);
 
@@ -84,7 +84,7 @@ TEST(EngineSettingsTest, SetAndGetMaxNumTokens) {
   EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 128);
 }
 
-TEST(EngineSettingsTest, SetAndGetExecutorBackend) {
+TEST(EngineSettingsTest, MainExecutorSettingsSetAndGetExecutorBackend) {
   auto model_assets = ModelAssets::Create("test_model_path_1");
   ASSERT_OK(model_assets);
 
@@ -95,13 +95,59 @@ TEST(EngineSettingsTest, SetAndGetExecutorBackend) {
               Eq(Backend::GPU));
 }
 
-TEST(EngineSettingsTest, DefaultExecutorBackend) {
+TEST(EngineSettingsTest, MainExecutorSettingsDefaultExecutorBackend) {
   auto model_assets = ModelAssets::Create("test_model_path_1");
   ASSERT_OK(model_assets);
   auto settings = EngineSettings::CreateDefault(*model_assets);
   EXPECT_OK(settings);
   EXPECT_THAT(settings->GetMainExecutorSettings().GetBackend(),
               Eq(Backend::CPU));
+}
+
+TEST(EngineSettingsTest, VisionExecutorSettingsNotSet) {
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings = EngineSettings::CreateDefault(*model_assets, Backend::CPU);
+  EXPECT_OK(settings);
+  EXPECT_FALSE(settings->GetVisionExecutorSettings().has_value());
+}
+
+TEST(EngineSettingsTest, VisionExecutorSettingsSetAndGetBackend) {
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings =
+      EngineSettings::CreateDefault(*model_assets, Backend::CPU, Backend::GPU);
+  EXPECT_OK(settings);
+  ASSERT_TRUE(settings->GetVisionExecutorSettings().has_value());
+  EXPECT_EQ(settings->GetVisionExecutorSettings()->GetBackend(), Backend::GPU);
+
+  settings->GetMutableVisionExecutorSettings()->SetBackend(Backend::NPU);
+  EXPECT_EQ(settings->GetVisionExecutorSettings()->GetBackend(), Backend::NPU);
+}
+
+TEST(EngineSettingsTest, VisionExecutorSettingsSetAndGetCacheDir) {
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings =
+      EngineSettings::CreateDefault(*model_assets, Backend::CPU, Backend::GPU);
+  EXPECT_OK(settings);
+  ASSERT_TRUE(settings->GetVisionExecutorSettings().has_value());
+  settings->GetMutableVisionExecutorSettings()->SetCacheDir("vision_cache_dir");
+  EXPECT_EQ(settings->GetVisionExecutorSettings()->GetCacheDir(),
+            "vision_cache_dir");
+}
+
+TEST(EngineSettingsTest, VisionExecutorSettingsGetModelPath) {
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings =
+      EngineSettings::CreateDefault(*model_assets, Backend::CPU, Backend::GPU);
+  EXPECT_OK(settings);
+  ASSERT_TRUE(settings->GetVisionExecutorSettings().has_value());
+  auto model_path =
+      settings->GetVisionExecutorSettings()->GetModelAssets().GetPath();
+  ASSERT_OK(model_path);
+  EXPECT_EQ(*model_path, "test_model_path_1");
 }
 
 TEST(EngineSettingsTest, BenchmarkParams) {

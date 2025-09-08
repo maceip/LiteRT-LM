@@ -1,7 +1,23 @@
+// Copyright 2025 The ODML Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_LITERT_LM_LIB_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_LITERT_LM_LIB_H_
 
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "absl/status/status.h"  // from @com_google_absl
 
@@ -10,9 +26,11 @@ namespace lm {
 
 struct LiteRtLmSettings {
   std::string backend = "gpu";
+  std::optional<std::string> vision_backend = std::nullopt;
   std::string sampler_backend = "";
   std::string model_path;
   std::string input_prompt = "What is the tallest building in the world?";
+  std::optional<std::vector<std::string>> image_files = std::nullopt;
   bool benchmark = false;
   int benchmark_prefill_tokens = 0;
   int benchmark_decode_tokens = 0;

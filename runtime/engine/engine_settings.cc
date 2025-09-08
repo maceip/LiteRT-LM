@@ -56,11 +56,19 @@ std::ostream& operator<<(std::ostream& os,
 
 // static
 absl::StatusOr<EngineSettings> EngineSettings::CreateDefault(
-    ModelAssets model_assets, Backend backend) {
+    ModelAssets model_assets, Backend backend,
+    std::optional<Backend> vision_backend) {
   ASSIGN_OR_RETURN(  // NOLINT
       auto executor_settings,
-      LlmExecutorSettings::CreateDefault(std::move(model_assets), backend));
-  return EngineSettings(std::move(executor_settings), std::nullopt);
+      LlmExecutorSettings::CreateDefault(model_assets, backend));
+  std::optional<LlmExecutorSettings> vision_executor_settings;
+  if (vision_backend.has_value()) {
+    ASSIGN_OR_RETURN(vision_executor_settings,
+                     LlmExecutorSettings::CreateDefault(
+                         model_assets, vision_backend.value()));
+  }
+  return EngineSettings(std::move(executor_settings),
+                        std::move(vision_executor_settings), std::nullopt);
 }
 
 absl::Status EngineSettings::MaybeUpdateAndValidate(
@@ -126,8 +134,10 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
 
 EngineSettings::EngineSettings(
     LlmExecutorSettings executor_settings,
+    std::optional<LlmExecutorSettings> vision_executor_settings,
     std::optional<proto::BenchmarkParams> benchmark_params)
     : main_executor_settings_(std::move(executor_settings)),
+      vision_executor_settings_(std::move(vision_executor_settings)),
       benchmark_params_(benchmark_params) {}
 
 const LlmExecutorSettings& EngineSettings::GetMainExecutorSettings() const {
@@ -136,6 +146,16 @@ const LlmExecutorSettings& EngineSettings::GetMainExecutorSettings() const {
 
 LlmExecutorSettings& EngineSettings::GetMutableMainExecutorSettings() {
   return main_executor_settings_;
+}
+
+const std::optional<LlmExecutorSettings>&
+EngineSettings::GetVisionExecutorSettings() const {
+  return vision_executor_settings_;
+}
+
+std::optional<LlmExecutorSettings>&
+EngineSettings::GetMutableVisionExecutorSettings() {
+  return vision_executor_settings_;
 }
 
 // Benchmark parameters:

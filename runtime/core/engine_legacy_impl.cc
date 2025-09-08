@@ -29,6 +29,8 @@
 #include "third_party/odml/infra/genai/inference/executor/litert_executor_utils.h"
 #include "third_party/odml/infra/genai/inference/executor/llm_litert_opencl_executor.h"
 #include "third_party/odml/infra/genai/inference/executor/llm_litert_xnnpack_executor.h"
+#include "runtime/components/preprocessor/image_preprocessor.h"
+#include "runtime/components/preprocessor/stb_image_preprocessor.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/core/session_factory.h"
@@ -38,6 +40,9 @@
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_settings.h"
+#include "runtime/executor/vision_executor.h"
+#include "runtime/executor/vision_executor_settings.h"
+#include "runtime/executor/vision_litert_compiled_model_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/metadata_util.h"
@@ -143,6 +148,23 @@ class EngineImpl : public Engine {
     auto executor = BuildExecutor(*model_resources_, engine_settings_);
     ABSL_QCHECK_OK(executor);
     executor_ = std::move(*executor);
+
+    if (engine_settings_.GetVisionExecutorSettings().has_value()) {
+      auto vision_executor_settings = VisionExecutorSettings::CreateDefault(
+          engine_settings_.GetMainExecutorSettings().GetModelAssets(),
+          /*encoder_backend=*/
+          engine_settings_.GetVisionExecutorSettings()->GetBackend(),
+          /*adapter_backend=*/Backend::CPU);
+      ABSL_QCHECK_OK(vision_executor_settings);
+      auto vision_executor =
+          VisionLiteRtCompiledModelExecutor::Create(*vision_executor_settings);
+      ABSL_QCHECK_OK(vision_executor);
+      vision_executor_ = std::move(*vision_executor);
+
+      // Create the image preprocessor for processing the image input.
+      image_preprocessor_ = std::make_unique<StbImagePreprocessor>();
+    }
+
     if (benchmark_info_.has_value()) {
       ABSL_CHECK_OK(
           benchmark_info_->TimeInitPhaseEnd("Executor initialization"));
@@ -176,9 +198,9 @@ class EngineImpl : public Engine {
     config.GetMutableSamplerParams().set_type(
         proto::SamplerParameters::TYPE_UNSPECIFIED);
     return InitializeSession(executor_.get(), tokenizer_,
-                             /*image_preprocessor=*/nullptr,
-                             /*vision_executor=*/nullptr, config,
-                             benchmark_info_, worker_thread_pool_.get());
+                             image_preprocessor_.get(), vision_executor_.get(),
+                             config, benchmark_info_,
+                             worker_thread_pool_.get());
   }
 
   absl::Status WaitUntilDone(absl::Duration timeout) override {
@@ -190,8 +212,12 @@ class EngineImpl : public Engine {
   EngineSettings engine_settings_;
   // Model resources, which must outlive `executor_`.
   std::unique_ptr<oi::ExecutorModelResources> model_resources_;
+  // Image preprocessor for the vision model.
+  std::unique_ptr<ImagePreprocessor> image_preprocessor_;
   // Executor for all sessions.
   std::unique_ptr<LlmExecutor> executor_;
+  // Vision executor for all sessions.
+  std::unique_ptr<VisionExecutor> vision_executor_;
   // Tokenizer from task file, that is not owned by the model resources.
   // So we keep it here to avoid the model resources being destroyed.
   std::unique_ptr<Tokenizer> task_tokenizer_;

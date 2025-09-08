@@ -68,7 +68,8 @@ class EngineSettings {
   // Creates a default EngineSettings with the given model assets and specified
   // backend.
   static absl::StatusOr<EngineSettings> CreateDefault(
-      ModelAssets model_assets, Backend backend = Backend::CPU);
+      ModelAssets model_assets, Backend backend = Backend::CPU,
+      std::optional<Backend> vision_backend = std::nullopt);
 
   // Updates the EngineSettings fields by loading the metadata from the model
   // assets. The function also validates to check if all of the required fields
@@ -81,6 +82,11 @@ class EngineSettings {
   const LlmExecutorSettings& GetMainExecutorSettings() const;
   // Returns the mutable LlmExecutorSettings.
   LlmExecutorSettings& GetMutableMainExecutorSettings();
+
+  // Returns the LlmExecutorSettings for the vision model.
+  const std::optional<LlmExecutorSettings>& GetVisionExecutorSettings() const;
+  // Returns the mutable LlmExecutorSettings for the vision model.
+  std::optional<LlmExecutorSettings>& GetMutableVisionExecutorSettings();
 
   // Benchmark parameters:
   // Returns true if the benchmark is enabled.
@@ -100,10 +106,14 @@ class EngineSettings {
  private:
   explicit EngineSettings(
       LlmExecutorSettings executor_settings,
+      std::optional<LlmExecutorSettings> vision_executor_settings,
       std::optional<proto::BenchmarkParams> benchmark_params = std::nullopt);
 
   // Settings for the main executor.
   LlmExecutorSettings main_executor_settings_;
+
+  // Settings for the vision executor.
+  std::optional<LlmExecutorSettings> vision_executor_settings_;
 
   // Parameters used to configure the benchmarking process.
   std::optional<proto::BenchmarkParams> benchmark_params_;

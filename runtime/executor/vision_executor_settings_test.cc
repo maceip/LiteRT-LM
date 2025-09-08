@@ -18,11 +18,11 @@
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
 #include "runtime/executor/executor_settings_base.h"
+#include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {
 
-using ::testing::HasSubstr;
 using ::testing::status::StatusIs;
 
 TEST(VisionExecutorSettingsTest, GetModelAssets) {
@@ -69,23 +69,23 @@ TEST(VisionExecutorSettingsTest, CreateDefaultWithInvalidBackend) {
                                             /*encoder_backend=*/Backend::NPU,
                                             /*adapter_backend=*/Backend::CPU),
       StatusIs(absl::StatusCode::kInvalidArgument,
-               HasSubstr("Unsupported encoder backend: 6")));
+               "Unsupported encoder backend: 6"));
   EXPECT_THAT(
       VisionExecutorSettings::CreateDefault(model_assets,
                                             /*encoder_backend=*/Backend::GPU,
                                             /*adapter_backend=*/Backend::NPU),
       StatusIs(absl::StatusCode::kInvalidArgument,
-               HasSubstr("Unsupported adapter backend: 6")));
+               "Unsupported adapter backend: 6"));
   EXPECT_THAT(VisionExecutorSettings::CreateDefault(
                   model_assets, /*encoder_backend=*/Backend::GPU_ARTISAN,
                   /*adapter_backend=*/Backend::GPU),
               StatusIs(absl::StatusCode::kInvalidArgument,
-                       HasSubstr("Unsupported encoder backend: 2")));
+                       "Unsupported encoder backend: 2"));
   EXPECT_THAT(VisionExecutorSettings::CreateDefault(
                   model_assets, /*encoder_backend=*/Backend::CPU,
                   /*adapter_backend=*/Backend::CPU_ARTISAN),
               StatusIs(absl::StatusCode::kInvalidArgument,
-                       HasSubstr("Unsupported adapter backend: 1")));
+                       "Unsupported adapter backend: 1"));
 };
 
 TEST(VisionExecutorSettingsTest, CreateDefaultWithValidBackend) {

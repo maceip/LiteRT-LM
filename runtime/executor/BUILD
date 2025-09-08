@@ -24,6 +24,31 @@ package(
 licenses(["notice"])
 
 cc_library(
+    name = "vision_executor_settings",
+    srcs = ["vision_executor_settings.cc"],
+    hdrs = ["vision_executor_settings.h"],
+    deps = [
+        ":executor_settings_base",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "//runtime/util:litert_status_util",
+    ],
+)
+
+cc_test(
+    name = "vision_executor_settings_test",
+    srcs = ["vision_executor_settings_test.cc"],
+    deps = [
+        ":executor_settings_base",
+        ":vision_executor_settings",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "//runtime/util:test_utils",
+    ],
+)
+
+cc_library(
     name = "executor_settings_base",
     srcs = ["executor_settings_base.cc"],
     hdrs = ["executor_settings_base.h"],
@@ -412,6 +437,71 @@ cc_library(
             "@litert//litert/cc/internal:litert_tensor_buffer",
         ],
     }),
+)
+
+cc_library(
+    name = "vision_litert_compiled_model_executor",
+    srcs = ["vision_litert_compiled_model_executor.cc"],
+    hdrs = ["vision_litert_compiled_model_executor.h"],
+    deps = [
+        ":default_static_gpu_accelerator",  # buildcleaner: keep
+        ":executor_settings_base",
+        ":litert_compiled_model_executor_utils",
+        ":llm_executor_io_types",
+        ":vision_executor",
+        ":vision_executor_settings",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+        "@litert//litert/c:litert_common",
+        "@litert//litert/c:litert_tensor_buffer_types",
+        "@litert//litert/cc:litert_macros",
+        "//runtime/components:model_resources",
+        "//runtime/util:litert_status_util",
+    ] + select({
+        "@litert//litert:litert_link_capi_so": [
+            "@litert//litert/cc:litert_compiled_model",
+            "@litert//litert/cc:litert_environment",
+            "@litert//litert/cc:litert_model",
+            "@litert//litert/cc:litert_options",
+            "@litert//litert/cc:litert_tensor_buffer",
+            "@litert//litert/cc/options:litert_cpu_options",
+            "@litert//litert/cc/options:litert_gpu_options",
+            "@litert//litert/cc/options:litert_runtime_options",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc/internal:litert_compiled_model",
+            "@litert//litert/cc/internal:litert_cpu_options",
+            "@litert//litert/cc/internal:litert_environment",
+            "@litert//litert/cc/internal:litert_gpu_options",
+            "@litert//litert/cc/internal:litert_model",
+            "@litert//litert/cc/internal:litert_options",
+            "@litert//litert/cc/internal:litert_runtime_options",
+            "@litert//litert/cc/internal:litert_tensor_buffer",
+        ],
+    }),
+)
+
+cc_test(
+    name = "vision_litert_compiled_model_executor_test",
+    srcs = ["vision_litert_compiled_model_executor_test.cc"],
+    data = ["//runtime/testdata"],
+    deps = [
+        ":executor_settings_base",
+        ":vision_executor_settings",
+        ":vision_litert_compiled_model_executor",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "//runtime/components:model_resources_litert_lm",
+        "//runtime/util:litert_lm_loader",
+        "//runtime/util:scoped_file",
+        "//runtime/util:test_utils",
+    ],
 )
 
 cc_library(

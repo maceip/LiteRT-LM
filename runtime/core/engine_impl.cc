@@ -30,6 +30,8 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "runtime/components/model_resources.h"
+#include "runtime/components/preprocessor/image_preprocessor.h"
+#include "runtime/components/preprocessor/stb_image_preprocessor.h"
 #include "runtime/core/session_factory.h"
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
@@ -40,6 +42,9 @@
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/executor/llm_litert_compiled_model_executor.h"
 #include "runtime/executor/llm_litert_npu_compiled_model_executor.h"
+#include "runtime/executor/vision_executor.h"
+#include "runtime/executor/vision_executor_settings.h"
+#include "runtime/executor/vision_litert_compiled_model_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/proto/sampler_params.pb.h"
@@ -125,6 +130,22 @@ class EngineImpl : public Engine {
       ABSL_CHECK_OK(executor);
       executor_ = std::move(executor.value());
     }
+    if (engine_settings_.GetVisionExecutorSettings().has_value()) {
+      auto vision_executor_settings = VisionExecutorSettings::CreateDefault(
+          engine_settings_.GetMainExecutorSettings().GetModelAssets(),
+          /*encoder_backend=*/
+          engine_settings_.GetVisionExecutorSettings()->GetBackend(),
+          /*adapter_backend=*/Backend::CPU);
+      ABSL_QCHECK_OK(vision_executor_settings);
+      auto vision_executor =
+          VisionLiteRtCompiledModelExecutor::Create(*vision_executor_settings);
+      ABSL_QCHECK_OK(vision_executor);
+      vision_executor_ = std::move(*vision_executor);
+
+      // Create the image preprocessor for processing the image input only if
+      // vision executor is enabled.
+      image_preprocessor_ = std::make_unique<StbImagePreprocessor>();
+    }
     if (benchmark_info_.has_value()) {
       ABSL_CHECK_OK(
           benchmark_info_->TimeInitPhaseEnd("Executor initialization"));
@@ -153,8 +174,8 @@ class EngineImpl : public Engine {
     ABSL_CHECK(litert_model_resources_ != nullptr);
     ASSIGN_OR_RETURN(auto* tokenizer, litert_model_resources_->GetTokenizer());
     return InitializeSession(executor_.get(), tokenizer,
-                             /*image_preprocessor=*/nullptr,
-                             /*vision_executor=*/nullptr, config,
+                             /*image_preprocessor=*/image_preprocessor_.get(),
+                             /*vision_executor=*/vision_executor_.get(), config,
                              benchmark_info_, worker_thread_pool_.get());
   }
   absl::Status WaitUntilDone(absl::Duration timeout) override {
@@ -166,8 +187,12 @@ class EngineImpl : public Engine {
   EngineSettings engine_settings_;
   // Model resources, which must outlive `executor_`.
   std::unique_ptr<ModelResources> litert_model_resources_;
+  // Image preprocessor for the vision model.
+  std::unique_ptr<ImagePreprocessor> image_preprocessor_;
   // Shared executor for all sessions.
   std::unique_ptr<LlmExecutor> executor_;
+  // Shared vision executor for all sessions.
+  std::unique_ptr<VisionExecutor> vision_executor_;
   // Default stop token ids for all sessions loaded from the model file.
   std::vector<std::vector<int>> stop_token_ids_;
   proto::SamplerParameters sampler_params_;

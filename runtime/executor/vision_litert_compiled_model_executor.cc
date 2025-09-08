@@ -45,7 +45,7 @@
 #include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/executor/vision_executor_settings.h"
 #include "runtime/util/litert_status_util.h"
-#include "util/task/status_macros.h"
+#include "runtime/util/status_macros.h"  // NOLINT
 
 namespace litert::lm {
 
@@ -88,7 +88,7 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionEncoder::Initialize() {
       gpu_compilation_options.SetDelegatePrecision(
           LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp16);
       gpu_compilation_options.SetPreferTextureWeights(true);
-      gpu_compilation_options.EnableNoImmutableExternalTensorsMode(true);
+      gpu_compilation_options.EnableNoExternalTensorsMode(true);
       options.AddOpaqueOptions(std::move(gpu_compilation_options));
       options.SetHardwareAccelerators(kLiteRtHwAcceleratorGpu);
       break;
@@ -160,7 +160,7 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionAdapter::Initialize() {
       gpu_compilation_options.SetDelegatePrecision(
           LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp16);
       gpu_compilation_options.SetPreferTextureWeights(true);
-      gpu_compilation_options.EnableNoImmutableExternalTensorsMode(true);
+      gpu_compilation_options.EnableNoExternalTensorsMode(true);
       options.AddOpaqueOptions(std::move(gpu_compilation_options));
       options.SetHardwareAccelerators(kLiteRtHwAcceleratorGpu);
       break;

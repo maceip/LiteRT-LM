@@ -21,7 +21,9 @@
 //
 // Consider run_llm_inference_engine.sh as an example to run on android device.
 
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "absl/base/log_severity.h"  // from @com_google_absl
 #include "absl/flags/flag.h"  // from @com_google_absl
@@ -35,6 +37,9 @@
 
 ABSL_FLAG(std::string, backend, "gpu",
           "Executor backend to use for LLM execution (cpu, gpu, etc.)");
+ABSL_FLAG(std::optional<std::string>, vision_backend, std::nullopt,
+          "Backend to use for the vision model (cpu or gpu). If not specified, "
+          "the vision backend will be chosen based on the main backend.");
 ABSL_FLAG(std::string, sampler_backend, "",
           "Sampler backend to use for LLM execution (cpu, gpu, etc.). If "
           "empty, the sampler backend will be chosen for the best according to "
@@ -70,6 +75,8 @@ ABSL_FLAG(int, num_logits_to_print_after_decode, 0,
           "The number of values at the beginning of logits, in the middle of "
           "logits, and at the end of logits to print after each decode step. "
           "If 0, disables printing logits.");
+ABSL_FLAG(std::optional<std::vector<std::string>>, image_files, std::nullopt,
+          "The path to the image files that to be used for vision modality.");
 
 namespace {
 
@@ -105,6 +112,7 @@ absl::Status MainHelper(int argc, char** argv) {
     ABSL_LOG(INFO)
         << "Example usage: ./litert_lm_main --model_path=<model_path> "
            "[--input_prompt=<input_prompt>] [--backend=<cpu|gpu|npu>] "
+           "[--vision_backend=<cpu|gpu>] "
            "[--sampler_backend=<cpu|gpu>] [--benchmark] "
            "[--benchmark_prefill_tokens=<num_prefill_tokens>] "
            "[--benchmark_decode_tokens=<num_decode_tokens>] "
@@ -119,9 +127,11 @@ absl::Status MainHelper(int argc, char** argv) {
 
   litert::lm::LiteRtLmSettings settings;
   settings.backend = absl::GetFlag(FLAGS_backend);
+  settings.vision_backend = absl::GetFlag(FLAGS_vision_backend);
   settings.sampler_backend = absl::GetFlag(FLAGS_sampler_backend);
   settings.model_path = absl::GetFlag(FLAGS_model_path);
   settings.input_prompt = absl::GetFlag(FLAGS_input_prompt);
+  settings.image_files = absl::GetFlag(FLAGS_image_files);
   settings.benchmark = absl::GetFlag(FLAGS_benchmark);
   settings.benchmark_prefill_tokens =
       absl::GetFlag(FLAGS_benchmark_prefill_tokens);
