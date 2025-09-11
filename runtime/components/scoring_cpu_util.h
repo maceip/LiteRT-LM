@@ -28,8 +28,10 @@ namespace litert::lm {
 // The temperature is used for calculating the softmax function.
 // Returns the confidence i.e. negative log probability for the entire batch.
 // Ranges from [0, inf)
-absl::StatusOr<std::vector<float>> ComputeBatchConfidences(
-    absl::Span<const float> logits, const std::vector<int>& sampled_ids,
+// In case one of the streams has ended, the user needs to still provide a valid
+// sampled id for that stream and ignore the result of that element.
+absl::StatusOr<std::vector<float>> ComputeLogLikelihood(
+    absl::Span<const float> logits, absl::Span<const int> sampled_ids,
     float temperature);
 }  // namespace litert::lm
 

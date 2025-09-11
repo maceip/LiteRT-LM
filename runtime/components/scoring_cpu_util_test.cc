@@ -20,60 +20,58 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/types/span.h"  // from @com_google_absl
+#include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
 namespace {
 
-TEST(ScoringCpuUtilTest, ComputeBatchConfidences_InvalidSampledId) {
-  std::vector<float> logits = {0.0, 0.0, 0.3};
-  std::vector<int> sampled_ids = {12};
-  auto batchconfidence =
-      ComputeBatchConfidences(absl::MakeConstSpan(logits), sampled_ids,
-                         /*temperature=*/1.0);
+TEST(ScoringCpuUtilTest, ComputeLogLikelihood_InvalidSampledId) {
+  const std::vector<float> logits = {0.0, 0.0, 0.3};
+  const std::vector<int> sampled_ids = {12};
+  auto batchconfidence = ComputeLogLikelihood(absl::MakeConstSpan(logits),
+                                              absl::MakeConstSpan(sampled_ids),
+                                              /*temperature=*/1.0);
   EXPECT_FALSE(batchconfidence.ok());
 }
 
-TEST(ScoringCpuUtilTest, ComputeBatchConfidences_BatchSize1) {
-  std::vector<float> logits = {0.0, 0.0, 0.3};
-  std::vector<int> sampled_ids = {2};
-  auto batchconfidence =
-      ComputeBatchConfidences(absl::MakeConstSpan(logits), sampled_ids,
-                         /*temperature=*/1.0);
-  EXPECT_TRUE(batchconfidence.ok());
+TEST(ScoringCpuUtilTest, ComputeLogLikelihood_BatchSize1) {
+  const std::vector<float> logits = {0.0, 0.0, 0.3};
+  const std::vector<int> sampled_ids = {2};
+  auto batchconfidence = ComputeLogLikelihood(absl::MakeConstSpan(logits),
+                                              absl::MakeConstSpan(sampled_ids),
+                                              /*temperature=*/1.0);
+  ASSERT_OK(batchconfidence);
   EXPECT_THAT(*batchconfidence,
-              testing::ElementsAre(
-                  testing::FloatNear(
-                      -1 * std::log(exp(0.3f) / (2 + std::exp(0.3f))), 1e-6f)));
+              testing::ElementsAre(testing::FloatNear(
+                  std::log(exp(0.3f) / (2 + std::exp(0.3f))), 1e-6f)));
 }
 
-TEST(ScoringCpuUtilTest, ComputeBatchConfidences_BatchSize2) {
+TEST(ScoringCpuUtilTest, ComputeLogLikelihood_BatchSize2) {
   std::vector<float> logits = {0.0, 0.0, 0.3, 0.0, 0.7, 0.0};
   std::vector<int> sampled_ids = {2, 1};
-  auto batchconfidence = ComputeBatchConfidences(absl::MakeConstSpan(logits),
-                                                sampled_ids,
-                                                /*temperature=*/1.0);
+  auto batchconfidence = ComputeLogLikelihood(absl::MakeConstSpan(logits),
+                                              absl::MakeConstSpan(sampled_ids),
+                                              /*temperature=*/1.0);
   EXPECT_TRUE(batchconfidence.ok());
-  EXPECT_THAT(*batchconfidence,
-              testing::ElementsAre(
-                  testing::FloatNear(
-                      -1 * std::log(exp(0.3f) / (2 + std::exp(0.3f))), 1e-6f),
-                  testing::FloatNear(
-                      -1 * std::log(exp(0.7f) / (2 + std::exp(0.7f))), 1e-6f)));
+  EXPECT_THAT(
+      *batchconfidence,
+      testing::ElementsAre(
+          testing::FloatNear(std::log(exp(0.3f) / (2 + std::exp(0.3f))), 1e-6f),
+          testing::FloatNear(std::log(exp(0.7f) / (2 + std::exp(0.7f))),
+                             1e-6f)));
 }
 
-TEST(ScoringCpuUtilTest, ComputeBatchConfidences_BatchSize2_OneStreamEnded) {
+TEST(ScoringCpuUtilTest, ComputeLogLikelihood_BatchSize2_OneStreamEnded) {
   std::vector<float> logits = {0.0, 0.0, 0.3, 0.0, 0.7, 0.0};
-  std::vector<int> sampled_ids = {2, -1};
-  auto batchconfidence = ComputeBatchConfidences(absl::MakeConstSpan(logits),
-                                                 sampled_ids,
-                                                  /*temperature=*/1.0);
+  std::vector<int> sampled_ids = {2, 0};
+  auto batchconfidence = ComputeLogLikelihood(absl::MakeConstSpan(logits),
+                                              absl::MakeConstSpan(sampled_ids),
+                                              /*temperature=*/1.0);
   EXPECT_TRUE(batchconfidence.ok());
-  EXPECT_THAT(*batchconfidence,
-              testing::ElementsAre(
-                  testing::FloatNear(
-                      -1 * std::log(exp(0.3f) / (2 + std::exp(0.3f))), 1e-6f),
-                  testing::FloatNear(0.0f, 1e-6f)));
+  // Ignore the second token as it has ended.
+  EXPECT_THAT(
+      (*batchconfidence)[0],
+      testing::FloatNear(std::log(exp(0.3f) / (2 + std::exp(0.3f))), 1e-6f));
 }
-
 }  // namespace
 }  // namespace litert::lm

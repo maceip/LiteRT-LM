@@ -118,6 +118,7 @@ cc_library(
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
+        "//runtime/util:litert_status_util",
     ],
 )
 
@@ -152,14 +153,17 @@ cc_test(
         ":sampling_cpu_util",
         ":scoring_cpu_util",
         "@com_google_googletest//:gtest_main",
-        "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/random",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:span",
+        "//runtime/util:litert_status_util",
+        "//runtime/util:test_utils",
     ],
 )
 
