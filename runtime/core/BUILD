@@ -117,7 +117,7 @@ cc_library(
         ],
         "//conditions:default": [
             "@litert//litert/cc:litert_macros",
-            "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
 )
@@ -186,8 +186,8 @@ cc_library(
             "@litert//litert/cc:litert_tensor_buffer",
         ],
         "//conditions:default": [
-            "@litert//litert/cc/internal:litert_model",
-            "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc:litert_model",
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
 )
@@ -229,7 +229,7 @@ cc_test(
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
         ],
         "//conditions:default": [
-            "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
 )

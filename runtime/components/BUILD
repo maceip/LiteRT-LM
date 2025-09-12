@@ -58,7 +58,7 @@ cc_library(
         ],
         "//conditions:default": [
             "@litert//litert/cc:litert_macros",
-            "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
 )
@@ -82,7 +82,7 @@ cc_test(
         ],
         "//conditions:default": [
             "@litert//litert/cc:litert_layout",
-            "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
 )
@@ -130,7 +130,7 @@ cc_library(
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
         ],
         "//conditions:default": [
-            "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
 )
@@ -298,7 +298,7 @@ cc_library(
         ],
         "//conditions:default": [
             "@litert//litert/cc:litert_macros",
-            "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
 )
@@ -316,7 +316,7 @@ cc_test(
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
         ],
         "//conditions:default": [
-            "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
 )
@@ -348,7 +348,7 @@ cc_library(
         "//conditions:default": [
             "@litert//litert/c:litert_common",
             "@litert//litert/cc:litert_shared_library",
-            "@litert//litert/cc/internal:litert_tensor_buffer",
+            "@litert//litert/cc:litert_tensor_buffer",
         ],
     }) + select({
         "@platforms//os:ios": [],
@@ -384,11 +384,11 @@ cc_test(
         ],
         "//conditions:default": [
             "@litert//litert/c:litert_common",
+            "@litert//litert/cc:litert_compiled_model",
+            "@litert//litert/cc:litert_environment",
             "@litert//litert/cc:litert_expected",
-            "@litert//litert/cc/internal:litert_compiled_model",
-            "@litert//litert/cc/internal:litert_environment",
-            "@litert//litert/cc/internal:litert_gpu_options",
-            "@litert//litert/cc/internal:litert_options",
+            "@litert//litert/cc:litert_options",
+            "@litert//litert/cc/options:litert_gpu_options",
         ],
     }) + select({
         "//conditions:default": [],
@@ -412,7 +412,7 @@ cc_test(
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
         ],
         "//conditions:default": [
-            "@litert//litert/cc/internal:litert_environment",
+            "@litert//litert/cc:litert_environment",
         ],
     }),
 )
@@ -447,7 +447,7 @@ cc_library(
         "//conditions:default": [
             "@litert//litert/cc:litert_buffer_ref",
             "@litert//litert/cc:litert_macros",
-            "@litert//litert/cc/internal:litert_model",
+            "@litert//litert/cc:litert_model",
         ],
     }),
 )
@@ -467,7 +467,7 @@ cc_library(
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
         ],
         "//conditions:default": [
-            "@litert//litert/cc/internal:litert_model",
+            "@litert//litert/cc:litert_model",
         ],
     }),
 )
@@ -500,7 +500,7 @@ cc_library(
         "//conditions:default": [
             "@litert//litert/cc:litert_buffer_ref",
             "@litert//litert/cc:litert_macros",
-            "@litert//litert/cc/internal:litert_model",
+            "@litert//litert/cc:litert_model",
         ],
     }),
 )
