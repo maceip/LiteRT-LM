@@ -325,7 +325,6 @@ absl::StatusOr<InputText> SessionBasic::StringToProcessedInputText(
   if (benchmark_info_.has_value()) {
     benchmark_prefill_token_count =
         benchmark_info_->GetBenchmarkParams().num_prefill_tokens();
-    RETURN_IF_ERROR(benchmark_info_->TimePrefillTurnStart());
   }
   ASSIGN_OR_RETURN(std::vector<int> ids, tokenizer_.TextToTokenIds(text));
   if (benchmark_prefill_token_count > 0) {
@@ -340,12 +339,13 @@ absl::StatusOr<InputText> SessionBasic::StringToProcessedInputText(
   return InputText(std::move(ids_buffer));
 }
 
-// TODO - b/436674053: Modulize the preprocessing logic into a separate
+// TODO(b/436674053): Modulize the preprocessing logic into a separate
 // preprocessor class, please refer to the bug for more details.
 absl::StatusOr<std::vector<InputData>> SessionBasic::PreprocessContents(
     const std::vector<InputData>& contents) {
   std::vector<InputData> preprocessed_contents;
-  if (!benchmark_info_.has_value()) {
+  if (!(benchmark_info_.has_value() &&
+        benchmark_info_->GetBenchmarkParams().num_prefill_tokens() > 0)) {
     ASSIGN_OR_RETURN(std::string formatted_first_chunk,
                      ApplyPromptTemplates("", /*is_first_chunk=*/true,
                                           /*is_last_chunk=*/false));
@@ -399,7 +399,8 @@ absl::StatusOr<std::vector<InputData>> SessionBasic::PreprocessContents(
           InputAudio(std::move(preprocessed_audio)));
     }
   }
-  if (!benchmark_info_.has_value()) {
+  if (!(benchmark_info_.has_value() &&
+        benchmark_info_->GetBenchmarkParams().num_prefill_tokens() > 0)) {
     ASSIGN_OR_RETURN(std::string formatted_last_chunk,
                      ApplyPromptTemplates("", /*is_first_chunk=*/false,
                                           /*is_last_chunk=*/true));
@@ -434,6 +435,9 @@ absl::Status SessionBasic::RunPrefill(const std::vector<InputData>& contents) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
   }
+  if (benchmark_info_.has_value()) {
+    RETURN_IF_ERROR(benchmark_info_->TimePrefillTurnStart());
+  }
   ASSIGN_OR_RETURN(std::vector<InputData> preprocessed_contents,
                    PreprocessContents(contents));
   absl::Status status;
@@ -455,6 +459,9 @@ absl::Status SessionBasic::RunPrefillAsync(
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
+  }
+  if (benchmark_info_.has_value()) {
+    RETURN_IF_ERROR(benchmark_info_->TimePrefillTurnStart());
   }
   ASSIGN_OR_RETURN(std::vector<InputData> preprocessed_contents,
                    PreprocessContents(contents));

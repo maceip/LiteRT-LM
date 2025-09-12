@@ -855,5 +855,86 @@ TEST_F(SessionBasicTest, GenerateContentStreamOnCancelledSession) {
   EXPECT_OK(observer.WaitUntilDone());
 }
 
+TEST_F(SessionBasicTest,
+       TestBenchmarkModeWithoutNumPrefillTokensRespectPromptTemplate) {
+  const std::vector<std::vector<int>> stop_token_ids = {{2294}};
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.GetMutableSamplerParams() = sampler_params_;
+  session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetStartTokenId(2);
+  session_config.SetSamplerBackend(Backend::CPU);
+  session_config.GetMutablePromptTemplates().mutable_user()->set_prefix(
+      "<test>User\n");
+  session_config.GetMutablePromptTemplates().mutable_user()->set_suffix(
+      "<end>\n");
+  session_config.GetMutablePromptTemplates().mutable_model()->set_prefix(
+      "<test>Model\n");
+
+  ASSERT_OK_AND_ASSIGN(
+      auto executor,
+      CreateFakeLlmExecutor(
+          // Expected tokens: "<test>User\nHello World!<end>\n<test>Model\n"
+          /*prefill_tokens=*/{{2,   4,  0,   39,  637, 0,    3328, 8,   179, 90,
+                               547, 58, 735, 210, 466, 2294, 4,    0,   40,  23,
+                               0,   4,  0,   39,  637, 0,    197,  979, 3076}},
+          /*decode_tokens=*/{{224}}));
+
+  proto::BenchmarkParams benchmark_params;
+  BenchmarkInfo benchmark_info(benchmark_params);
+
+  auto session = SessionBasic::Create(
+      executor.get(), tokenizer_.get(),
+      /*image_preprocessor=*/nullptr,
+      /*vision_executor=*/nullptr, /*audio_preprocessor=*/nullptr,
+      /*audio_executor=*/nullptr, session_config, benchmark_info,
+      worker_thread_pool_.get());
+  ASSERT_OK(session);
+
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("Hello World!"));
+  EXPECT_OK((*session)->RunPrefill(inputs));
+  EXPECT_EQ((*session)->GetBenchmarkInfo()->GetTotalPrefillTurns(), 1);
+}
+
+TEST_F(SessionBasicTest,
+       TestBenchmarkModeWithNumPrefillTokensIgnorePromptTemplate) {
+  const std::vector<std::vector<int>> stop_token_ids = {{2294}};
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.GetMutableSamplerParams() = sampler_params_;
+  session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetStartTokenId(2);
+  session_config.SetSamplerBackend(Backend::CPU);
+  session_config.GetMutablePromptTemplates().mutable_user()->set_prefix(
+      "<test>User\n");
+  session_config.GetMutablePromptTemplates().mutable_user()->set_suffix(
+      "<end>\n");
+  session_config.GetMutablePromptTemplates().mutable_model()->set_prefix(
+      "<test>Model\n");
+
+  ASSERT_OK_AND_ASSIGN(
+      auto executor,
+      CreateFakeLlmExecutor(
+          // Expected tokens: "Hello World!" (No templates)
+          /*prefill_tokens=*/{{90, 547, 58, 735, 210, 466, 2294}},
+          /*decode_tokens=*/{{224}}));
+
+  proto::BenchmarkParams benchmark_params;
+  benchmark_params.set_num_prefill_tokens(7);
+  BenchmarkInfo benchmark_info(benchmark_params);
+
+  auto session = SessionBasic::Create(
+      executor.get(), tokenizer_.get(),
+      /*image_preprocessor=*/nullptr,
+      /*vision_executor=*/nullptr, /*audio_preprocessor=*/nullptr,
+      /*audio_executor=*/nullptr, session_config, benchmark_info,
+      worker_thread_pool_.get());
+  ASSERT_OK(session);
+
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("Hello World!"));
+  EXPECT_OK((*session)->RunPrefill(inputs));
+  EXPECT_EQ((*session)->GetBenchmarkInfo()->GetTotalPrefillTurns(), 1);
+}
+
 }  // namespace
 }  // namespace litert::lm
