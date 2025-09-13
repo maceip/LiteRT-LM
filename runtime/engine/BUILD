@@ -128,6 +128,7 @@ cc_binary(
         "@platforms//os:windows": [
             "@litert//litert/c:windows_exported_symbols.def",
         ],
+        "@platforms//os:linux": [":litert_lm_main.exported_symbols"],
         "//conditions:default": [],
     }),
     linkopts = select({
@@ -138,6 +139,7 @@ cc_binary(
         "@platforms//os:windows": [
             "/DEF:$(location @litert//litert/c:windows_exported_symbols.def)",
         ],
+        "@platforms//os:linux": ["-Wl,--dynamic-list=$(location :litert_lm_main.exported_symbols)"],
         "//conditions:default": ["-Wl,--export-dynamic-symbol=LiteRt*"],
     }) + select({
         "@platforms//os:android": ["-lEGL", "-lGLESv3"],
