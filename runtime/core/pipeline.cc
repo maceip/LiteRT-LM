@@ -14,6 +14,7 @@
 
 #include "runtime/core/pipeline.h"
 
+#include <algorithm>
 #include <atomic>
 #include <limits>
 #include <optional>
@@ -33,11 +34,13 @@
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/sampler.h"
+#include "runtime/components/scoring_cpu_util.h"
 #include "runtime/components/stop_token_detector.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
+#include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/litert_status_util.h"
 #include "runtime/util/status_macros.h"  //NOLINT
@@ -136,7 +139,6 @@ class DecodeOneStep {
 
     auto decoded_result =
         tokenizer_.TokenIdsToTexts(num_output_candidates_, token_ids);
-
     for (int i = 0; i < num_output_candidates_; ++i) {
       result_text_[i] = "";
       if (Tokenizer::IsIncompleteBpeSequence(decoded_result.value()[i])) {
@@ -176,6 +178,47 @@ class DecodeOneStep {
   absl::Span<float> GetScores() { return scores_span_; }
 
   const std::vector<std::string>& GetResultText() const { return result_text_; }
+
+  // This function is only supported for external sampling.
+  // It computes the log likelihoods for the sampled ids corresponding to the
+  // ids of a batch and returns it as a vector of floats.
+  // step_input_ids: The ids corresponding to the input text for the batch.
+  // decoded_ids: The decoded id tensor buffer in which the sampled ids are
+  //              written so that the model uses reference text future step.
+  // Returns: A vector of log likelihoods for the sampled ids.
+  absl::StatusOr<std::vector<float>> RunScoreStep(
+      const float temperature, const std::vector<int>& step_input_ids,
+      litert::TensorBuffer& decoded_ids) {
+    LITERT_ASSIGN_OR_RETURN(auto duplicate_decoded_ids,
+                            decoded_ids.Duplicate());
+    const ExecutorInputs inputs(
+        ExecutorTextData(std::move(duplicate_decoded_ids)),
+        /*vision_data=*/std::nullopt,
+        /*audio_data=*/std::nullopt);
+    // Decoding section.
+    if (benchmark_info_.has_value()) {
+      RETURN_IF_ERROR(benchmark_info_->TimeMarkDelta("executor_decode"));
+    }
+    ASSIGN_OR_RETURN(auto output_logits, executor_.DecodeLogits(inputs));
+    if (benchmark_info_.has_value()) {
+      RETURN_IF_ERROR(benchmark_info_->TimeMarkDelta("executor_decode"));
+    }
+    decoded_ids.Write<int>(step_input_ids);
+    auto logits_data_or = ReferTensorBufferAsSpan<float>(output_logits);
+    absl::Span<float> logits_data;
+    std::vector<float> logits_data_buffer;
+    // Download the data if it is not in host memory.
+    if (!logits_data_or) {
+      LITERT_ASSIGN_OR_RETURN(auto logits_size, output_logits.PackedSize());
+      logits_data_buffer.resize(logits_size / sizeof(float));
+      LITERT_RETURN_IF_ERROR(
+          output_logits.Read(absl::MakeSpan(logits_data_buffer)));
+      logits_data = absl::MakeSpan(logits_data_buffer);
+    } else {
+      logits_data = *logits_data_or;
+    }
+    return ComputeLogLikelihood(logits_data, step_input_ids, temperature);
+  }
 
  private:
   // Runs the core decoding and sampling step, for either internal or external
@@ -357,6 +400,72 @@ absl::StatusOr<Responses> DecodeLoop(
 }
 
 }  // namespace
+
+absl::StatusOr<Responses> ScoreCustomSampling(
+    LlmExecutor& executor, Tokenizer& tokenizer,
+    const std::vector<absl::string_view>& target_texts, const float temperature,
+    litert::TensorBuffer& decoded_ids) {
+  const int num_output_candidates = target_texts.size();
+  const int max_num_tokens = TryGetMaxNumTokens(executor);
+  std::optional<BenchmarkInfo> benchmark_info;
+  // Create a dummy StopTokenDetector as it's not used in ScoreCustomSampling.
+  StopTokenDetector dummy_stop_token_detector(num_output_candidates);
+  DecodeOneStep run_one_step(&executor, &tokenizer,
+                             /*num_output_candidates=*/num_output_candidates,
+                             dummy_stop_token_detector, benchmark_info,
+                             /*sampler=*/std::nullopt);
+  std::vector<std::vector<int>> ids_for_each_target_in_batch;
+  ids_for_each_target_in_batch.reserve(target_texts.size());
+  int max_num_tokens_of_target_texts = 0;
+  for (const auto& target : target_texts) {
+    ASSIGN_OR_RETURN(std::vector<int> ids, tokenizer.TextToTokenIds(target));
+    max_num_tokens_of_target_texts =
+        std::max(max_num_tokens_of_target_texts, static_cast<int>(ids.size()));
+    ids_for_each_target_in_batch.push_back(std::move(ids));
+  }
+  if (max_num_tokens_of_target_texts >= max_num_tokens) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Input token ids are too long. "
+                     "Exceeding the maximum number of tokens allowed: ",
+                     max_num_tokens_of_target_texts, " >= ", max_num_tokens));
+  }
+  Responses responses(num_output_candidates);
+  // `responses.GetMutableScores()` returns a vector of size
+  // `num_output_candidates`. Reset the scores_ field to 0.0f.
+  std::vector<float>& scores = responses.GetMutableScores();
+  // Fill this vector scores of size num_output_candidates with 0.0f.
+  std::fill(scores.begin(), scores.end(), 0.0f);
+
+  // We support multiple targets by padding the targets with a null token which
+  // does notexist in the vocabulary and thus does not contribute to the
+  // perplexity.
+  std::vector<int> decoded_ids_for_each_target_in_batch(num_output_candidates,
+                                                        0);
+  for (int i = 0; i < max_num_tokens_of_target_texts; ++i) {
+    for (int j = 0; j < num_output_candidates; ++j) {
+      const int size_of_jth_target = ids_for_each_target_in_batch[j].size();
+      if (i < size_of_jth_target) {
+        decoded_ids_for_each_target_in_batch[j] =
+            ids_for_each_target_in_batch[j][i];
+      } else {
+        // Pad the target with a null token. Ignore the result at this step.
+        decoded_ids_for_each_target_in_batch[j] = 0;
+      }
+    }
+    ASSIGN_OR_RETURN(
+        std::vector<float> step_log_likelihoods,
+        run_one_step.RunScoreStep(
+            temperature, decoded_ids_for_each_target_in_batch, decoded_ids));
+    for (int j = 0; j < num_output_candidates; ++j) {
+      const int size_of_jth_target = ids_for_each_target_in_batch[j].size();
+      // Only add the log likelihood of the non-padded tokens to the score.
+      if (i < size_of_jth_target) {
+        responses.GetMutableScores()[j] += step_log_likelihoods[j];
+      }
+    }
+  }
+  return responses;
+}
 
 absl::StatusOr<int> Prefill(LlmExecutor& executor, ExecutorInputs& inputs,
                             bool wait_for_completion,

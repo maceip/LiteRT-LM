@@ -19,16 +19,18 @@
 
 #include <atomic>
 #include <optional>
+#include <vector>
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/sampler.h"
 #include "runtime/components/stop_token_detector.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/llm_executor.h"
-#include "runtime/executor/llm_executor_io_types.h"
+#include "runtime/proto/sampler_params.pb.h"
 
 namespace litert::lm {
 
@@ -100,6 +102,18 @@ absl::Status DecodeCustomSamplingStreaming(
     std::optional<BenchmarkInfo>& benchmark_info, InferenceObservable* observer,
     std::atomic<bool>* cancelled = nullptr);
 
+// Runs the pipeline to score the input prompt.
+// - executor: The executor that calls the core LLM model.
+// - tokenizer: The tokenizer to encode the text into token ids.
+// - target_text: A vector of size of the batch (num_output_candidates) with
+//   each element corresponding to the target text to score in the batch.
+// - temperature: The temperature to use for softmax calculations.
+// - decoded_ids: The decoded token ids from the external sampling process.
+//   The supported shape is [num_output_candidates, 1].
+absl::StatusOr<Responses> ScoreCustomSampling(
+    LlmExecutor& executor, Tokenizer& tokenizer,
+    const std::vector<absl::string_view>& target_text, float temperature,
+    litert::TensorBuffer& decoded_ids);
 }  // namespace litert::lm
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_PIPELINE_H_
