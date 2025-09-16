@@ -42,10 +42,12 @@
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/fake_llm_executor.h"
 #include "runtime/executor/llm_executor.h"
+#include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"  // NOLINT
+#include "runtime/util/tensor_buffer_util.h"
 #include "runtime/util/test_utils.h"     // NOLINT
 
 namespace litert::lm {
@@ -463,6 +465,140 @@ TEST_F(SessionBasicTest, ApplyPromptTemplates) {
       session->ApplyPromptTemplates("Hello World!", /*is_first_chunk=*/false,
                                     /*is_last_chunk=*/true),
       testing::status::IsOkAndHolds("Hello World!<end>\n<test>Model\n"));
+}
+
+TEST_F(SessionBasicTest, CombineExecutorAudioDataEmptyFails) {
+  std::vector<ExecutorAudioData> executor_data;
+  EXPECT_THAT(SessionBasic::CombineExecutorData(executor_data),
+              testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
+                                        "Executor data is empty."));
+}
+
+TEST_F(SessionBasicTest, CombineExecutorAudioDataSingleSuccess) {
+  std::vector<ExecutorAudioData> executor_data;
+  ExecutorAudioData executor_audio_data;
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto audio_buffer,
+      CopyToTensorBuffer<float>({4.0, 3.0, 2.0, 1.0}, {1, 2, 2}));
+  executor_audio_data.SetEmbeddings(std::move(audio_buffer));
+  executor_data.push_back(std::move(executor_audio_data));
+  ASSERT_OK_AND_ASSIGN(auto combined_executor_data,
+                       SessionBasic::CombineExecutorData(executor_data));
+  ASSERT_OK_AND_ASSIGN(auto combined_embeddings_ptr,
+                       combined_executor_data.GetEmbeddingsPtr());
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto combined_embeddings_span,
+      ReferTensorBufferAsSpan<float>(*combined_embeddings_ptr));
+  EXPECT_THAT(std::vector<float>(combined_embeddings_span.begin(),
+                                 combined_embeddings_span.end()),
+              testing::ElementsAre(4.0, 3.0, 2.0, 1.0));
+}
+
+TEST_F(SessionBasicTest, CombineExecutorAudioDataMultiSuccess) {
+  std::vector<ExecutorAudioData> executor_data;
+
+  ExecutorAudioData executor_audio_data_1;
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto audio_buffer_1,
+      CopyToTensorBuffer<float>({6.0, 5.0, 4.0, 3.0, 2.0, 1.0}, {1, 3, 2}));
+  executor_audio_data_1.SetEmbeddings(std::move(audio_buffer_1));
+  executor_audio_data_1.SetValidTokens(3);
+  executor_data.push_back(std::move(executor_audio_data_1));
+
+  ExecutorAudioData executor_audio_data_2;
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto audio_buffer_2,
+      CopyToTensorBuffer<float>({5.0, 6.0, 7.0, 8.0}, {1, 2, 2}));
+  executor_audio_data_2.SetEmbeddings(std::move(audio_buffer_2));
+  executor_audio_data_2.SetValidTokens(2);
+  executor_data.push_back(std::move(executor_audio_data_2));
+
+  ExecutorAudioData executor_audio_data_3;
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto audio_buffer_3, CopyToTensorBuffer<float>({11.0, 12.0}, {1, 1, 2}));
+  executor_audio_data_3.SetEmbeddings(std::move(audio_buffer_3));
+  executor_audio_data_3.SetValidTokens(1);
+  executor_data.push_back(std::move(executor_audio_data_3));
+
+  ASSERT_OK_AND_ASSIGN(auto combined_executor_data,
+                       SessionBasic::CombineExecutorData(executor_data));
+  ASSERT_OK_AND_ASSIGN(auto combined_embeddings_ptr,
+                       combined_executor_data.GetEmbeddingsPtr());
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto combined_embeddings_span,
+      ReferTensorBufferAsSpan<float>(*combined_embeddings_ptr));
+  const auto& dimensions = TensorBufferDims(*combined_embeddings_ptr);
+  EXPECT_THAT(dimensions, testing::ElementsAre(1, 6, 2));
+  EXPECT_THAT(std::vector<float>(combined_embeddings_span.begin(),
+                                 combined_embeddings_span.end()),
+              testing::ElementsAre(6.0, 5.0, 4.0, 3.0, 2.0, 1.0, 5.0, 6.0, 7.0,
+                                   8.0, 11.0, 12.0));
+}
+
+TEST_F(SessionBasicTest, CombineExecutorVisionDataEmptyFails) {
+  std::vector<ExecutorVisionData> executor_data;
+  EXPECT_THAT(SessionBasic::CombineExecutorData(executor_data),
+              testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
+                                        "Executor data is empty."));
+}
+
+TEST_F(SessionBasicTest, CombineExecutorVisionDataSingleSuccess) {
+  std::vector<ExecutorVisionData> executor_data;
+  ExecutorVisionData executor_vision_data;
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto vision_buffer,
+      CopyToTensorBuffer<float>({1.0, 2.0, 3.0, 4.0}, {1, 2, 2}));
+  executor_vision_data.SetEmbeddings(std::move(vision_buffer));
+  executor_data.push_back(std::move(executor_vision_data));
+  ASSERT_OK_AND_ASSIGN(auto combined_executor_data,
+                       SessionBasic::CombineExecutorData(executor_data));
+  ASSERT_OK_AND_ASSIGN(auto combined_embeddings_ptr,
+                       combined_executor_data.GetEmbeddingsPtr());
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto combined_embeddings_span,
+      ReferTensorBufferAsSpan<float>(*combined_embeddings_ptr));
+  EXPECT_THAT(std::vector<float>(combined_embeddings_span.begin(),
+                                 combined_embeddings_span.end()),
+              testing::ElementsAre(1.0, 2.0, 3.0, 4.0));
+}
+
+TEST_F(SessionBasicTest, CombineExecutorVisionDataMultiSuccess) {
+  std::vector<ExecutorVisionData> executor_data;
+
+  ExecutorVisionData executor_vision_data_1;
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto vision_buffer,
+      CopyToTensorBuffer<float>({1.0, 2.0, 3.0, 4.0}, {1, 2, 2}));
+  executor_vision_data_1.SetEmbeddings(std::move(vision_buffer));
+  executor_data.push_back(std::move(executor_vision_data_1));
+
+  ExecutorVisionData executor_vision_data_2;
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto vision_buffer_2,
+      CopyToTensorBuffer<float>({5.0, 6.0, 7.0, 8.0}, {1, 2, 2}));
+  executor_vision_data_2.SetEmbeddings(std::move(vision_buffer_2));
+  executor_data.push_back(std::move(executor_vision_data_2));
+
+  ExecutorVisionData executor_vision_data_3;
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto vision_buffer_3,
+      CopyToTensorBuffer<float>({9.0, 10.0, 11.0, 12.0}, {1, 2, 2}));
+  executor_vision_data_3.SetEmbeddings(std::move(vision_buffer_3));
+  executor_data.push_back(std::move(executor_vision_data_3));
+
+  ASSERT_OK_AND_ASSIGN(auto combined_executor_data,
+                       SessionBasic::CombineExecutorData(executor_data));
+  ASSERT_OK_AND_ASSIGN(auto combined_embeddings_ptr,
+                       combined_executor_data.GetEmbeddingsPtr());
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto combined_embeddings_span,
+      ReferTensorBufferAsSpan<float>(*combined_embeddings_ptr));
+  const auto& dimensions = TensorBufferDims(*combined_embeddings_ptr);
+  EXPECT_THAT(dimensions, testing::ElementsAre(1, 1, 6, 2));
+  EXPECT_THAT(std::vector<float>(combined_embeddings_span.begin(),
+                                 combined_embeddings_span.end()),
+              testing::ElementsAre(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0,
+                                   10.0, 11.0, 12.0));
 }
 
 TEST_F(SessionBasicTest, ProcessAndCombineContentsSingleText) {

@@ -54,20 +54,26 @@
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/litert_status_util.h"
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
+#include "runtime/util/tensor_buffer_util.h"
 
 namespace litert::lm {
 namespace {
 
 constexpr int kStartOfImageTokenId = 255999;
-constexpr int kNumSpecialTokens = 257;
-
 constexpr int kStartOfAudioTokenId = 256000;
 
+bool IsNeedStartOfImageToken(Tokenizer& tokenizer) {
+  auto token_ids = tokenizer.TextToTokenIds("<start_of_image>");
+  if (!token_ids.ok()) {
+    return false;
+  }
+  return token_ids->size() == 1 && token_ids.value()[0] == kStartOfImageTokenId;
+}
+
 template <typename T>
-absl::StatusOr<std::optional<T>> CombineExecutorData(
-    std::vector<T>& executor_data) {
+absl::StatusOr<T> CombineExecutorDataImpl(std::vector<T>& executor_data) {
   if (executor_data.empty()) {
-    return std::nullopt;
+    return absl::InvalidArgumentError("Executor data is empty.");
   }
   if (executor_data.size() == 1) {
     // If there is only one image, we can just move it to the combined image
@@ -82,40 +88,49 @@ absl::StatusOr<std::optional<T>> CombineExecutorData(
                    executor_data[0].GetEmbeddingsPtr());
   LITERT_ASSIGN_OR_RETURN_ABSL(auto first_tensor_type,
                                first_tensor->TensorType());
-  LITERT_ASSIGN_OR_RETURN_ABSL(size_t single_embedding_packed_size,
-                               first_tensor->PackedSize());
-
-  ::litert::Layout combined_layout;
-  if (first_tensor_type.Layout().Dimensions().size() == 3) {
-    combined_layout = ::litert::Layout(::litert::Dimensions(
-        {first_tensor_type.Layout().Dimensions()[0], 1,
-         first_tensor_type.Layout().Dimensions()[1] * num_executor_data,
-         first_tensor_type.Layout().Dimensions()[2]}));
-  } else if (first_tensor_type.Layout().Dimensions().size() == 4) {
-    combined_layout = ::litert::Layout(::litert::Dimensions(
-        {first_tensor_type.Layout().Dimensions()[0],
-         first_tensor_type.Layout().Dimensions()[1],
-         first_tensor_type.Layout().Dimensions()[2] * num_executor_data,
-         first_tensor_type.Layout().Dimensions()[3]}));
-  } else {
-    return absl::InvalidArgumentError(
-        "The embedding tensor type must have 3 or 4 dimensions.");
+  auto first_tensor_dims = TensorBufferDims(*first_tensor);
+  int total_token_num = 0;
+  int total_packed_size = 0;
+  std::vector<int> combined_token_num;
+  for (const auto& executor_data : executor_data) {
+    ASSIGN_OR_RETURN(const auto* embeddings_ptr,
+                     executor_data.GetEmbeddingsPtr());
+    auto dims = TensorBufferDims(*embeddings_ptr);
+    if (dims.size() != 3 && dims.size() != 4) {
+      return absl::InvalidArgumentError(
+          "The embedding tensor type must have 3 or 4 dimensions.");
+    }
+    combined_token_num.push_back(dims[dims.size() - 2]);
+    total_token_num += dims[dims.size() - 2];
+    LITERT_ASSIGN_OR_RETURN_ABSL(size_t packed_size,
+                                 embeddings_ptr->PackedSize());
+    total_packed_size += packed_size;
+  }
+  Layout combined_layout;
+  if constexpr (std::is_same_v<T, ExecutorAudioData>) {
+    combined_layout = Layout(Dimensions(
+        {first_tensor_dims[0], total_token_num, first_tensor_dims[2]}));
+  } else if (first_tensor_dims.size() == 3) {
+    combined_layout = Layout(Dimensions(
+        {first_tensor_dims[0], 1, total_token_num, first_tensor_dims[2]}));
+  } else if (first_tensor_dims.size() == 4) {
+    combined_layout =
+        Layout(Dimensions({first_tensor_dims[0], first_tensor_dims[1],
+                           total_token_num, first_tensor_dims[3]}));
   }
   ::litert::RankedTensorType combined_tensor_type(
       first_tensor_type.ElementType(), std::move(combined_layout));
 
   LITERT_ASSIGN_OR_RETURN_ABSL(
       auto combined_tensor_buffer,
-      TensorBuffer::CreateManaged(
-          kLiteRtTensorBufferTypeHostMemory, combined_tensor_type,
-          single_embedding_packed_size * num_executor_data));
+      TensorBuffer::CreateManaged(kLiteRtTensorBufferTypeHostMemory,
+                                  combined_tensor_type, total_packed_size));
   LITERT_ASSIGN_OR_RETURN_ABSL(
       auto combined_embeddings_lock_and_addr,
       ::litert::TensorBufferScopedLock::Create(combined_tensor_buffer,
                                                TensorBuffer::LockMode::kWrite));
   char* combined_tensor_buffer_ptr =
       static_cast<char*>(combined_embeddings_lock_and_addr.second);
-
   for (int i = 0; i < num_executor_data; ++i) {
     ASSIGN_OR_RETURN(auto embeddings_ptr,
                      executor_data[i].GetMutableEmbeddingsPtr());
@@ -125,8 +140,9 @@ absl::StatusOr<std::optional<T>> CombineExecutorData(
         auto embeddings_lock_and_addr,
         ::litert::TensorBufferScopedLock::Create(
             *embeddings_ptr, TensorBuffer::LockMode::kRead));
-    memcpy(combined_tensor_buffer_ptr + i * single_embedding_packed_size,
-           embeddings_lock_and_addr.second, embeddings_size);
+    memcpy(combined_tensor_buffer_ptr, embeddings_lock_and_addr.second,
+           embeddings_size);
+    combined_tensor_buffer_ptr += embeddings_size;
   }
   if constexpr (std::is_same_v<T, ExecutorVisionData>) {
     return ExecutorVisionData(std::move(combined_tensor_buffer),
@@ -189,6 +205,16 @@ SessionBasic::~SessionBasic() {
   if (!status.ok()) {
     ABSL_LOG(ERROR) << "Failed to reset executor: " << status;
   }
+}
+
+absl::StatusOr<ExecutorVisionData> SessionBasic::CombineExecutorData(
+    std::vector<ExecutorVisionData>& executor_data) {
+  return CombineExecutorDataImpl(executor_data);
+}
+
+absl::StatusOr<ExecutorAudioData> SessionBasic::CombineExecutorData(
+    std::vector<ExecutorAudioData>& executor_data) {
+  return CombineExecutorDataImpl(executor_data);
 }
 
 absl::StatusOr<std::string> SessionBasic::ApplyPromptTemplates(
@@ -265,22 +291,32 @@ absl::StatusOr<ExecutorInputs> SessionBasic::ProcessAndCombineContents(
       }
       ASSIGN_OR_RETURN(auto single_image_data,
                        vision_executor_->Encode(*image_tensor));
-      all_image_data.push_back(std::move(single_image_data));
-      // Hardcoded token id for start of image token.
-      combined_token_ids.push_back(kStartOfImageTokenId);
-      for (int i = 0; i < kNumSpecialTokens; ++i) {
+      ASSIGN_OR_RETURN(auto embeddings_ptr,
+                       single_image_data.GetEmbeddingsPtr());
+      const auto& dimensions = TensorBufferDims(*embeddings_ptr);
+      // The last two dimensions are [..., image_token_num, model_dimension].
+      const int image_token_num = dimensions.at(dimensions.size() - 2);
+      // TODO - b/444701465: Remove the hardcoded token id for start of image
+      // token.
+      if (IsNeedStartOfImageToken(tokenizer_)) {
+        // Hardcoded token id for start of image token.
+        combined_token_ids.push_back(kStartOfImageTokenId);
+      }
+      for (int i = 0; i < image_token_num; ++i) {
         combined_token_ids.push_back(ExecutorVisionData::kSpecialToken);
       }
+      all_image_data.push_back(std::move(single_image_data));
     } else if (const auto* input_audio =
                    std::get_if<InputAudio>(&preprocessed_content)) {
       ASSIGN_OR_RETURN(const auto* spectrogram_tensor,
                        input_audio->GetPreprocessedAudioTensor());
-
       ASSIGN_OR_RETURN(auto single_audio_data,
                        audio_executor_->Encode(*spectrogram_tensor));
       const int num_audio_tokens = single_audio_data.GetValidTokens();
       all_audio_data.push_back(std::move(single_audio_data));
       // Hardcoded token id for start of audio token.
+      // TODO - b/444701465: Remove the hardcoded token id for start of audio
+      // token.
       combined_token_ids.push_back(kStartOfAudioTokenId);
       for (int i = 0; i < num_audio_tokens; ++i) {
         combined_token_ids.push_back(ExecutorAudioData::kSpecialToken);
@@ -294,10 +330,14 @@ absl::StatusOr<ExecutorInputs> SessionBasic::ProcessAndCombineContents(
         "No token IDs found in preprocessed_contents.");
   }
 
-  ASSIGN_OR_RETURN(auto combined_image_data,
-                   CombineExecutorData<ExecutorVisionData>(all_image_data));
-  ASSIGN_OR_RETURN(auto combined_audio_data,
-                   CombineExecutorData<ExecutorAudioData>(all_audio_data));
+  std::optional<ExecutorVisionData> combined_image_data = std::nullopt;
+  if (!all_image_data.empty()) {
+    ASSIGN_OR_RETURN(combined_image_data, CombineExecutorData(all_image_data));
+  }
+  std::optional<ExecutorAudioData> combined_audio_data = std::nullopt;
+  if (!all_audio_data.empty()) {
+    ASSIGN_OR_RETURN(combined_audio_data, CombineExecutorData(all_audio_data));
+  }
 
   ASSIGN_OR_RETURN(auto token_ids_buffer,
                    tokenizer_.TokenIdsToTensorBuffer(combined_token_ids));

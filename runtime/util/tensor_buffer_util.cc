@@ -14,18 +14,26 @@
 
 #include "runtime/util/tensor_buffer_util.h"
 
+#include <vector>
+
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 
 namespace litert::lm {
 
 int NumSignificantDims(const ::litert::TensorBuffer& tensor_buffer) {
-  LITERT_ASSIGN_OR_ABORT(auto tensor_type, tensor_buffer.TensorType());
+  const auto& dims = TensorBufferDims(tensor_buffer);
   int num_significant_dims = 0;
-  for (int d : tensor_type.Layout().Dimensions()) {
+  for (int d : dims) {
     num_significant_dims += (d > 1);
   }
   return num_significant_dims;
+}
+
+std::vector<int> TensorBufferDims(const ::litert::TensorBuffer& tensor_buffer) {
+  LITERT_ASSIGN_OR_ABORT(auto tensor_type, tensor_buffer.TensorType());
+  auto dims = tensor_type.Layout().Dimensions();
+  return std::vector<int>(dims.begin(), dims.end());
 }
 
 }  // namespace litert::lm

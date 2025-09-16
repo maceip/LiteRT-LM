@@ -183,6 +183,7 @@ cc_library(
         "//runtime/proto:sampler_params_cc_proto",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:litert_status_util",
+        "//runtime/util:tensor_buffer_util",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
@@ -221,10 +222,12 @@ cc_test(
         "//runtime/executor:executor_settings_base",
         "//runtime/executor:fake_llm_executor",
         "//runtime/executor:llm_executor",
+        "//runtime/executor:llm_executor_io_types",
         "//runtime/framework:threadpool",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:litert_status_util",
         "//runtime/util:scoped_file",
+        "//runtime/util:tensor_buffer_util",
         "//runtime/util:test_utils",
     ] + select({
         "@litert//litert:litert_link_capi_so": [

@@ -71,9 +71,8 @@ class SessionBasic : public Engine::Session {
 
   absl::StatusOr<Responses> GenerateContent(
       const std::vector<InputData>& contents) override;
-  absl::Status GenerateContentStream(
-      const std::vector<InputData>& contents,
-      InferenceObservable* observer) override;
+  absl::Status GenerateContentStream(const std::vector<InputData>& contents,
+                                     InferenceObservable* observer) override;
 
   absl::Status RunPrefill(const std::vector<InputData>& contents) override;
   absl::Status RunPrefillAsync(const std::vector<InputData>& contents,
@@ -81,8 +80,7 @@ class SessionBasic : public Engine::Session {
 
   absl::StatusOr<Responses> RunDecode() override;
 
-  absl::Status RunDecodeAsync(
-      InferenceObservable* observer) override;
+  absl::Status RunDecodeAsync(InferenceObservable* observer) override;
 
   absl::StatusOr<BenchmarkInfo> GetBenchmarkInfo() override;
 
@@ -106,6 +104,47 @@ class SessionBasic : public Engine::Session {
   // preprocessor class.
   absl::StatusOr<ExecutorInputs> ProcessAndCombineContents(
       const std::vector<InputData>& preprocessed_contents);
+
+  // Util function for combining multiple ExecutorAudioData into a single
+  // ExecutorAudioData, by concatenating the audio embeddings in a single tensor
+  // buffer.
+  //
+  // Specifically, if the elements of input ExecutorAudioData have TensorBuffer
+  // with shapes,
+  //  [batch_size, num_token_1, feature_dim].
+  //  [batch_size, num_token_2, feature_dim].
+  //  ...
+  //  [batch_size, num_token_n, feature_dim].
+  // The output ExecutorAudioData will have TensorBuffer with shape,
+  // [batch_size, num_token_1 + num_token_2 + ... + num_token_n, feature_dim].
+  static absl::StatusOr<ExecutorAudioData> CombineExecutorData(
+      std::vector<ExecutorAudioData>& executor_data);
+
+  // Util function for combining multiple ExecutorVisionData into a single
+  // ExecutorVisionData, by concatenating the vision embeddings in a single
+  // tensor buffer.
+  //
+  // Specifically, if the elements of input ExecutorVisionData have TensorBuffer
+  // with shapes,
+  //  [batch_size, num_token_1, feature_dim].
+  //  [batch_size, num_token_2, feature_dim].
+  //  ...
+  //  [batch_size, num_token_n, feature_dim].
+  // The output ExecutorVisionData will have TensorBuffer with shape,
+  // [batch_size, 1, num_token_1 + num_token_2 + ... + num_token_n,
+  // feature_dim].
+  //
+  // Or if the elements of input ExecutorVisionData have TensorBuffer
+  // with shapes,
+  //  [batch_size, dim1, num_token_1, feature_dim].
+  //  [batch_size, dim1, num_token_2, feature_dim].
+  //  ...
+  //  [batch_size, dim1, num_token_n, feature_dim].
+  // The output ExecutorVisionData will have TensorBuffer with shape,
+  // [batch_size, dim1, num_token_1 + num_token_2 + ... + num_token_n,
+  // feature_dim].
+  static absl::StatusOr<ExecutorVisionData> CombineExecutorData(
+      std::vector<ExecutorVisionData>& executor_data);
 
  private:
   explicit SessionBasic(
@@ -143,8 +182,7 @@ class SessionBasic : public Engine::Session {
   // The internal functions to decode the input prompt. It is for convenience to
   // wrap it with lambda function for scheduling.
   absl::StatusOr<Responses> DecodeInternal();
-  absl::Status DecodeInternalStreaming(
-      InferenceObservable* observer = nullptr);
+  absl::Status DecodeInternalStreaming(InferenceObservable* observer = nullptr);
 
   // The util function to convert the string to processed input text.
   absl::StatusOr<InputText> StringToProcessedInputText(absl::string_view text);

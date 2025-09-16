@@ -24,6 +24,7 @@
 namespace litert::lm {
 namespace {
 
+using ::testing::ElementsAre;
 using ::testing::Eq;
 
 TEST(TensorBufferUtilTest, NumSignificantDims) {
@@ -36,6 +37,18 @@ TEST(TensorBufferUtilTest, NumSignificantDims) {
   LITERT_ASSERT_OK_AND_ASSIGN(tensor_buffer,
                               CreateTensorBuffer<int8_t>({1, 1, 5}));
   EXPECT_THAT(NumSignificantDims(tensor_buffer), Eq(1));
+}
+
+TEST(TensorBufferUtilTest, TensorBufferDims) {
+  LITERT_ASSERT_OK_AND_ASSIGN(auto tensor_buffer,
+                              CreateTensorBuffer<int8_t>({2, 5}));
+  EXPECT_THAT(TensorBufferDims(tensor_buffer), ElementsAre(2, 5));
+  LITERT_ASSERT_OK_AND_ASSIGN(tensor_buffer,
+                              CreateTensorBuffer<int8_t>({2, 1, 5}));
+  EXPECT_THAT(TensorBufferDims(tensor_buffer), ElementsAre(2, 1, 5));
+  LITERT_ASSERT_OK_AND_ASSIGN(tensor_buffer,
+                              CreateTensorBuffer<int8_t>({1, 1, 5}));
+  EXPECT_THAT(TensorBufferDims(tensor_buffer), ElementsAre(1, 1, 5));
 }
 
 }  // namespace
