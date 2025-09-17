@@ -266,50 +266,9 @@ absl::StatusOr<std::vector<InputData>> SessionBasic::ApplyPromptTemplates(
       if (is_first_chunk) {
         templated_contents.push_back(InputText(std::move(turn_prefix)));
       }
-      if (std::holds_alternative<InputText>(content)) {
-        const auto& input_text = std::get_if<InputText>(&content);
-        RET_CHECK(input_text->IsTensorBuffer())
-            << "Raw text is empty means the content should be a TensorBuffer.";
-        ASSIGN_OR_RETURN(auto input_text_tensor_buffer,
-                         input_text->GetPreprocessedTextTensor());
-        LITERT_ASSIGN_OR_RETURN_ABSL(auto input_text_tensor_buffer_clone,
-                                     input_text_tensor_buffer->Duplicate());
-        auto input_text_clone =
-            InputText(std::move(input_text_tensor_buffer_clone));
-        templated_contents.push_back(std::move(input_text_clone));
-      } else if (std::holds_alternative<InputImage>(content)) {
-        const auto& input_image = std::get_if<InputImage>(&content);
-        if (input_image->IsTensorBuffer()) {
-          ASSIGN_OR_RETURN(auto input_image_tensor_buffer,
-                           input_image->GetPreprocessedImageTensor());
-          LITERT_ASSIGN_OR_RETURN_ABSL(auto input_image_tensor_buffer_clone,
-                                       input_image_tensor_buffer->Duplicate());
-          auto input_image_clone =
-              InputImage(std::move(input_image_tensor_buffer_clone));
-          templated_contents.push_back(std::move(input_image_clone));
-        } else {
-          ASSIGN_OR_RETURN(auto input_image_bytes,
-                           input_image->GetRawImageBytes());
-          templated_contents.push_back(
-              InputImage(std::string(input_image_bytes)));
-        }
-      } else if (std::holds_alternative<InputAudio>(content)) {
-        const auto* input_audio = std::get_if<InputAudio>(&content);
-        if (input_audio->IsTensorBuffer()) {
-          ASSIGN_OR_RETURN(auto input_audio_tensor_buffer,
-                           input_audio->GetPreprocessedAudioTensor());
-          LITERT_ASSIGN_OR_RETURN_ABSL(auto input_audio_tensor_buffer_clone,
-                                       input_audio_tensor_buffer->Duplicate());
-          auto input_audio_clone =
-              InputAudio(std::move(input_audio_tensor_buffer_clone));
-          templated_contents.push_back(std::move(input_audio_clone));
-        } else {
-          ASSIGN_OR_RETURN(auto input_audio_bytes,
-                           input_audio->GetRawAudioBytes());
-          templated_contents.push_back(
-              InputAudio(std::string(input_audio_bytes)));
-        }
-      }
+      // TODO - b/445254659: Remove all actual copies.
+      ASSIGN_OR_RETURN(auto content_copy, CreateInputDataCopy(content));
+      templated_contents.emplace_back(std::move(content_copy));
       if (is_last_chunk) {
         templated_contents.push_back(InputText(std::move(turn_suffix)));
       }
@@ -455,13 +414,8 @@ absl::StatusOr<std::vector<InputData>> SessionBasic::PreprocessContents(
     const auto& content = contents[i];
     if (const auto* input_text = std::get_if<InputText>(&content)) {
       if (input_text->IsTensorBuffer()) {
-        ASSIGN_OR_RETURN(auto input_text_tensor_buffer,
-                         input_text->GetPreprocessedTextTensor());
-        LITERT_ASSIGN_OR_RETURN_ABSL(auto input_text_tensor_buffer_clone,
-                                     input_text_tensor_buffer->Duplicate());
-        auto input_text_clone =
-            InputText(std::move(input_text_tensor_buffer_clone));
-        preprocessed_contents.emplace_back(std::move(input_text_clone));
+        ASSIGN_OR_RETURN(auto input_text_copy, input_text->CreateCopy());
+        preprocessed_contents.emplace_back(std::move(input_text_copy));
       } else {
         ASSIGN_OR_RETURN(auto templated_text, input_text->GetRawTextString());
         ASSIGN_OR_RETURN(auto processed_input_text,
@@ -470,13 +424,8 @@ absl::StatusOr<std::vector<InputData>> SessionBasic::PreprocessContents(
       }
     } else if (const auto* input_image = std::get_if<InputImage>(&content)) {
       if (input_image->IsTensorBuffer()) {
-        ASSIGN_OR_RETURN(auto input_image_tensor_buffer,
-                         input_image->GetPreprocessedImageTensor());
-        LITERT_ASSIGN_OR_RETURN_ABSL(auto input_image_tensor_buffer_clone,
-                                     input_image_tensor_buffer->Duplicate());
-        auto input_image_clone =
-            InputImage(std::move(input_image_tensor_buffer_clone));
-        preprocessed_contents.emplace_back(std::move(input_image_clone));
+        ASSIGN_OR_RETURN(auto input_image_copy, input_image->CreateCopy());
+        preprocessed_contents.emplace_back(std::move(input_image_copy));
       } else {
         RET_CHECK(image_preprocessor_)
             << "Image preprocessor is not available.";
@@ -499,13 +448,8 @@ absl::StatusOr<std::vector<InputData>> SessionBasic::PreprocessContents(
       }
     } else if (const auto* input_audio = std::get_if<InputAudio>(&content)) {
       if (input_audio->IsTensorBuffer()) {
-        ASSIGN_OR_RETURN(auto input_audio_tensor_buffer,
-                         input_audio->GetPreprocessedAudioTensor());
-        LITERT_ASSIGN_OR_RETURN_ABSL(auto input_audio_tensor_buffer_clone,
-                                     input_audio_tensor_buffer->Duplicate());
-        auto input_audio_clone =
-            InputAudio(std::move(input_audio_tensor_buffer_clone));
-        preprocessed_contents.emplace_back(std::move(input_audio_clone));
+        ASSIGN_OR_RETURN(auto input_audio_copy, input_audio->CreateCopy());
+        preprocessed_contents.emplace_back(std::move(input_audio_copy));
       } else {
         if (audio_preprocessor_ == nullptr) {
           return absl::InternalError("Audio preprocessor is not available.");

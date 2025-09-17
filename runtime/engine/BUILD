@@ -50,12 +50,14 @@ cc_library(
     hdrs = ["io_types.h"],
     deps = [
         "@com_google_absl//absl/log",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
         "//runtime/proto:engine_cc_proto",
+        "//runtime/util:litert_status_util",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_api_with_dynamic_runtime",

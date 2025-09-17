@@ -29,6 +29,7 @@
 #include "absl/time/time.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/proto/engine.pb.h"
+#include "runtime/util/litert_status_util.h"
 
 namespace litert::lm {
 
@@ -55,23 +56,16 @@ class InputText {
   }
 
   // Returns the raw text string. Returns an error if the text is preprocessed.
-  absl::StatusOr<absl::string_view> GetRawTextString() const {
-    if (std::holds_alternative<std::string>(data_)) {
-      return absl::string_view(std::get<std::string>(data_));
-    }
-    return absl::FailedPreconditionError(
-        "The text is preprocessed and does not have raw text bytes.");
-  }
+  absl::StatusOr<absl::string_view> GetRawTextString() const;
 
   // Returns the preprocessed text tensor. Returns an error if the text is
   // not preprocessed.
-  absl::StatusOr<const TensorBuffer*> GetPreprocessedTextTensor() const {
-    if (std::holds_alternative<TensorBuffer>(data_)) {
-      return &std::get<TensorBuffer>(data_);
-    }
-    return absl::FailedPreconditionError(
-        "The text is not preprocessed and does not have a tensor.");
-  }
+  absl::StatusOr<const TensorBuffer*> GetPreprocessedTextTensor() const;
+
+  // Creates a copy of the InputText.
+  // If the text is preprocessed, the copy will be a TensorBuffer shallow copy.
+  // Otherwise, the copy will be a string byte deep copy.
+  absl::StatusOr<InputText> CreateCopy() const;
 
  private:
   std::variant<std::string, TensorBuffer> data_;
@@ -100,23 +94,16 @@ class InputImage {
   }
 
   // Returns the raw image bytes. Returns an error if the image is preprocessed.
-  absl::StatusOr<absl::string_view> GetRawImageBytes() const {
-    if (std::holds_alternative<std::string>(data_)) {
-      return absl::string_view(std::get<std::string>(data_));
-    }
-    return absl::FailedPreconditionError(
-        "The image is preprocessed and does not have raw image bytes.");
-  }
+  absl::StatusOr<absl::string_view> GetRawImageBytes() const;
 
   // Returns the preprocessed image tensor. Returns an error if the image is
   // not preprocessed.
-  absl::StatusOr<const TensorBuffer*> GetPreprocessedImageTensor() const {
-    if (std::holds_alternative<TensorBuffer>(data_)) {
-      return &std::get<TensorBuffer>(data_);
-    }
-    return absl::FailedPreconditionError(
-        "The image is not preprocessed and does not have a tensor.");
-  }
+  absl::StatusOr<const TensorBuffer*> GetPreprocessedImageTensor() const;
+
+  // Creates a copy of the InputImage.
+  // If the image is preprocessed, the copy will be a TensorBuffer shallow copy.
+  // Otherwise, the copy will be a string byte deep copy.
+  absl::StatusOr<InputImage> CreateCopy() const;
 
  private:
   std::variant<std::string, TensorBuffer> data_;
@@ -145,23 +132,16 @@ class InputAudio {
   }
 
   // Returns the raw audio bytes. Returns an error if the audio is preprocessed.
-  absl::StatusOr<absl::string_view> GetRawAudioBytes() const {
-    if (std::holds_alternative<std::string>(data_)) {
-      return absl::string_view(std::get<std::string>(data_));
-    }
-    return absl::FailedPreconditionError(
-        "The audio is preprocessed and does not have raw audio bytes.");
-  }
+  absl::StatusOr<absl::string_view> GetRawAudioBytes() const;
 
   // Returns the preprocessed audio tensor. Returns an error if the audio is
   // not preprocessed.
-  absl::StatusOr<const TensorBuffer*> GetPreprocessedAudioTensor() const {
-    if (std::holds_alternative<TensorBuffer>(data_)) {
-      return &std::get<TensorBuffer>(data_);
-    }
-    return absl::FailedPreconditionError(
-        "The audio is not preprocessed and does not have a tensor.");
-  }
+  absl::StatusOr<const TensorBuffer*> GetPreprocessedAudioTensor() const;
+
+  // Creates a copy of the InputAudio.
+  // If the audio is preprocessed, the copy will be a TensorBuffer shallow copy.
+  // Otherwise, the copy will be a string byte deep copy.
+  absl::StatusOr<InputAudio> CreateCopy() const;
 
  private:
   std::variant<std::string, TensorBuffer> data_;
@@ -170,6 +150,19 @@ class InputAudio {
 // A container to host the input data. Will be extended to support more input
 // types in the future.
 using InputData = std::variant<InputText, InputImage, InputAudio>;
+
+// Creates a copy of the InputData.
+inline absl::StatusOr<InputData> CreateInputDataCopy(const InputData& data) {
+  if (const auto* input_text = std::get_if<InputText>(&data)) {
+    return input_text->CreateCopy();
+  } else if (const auto* input_image = std::get_if<InputImage>(&data)) {
+    return input_image->CreateCopy();
+  } else if (const auto* input_audio = std::get_if<InputAudio>(&data)) {
+    return input_audio->CreateCopy();
+  }
+  return absl::FailedPreconditionError(
+      "The InputData is not a InputText, InputImage, or InputAudio.");
+}
 
 // A container to host the model responses.
 class Responses {

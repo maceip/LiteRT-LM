@@ -24,6 +24,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -34,8 +35,97 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/clock.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/util/litert_status_util.h"
 
 namespace litert::lm {
+
+absl::StatusOr<absl::string_view> InputText::GetRawTextString() const {
+  if (std::holds_alternative<std::string>(data_)) {
+    return absl::string_view(std::get<std::string>(data_));
+  }
+  return absl::FailedPreconditionError(
+      "The text is preprocessed and does not have raw text bytes.");
+}
+
+absl::StatusOr<const TensorBuffer*> InputText::GetPreprocessedTextTensor()
+    const {
+  if (std::holds_alternative<TensorBuffer>(data_)) {
+    return &std::get<TensorBuffer>(data_);
+  }
+  return absl::FailedPreconditionError(
+      "The text is not preprocessed and does not have a tensor.");
+}
+
+absl::StatusOr<InputText> InputText::CreateCopy() const {
+  if (std::holds_alternative<std::string>(data_)) {
+    return InputText(std::move(std::get<std::string>(data_)));
+  } else if (std::holds_alternative<TensorBuffer>(data_)) {
+    LITERT_ASSIGN_OR_RETURN_ABSL(auto tensor_buffer_clone,
+                                 std::get<TensorBuffer>(data_).Duplicate());
+    return InputText(std::move(tensor_buffer_clone));
+  }
+  return absl::FailedPreconditionError(
+      "The data_ is not a string or a TensorBuffer.");
+}
+
+absl::StatusOr<absl::string_view> InputImage::GetRawImageBytes() const {
+    if (std::holds_alternative<std::string>(data_)) {
+      return absl::string_view(std::get<std::string>(data_));
+    }
+    return absl::FailedPreconditionError(
+        "The image is preprocessed and does not have raw image bytes.");
+}
+
+absl::StatusOr<const TensorBuffer*> InputImage::GetPreprocessedImageTensor()
+    const {
+  if (std::holds_alternative<TensorBuffer>(data_)) {
+    return &std::get<TensorBuffer>(data_);
+  }
+  return absl::FailedPreconditionError(
+      "The image is not preprocessed and does not have a tensor.");
+}
+
+absl::StatusOr<InputImage> InputImage::CreateCopy() const {
+  if (std::holds_alternative<std::string>(data_)) {
+    return InputImage(std::move(std::get<std::string>(data_)));
+  } else if (std::holds_alternative<TensorBuffer>(data_)) {
+    LITERT_ASSIGN_OR_RETURN_ABSL(auto tensor_buffer_clone,
+                                 std::get<TensorBuffer>(data_).Duplicate());
+    return InputImage(std::move(tensor_buffer_clone));
+  }
+  return absl::FailedPreconditionError(
+      "The data_ is not a string or a TensorBuffer.");
+}
+
+absl::StatusOr<absl::string_view> InputAudio::GetRawAudioBytes() const {
+  if (std::holds_alternative<std::string>(data_)) {
+    return absl::string_view(std::get<std::string>(data_));
+  }
+  return absl::FailedPreconditionError(
+      "The audio is preprocessed and does not have raw audio bytes.");
+}
+
+absl::StatusOr<const TensorBuffer*> InputAudio::GetPreprocessedAudioTensor()
+    const {
+  if (std::holds_alternative<TensorBuffer>(data_)) {
+    return &std::get<TensorBuffer>(data_);
+  }
+  return absl::FailedPreconditionError(
+      "The audio is not preprocessed and does not have a tensor.");
+}
+
+absl::StatusOr<InputAudio> InputAudio::CreateCopy() const {
+  if (std::holds_alternative<std::string>(data_)) {
+    return InputAudio(std::move(std::get<std::string>(data_)));
+  } else if (std::holds_alternative<TensorBuffer>(data_)) {
+    LITERT_ASSIGN_OR_RETURN_ABSL(auto tensor_buffer_clone,
+                                 std::get<TensorBuffer>(data_).Duplicate());
+    return InputAudio(std::move(tensor_buffer_clone));
+  }
+  return absl::FailedPreconditionError(
+      "The data_ is not a string or a TensorBuffer.");
+}
 
 // A container to host the model responses.
 Responses::Responses(int num_output_candidates)
