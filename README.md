@@ -484,7 +484,7 @@ cases. It mirrors
 Example code snippet:
 
 ```cpp
-#include "third_party/odml/litert_lm/runtime/engine/engine.h"
+#include "runtime/engine/engine.h"
 
 // ...
 
@@ -549,7 +549,7 @@ performance optimization.
 Example code snippet:
 
 ```cpp
-#include "third_party/odml/litert_lm/runtime/engine/engine.h"
+#include "runtime/engine/engine.h"
 
 // ...
 
