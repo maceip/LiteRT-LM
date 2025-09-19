@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@org_tensorflow//tensorflow:pytype.default.bzl", "pytype_strict_binary", "pytype_strict_library")
+load("@org_tensorflow//tensorflow:pytype.default.bzl", "pytype_strict_binary", "pytype_strict_library", pytype_strict_test = "pytype_strict_contrib_test")
 load("@org_tensorflow//tensorflow:strict.default.bzl", "py_strict_test")
 
 package(
