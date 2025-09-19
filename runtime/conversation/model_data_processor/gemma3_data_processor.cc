@@ -19,9 +19,11 @@
 #include <vector>
 
 #include "absl/memory/memory.h"  // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "runtime/components/tool_use/python_tool_format_utils.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
 #include "runtime/engine/io_types.h"
@@ -70,6 +72,19 @@ absl::StatusOr<Message> Gemma3DataProcessor::ToMessageImpl(
       {{"role", "assistant"},
        {"content",
         {{{"type", "text"}, {"text", std::string(response_text)}}}}});
+}
+
+absl::StatusOr<nlohmann::ordered_json> Gemma3DataProcessor::FormatTools(
+    const nlohmann::ordered_json& tools) {
+  if (!tools.is_array()) {
+    return absl::InvalidArgumentError("Tools must be an array.");
+  }
+  nlohmann::ordered_json formatted_tools = nlohmann::ordered_json::array();
+  for (const auto& tool : tools) {
+    ASSIGN_OR_RETURN(std::string formatted_tool, FormatToolAsPython(tool));
+    formatted_tools.push_back(formatted_tool);
+  }
+  return formatted_tools;
 }
 
 }  // namespace litert::lm

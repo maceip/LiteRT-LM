@@ -219,5 +219,83 @@ I am doing well, thanks for asking.<end_of_turn>
                   HasInputText(&expected_text3)));
 }
 
+TEST(Gemma3DataProcessorTest, FormatTools) {
+  ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
+  nlohmann::ordered_json tools = nlohmann::ordered_json::parse(R"json([
+    {
+      "name": "get_weather",
+      "description": "Gets weather information.",
+      "parameters": {
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "Weather location."
+          }
+        },
+        "required": ["location"]
+      }
+    },
+    {
+      "name": "get_stock_price",
+      "description": "Gets stock price.",
+      "parameters": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Stock symbol."
+          }
+        },
+        "required": ["symbol"]
+      }
+    }
+  ])json");
+
+  ASSERT_OK_AND_ASSIGN(const nlohmann::ordered_json formatted_tools,
+                       processor->FormatTools(tools));
+
+  nlohmann::ordered_json expected = nlohmann::ordered_json::array();
+  expected.push_back(R"(def get_weather(
+    location: str,
+) -> dict:
+  """Gets weather information.
+
+  Args:
+    location: Weather location.
+  """
+)");
+  expected.push_back(R"(def get_stock_price(
+    symbol: str,
+) -> dict:
+  """Gets stock price.
+
+  Args:
+    symbol: Stock symbol.
+  """
+)");
+
+  EXPECT_EQ(formatted_tools, expected);
+}
+
+TEST(Gemma3DataProcessorTest, FormatToolsWithInvalidInput) {
+  ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
+  // `tools` is not an array.
+  nlohmann::ordered_json tools = nlohmann::ordered_json::parse(R"json({
+    "name": "get_weather",
+    "description": "Gets weather information.",
+    "parameters": {
+      "properties": {
+        "location": {
+          "type": "string",
+          "description": "Weather location."
+        }
+      },
+      "required": ["location"]
+    }
+  })json");
+
+  EXPECT_THAT(processor->FormatTools(tools),
+              testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
 }  // namespace
 }  // namespace litert::lm

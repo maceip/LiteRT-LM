@@ -45,6 +45,9 @@ class ModelDataProcessor {
   // the output to the user.
   virtual absl::StatusOr<Message> ToMessage(
       const Responses& responses, const DataProcessorArguments& args) = 0;
+
+  virtual absl::StatusOr<nlohmann::ordered_json> FormatTools(
+      const nlohmann::ordered_json& tools) = 0;
 };
 
 // TypeSafeModelDataProcessor is a ModelDataProcessor that expects a specific

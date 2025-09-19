@@ -40,6 +40,10 @@ class Gemma3DataProcessor
   // Returns the config of the Gemma3DataProcessor.
   const Gemma3DataProcessorConfig& GetConfig() override { return config_; }
 
+  // Formats tool declarations.
+  absl::StatusOr<nlohmann::ordered_json> FormatTools(
+      const nlohmann::ordered_json& tools) override;
+
  private:
   explicit Gemma3DataProcessor(
       const Gemma3DataProcessorConfig& config = Gemma3DataProcessorConfig())

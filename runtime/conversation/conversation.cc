@@ -147,7 +147,12 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
   if (std::holds_alternative<JsonPreface>(preface_)) {
     auto json_preface = std::get<JsonPreface>(preface_);
     old_tmpl_input.messages = json_preface.messages;
-    old_tmpl_input.tools = json_preface.tools;
+    if (json_preface.tools.is_null()) {
+      old_tmpl_input.tools = nullptr;
+    } else {
+      ASSIGN_OR_RETURN(old_tmpl_input.tools,
+                       model_data_processor_->FormatTools(json_preface.tools));
+    }
     old_tmpl_input.extra_context = json_preface.extra_context;
   } else {
     return absl::UnimplementedError("Preface type is not supported yet");
