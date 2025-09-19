@@ -25,10 +25,12 @@ import argparse
 import struct
 import sys
 
+from absl import app
+
 from litert_lm.schema.py import litertlm_peek
 
 
-def main():
+def main(_):
   """Parses command-line arguments and runs the litertlm_peek tool."""
   parser = argparse.ArgumentParser(
       description="Inspect the contents of a LiteRT-LM file."
@@ -60,4 +62,4 @@ def main():
 
 
 if __name__ == "__main__":
-  main()
+  app.run(main, sys.argv[:1])

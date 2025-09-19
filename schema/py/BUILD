@@ -61,7 +61,10 @@ pytype_strict_binary(
         "manual",
         "notap",
     ],
-    deps = [":litertlm_peek"],
+    deps = [
+        ":litertlm_peek",
+        "@absl_py//absl:app",
+    ],
 )
 
 py_test(
