@@ -44,6 +44,7 @@
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/executor/vision_executor_settings.h"
+#include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/litert_status_util.h"
 #include "runtime/util/status_macros.h"  // NOLINT
 
@@ -249,68 +250,17 @@ absl::StatusOr<ExecutorVisionData> VisionLiteRtCompiledModelExecutor::Encode(
                      output_tensor_buffers.size()));
   }
 
-  LITERT_ASSIGN_OR_RETURN_ABSL(auto input_buffer_type,
-                               input_image_tensor.BufferType());
-  LITERT_ASSIGN_OR_RETURN_ABSL(
-      auto encoder_input_buffer_requirements,
-      vision_encoder_->GetCompiledModel().GetInputBufferRequirements(0));
-
-  LITERT_ASSIGN_OR_RETURN_ABSL(
-      auto supported_buffer_types,
-      encoder_input_buffer_requirements.SupportedTypes());
-  if (std::find(supported_buffer_types.begin(), supported_buffer_types.end(),
-                input_buffer_type) == supported_buffer_types.end()) {
-    // If the input buffer type is host memory and the supported buffer types
-    // include OpenCL buffer packed, then we can copy the input image tensor to
-    // the encoder input buffer.
-    if (input_buffer_type == kLiteRtTensorBufferTypeHostMemory &&
-        std::find(supported_buffer_types.begin(), supported_buffer_types.end(),
-                  kLiteRtTensorBufferTypeOpenClBufferPacked) !=
-            supported_buffer_types.end()) {
-      LITERT_ASSIGN_OR_RETURN_ABSL(
-          auto encoder_input_size,
-          vision_encoder_->GetInputBuffers()[0].PackedSize());
-      LITERT_ASSIGN_OR_RETURN_ABSL(
-          auto encoder_input_lock_and_addr,
-          ::litert::TensorBufferScopedLock::Create(
-              vision_encoder_->GetMutableInputBuffers()[0],
-              TensorBuffer::LockMode::kWrite));
-      char* encoder_input_ptr =
-          static_cast<char*>(encoder_input_lock_and_addr.second);
-      LITERT_ASSIGN_OR_RETURN_ABSL(auto input_image_size,
-                                   input_image_tensor.PackedSize());
-      if (input_image_size > encoder_input_size) {
-        return absl::InvalidArgumentError(absl::StrCat(
-            "Input image size: ", input_image_size,
-            " is larger than encoder input size: ", encoder_input_size));
-      }
-      LITERT_ASSIGN_OR_RETURN_ABSL(
-          auto input_image_data_lock_and_addr,
-          ::litert::TensorBufferScopedLock::Create(
-              input_image_tensor_ref, TensorBuffer::LockMode::kRead));
-      memcpy(encoder_input_ptr, input_image_data_lock_and_addr.second,
-             input_image_size);
-    } else {
-      return absl::InvalidArgumentError(
-          absl::StrCat("Unsupported input buffer type: ", input_buffer_type));
-    }
-
-    LITERT_RETURN_IF_ERROR(vision_encoder_->GetCompiledModel().Run(
-        /*input_buffers=*/absl::MakeSpan(&vision_encoder_->GetInputBuffers()[0],
-                                         1),
-        /*output_buffers=*/absl::MakeSpan(
-            &vision_encoder_->GetOutputBuffers()[0], 1)));
-  } else {
-    LITERT_RETURN_IF_ERROR(vision_encoder_->GetCompiledModel().Run(
-        /*input_buffers=*/absl::MakeSpan(&input_image_tensor, 1),
-        /*output_buffers=*/absl::MakeSpan(
-            &vision_encoder_->GetOutputBuffers()[0], 1)));
-  }
-
+  LITERT_ASSIGN_OR_RETURN(auto input_image_data,
+                          ReferTensorBufferAsSpan<float>(input_image_tensor));
+  LITERT_RETURN_IF_ERROR(
+      vision_encoder_->GetMutableInputBuffers()[0].Write<float>(
+          input_image_data));
+  LITERT_RETURN_IF_ERROR(vision_encoder_->GetCompiledModel().Run(
+      /*input_buffers=*/absl::MakeSpan(vision_encoder_->GetInputBuffers()),
+      /*output_buffers=*/absl::MakeSpan(vision_encoder_->GetOutputBuffers())));
   LITERT_RETURN_IF_ERROR(vision_adapter_->GetCompiledModel().Run(
-      /*input_buffers=*/absl::MakeSpan(&vision_encoder_->GetOutputBuffers()[0],
-                                       1),
-      /*output_buffers=*/absl::MakeSpan(&output_tensor_buffers[0], 1)));
+      /*input_buffers=*/absl::MakeSpan(vision_encoder_->GetOutputBuffers()),
+      /*output_buffers=*/absl::MakeSpan(output_tensor_buffers)));
 
   return ExecutorVisionData(std::move(output_tensor_buffers[0]),
                             /*per_layer_embeddings=*/std::nullopt);
