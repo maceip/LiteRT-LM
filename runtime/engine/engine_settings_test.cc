@@ -246,21 +246,27 @@ TEST(EngineSettingsTest, LlmMetadata) {
 
 class FakeTokenizer : public Tokenizer {
  public:
-  FakeTokenizer() = default;
+  explicit FakeTokenizer(std::vector<int> fake_token_ids = {1},
+                         std::string fake_text = "fake_text")
+      : fake_token_ids_(fake_token_ids), fake_text_(fake_text) {}
 
   absl::StatusOr<std::vector<int>> TextToTokenIds(
       absl::string_view text) override {
-    return std::vector<int>{1};
+    return fake_token_ids_;
   }
 
   absl::StatusOr<std::string> TokenIdsToText(
       const std::vector<int>& token_ids) override {
-    return "fake_text";
+    return fake_text_;
   }
 
   absl::StatusOr<int> BosId() const override { return 2; }
 
   absl::StatusOr<int> EosId() const override { return 1; }
+
+ private:
+  std::vector<int> fake_token_ids_;
+  std::string fake_text_;
 };
 
 absl::Status IsExpectedLlmMetadata(const proto::LlmMetadata& llm_metadata) {
@@ -442,6 +448,48 @@ TEST(SessionConfigTest, MaybeUpdateAndValidateMaxNumTokens) {
   llm_metadata.set_max_num_tokens(4096);
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
   EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 1280);
+}
+
+TEST(SessionConfigTest,
+     MaybeUpdateAndValidateMaxNumTokensPrefillBatchSizeFromShortInputPrompt) {
+  constexpr int kNumInputPromptTokens = 1024;
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings = EngineSettings::CreateDefault(*model_assets);
+  auto session_config = SessionConfig::CreateDefault();
+  EXPECT_OK(settings);
+  EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 0);
+
+  FakeTokenizer tokenizer(std::vector<int>(kNumInputPromptTokens, 1));
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
+
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata, " "));
+  const auto& main_settings1 = settings->GetMainExecutorSettings();
+  EXPECT_EQ(main_settings1.GetMaxNumTokens(), 4096);
+  EXPECT_TRUE(main_settings1.GetAdvancedSettings().has_value());
+  EXPECT_EQ(main_settings1.GetAdvancedSettings()->prefill_batch_size,
+            kNumInputPromptTokens);
+}
+
+TEST(SessionConfigTest,
+     MaybeUpdateAndValidateMaxNumTokensPrefillBatchSizeFromLongInputPrompt) {
+  constexpr int kNumInputPromptTokens = 4096 - 100;
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings = EngineSettings::CreateDefault(*model_assets);
+  auto session_config = SessionConfig::CreateDefault();
+  EXPECT_OK(settings);
+  EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 0);
+
+  FakeTokenizer tokenizer(std::vector<int>(kNumInputPromptTokens, 1));
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
+
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata, " "));
+  const auto& main_settings1 = settings->GetMainExecutorSettings();
+  EXPECT_EQ(main_settings1.GetMaxNumTokens(), 8192);
+  EXPECT_TRUE(main_settings1.GetAdvancedSettings().has_value());
+  EXPECT_EQ(main_settings1.GetAdvancedSettings()->prefill_batch_size,
+            kNumInputPromptTokens);
 }
 
 TEST(SessionConfigTest, PrintOperator) {

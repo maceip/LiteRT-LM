@@ -31,6 +31,8 @@ struct LiteRtLmSettings {
   std::string sampler_backend = "";
   std::string model_path;
   std::string input_prompt = "What is the tallest building in the world?";
+  int max_num_tokens = 0;
+  int prefill_batch_size = 0;
   std::optional<std::vector<std::string>> image_files = std::nullopt;
   std::optional<std::vector<std::string>> audio_files = std::nullopt;
   bool benchmark = false;
@@ -45,6 +47,8 @@ struct LiteRtLmSettings {
   // during decode as the layout changes optimized for GPU inference is done by
   // GPU, not by CPU.
   bool gpu_no_external_tensor_mode = true;
+  bool configure_magic_numbers = true;
+  bool verify_magic_numbers = false;
   bool clear_kv_cache_before_prefill = false;
   int num_logits_to_print_after_decode = 0;
   std::optional<std::string> score_target_text = std::nullopt;

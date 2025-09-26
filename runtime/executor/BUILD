@@ -236,6 +236,7 @@ cc_library(
         ":llm_executor",
         ":llm_executor_io_types",
         ":llm_executor_settings",
+        ":magic_number_configs_helper",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/log:absl_log",
@@ -675,4 +676,38 @@ cc_test(
             "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
+)
+
+cc_library(
+    name = "magic_number_configs_helper",
+    srcs = ["magic_number_configs_helper.cc"],
+    hdrs = ["magic_number_configs_helper.h"],
+    deps = [
+        ":llm_executor_settings",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/strings",
+        "@litert//litert/c:litert_environment_options",
+        "@litert//litert/cc:litert_environment",
+        "@litert//litert/cc:litert_expected",
+        "@litert//litert/cc:litert_macros",
+        "@litert//litert/cc:litert_model",
+    ],
+)
+
+cc_test(
+    name = "magic_number_configs_helper_test",
+    srcs = ["magic_number_configs_helper_test.cc"],
+    data = ["//runtime/testdata"],
+    deps = [
+        ":executor_settings_base",
+        ":llm_executor_settings",
+        ":magic_number_configs_helper",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@litert//litert/cc:litert_macros",
+        "@litert//litert/cc:litert_model",
+        "//runtime/util:litert_status_util",
+        "//runtime/util:test_utils",
+    ],
 )

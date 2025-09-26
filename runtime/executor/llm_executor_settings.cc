@@ -52,6 +52,9 @@ std::ostream& operator<<(std::ostream& os, const CpuConfig& config) {
 }
 
 std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings) {
+  os << "prefill_batch_size: " << settings.prefill_batch_size << "\n";
+  os << "configure_magic_numbers: " << settings.configure_magic_numbers << "\n";
+  os << "verify_magic_numbers: " << settings.verify_magic_numbers << "\n";
   os << "clear_kv_cache_before_prefill: "
      << settings.clear_kv_cache_before_prefill << "\n";
   os << "num_logits_to_print_after_decode: "

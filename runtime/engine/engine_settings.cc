@@ -19,7 +19,9 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
@@ -80,7 +82,9 @@ absl::StatusOr<EngineSettings> EngineSettings::CreateDefault(
 }
 
 absl::Status EngineSettings::MaybeUpdateAndValidate(
-    Tokenizer& tokenizer, const proto::LlmMetadata* metadata_from_file) {
+    Tokenizer& tokenizer,
+    const proto::LlmMetadata* absl_nullable metadata_from_file,
+    absl::string_view input_prompt_as_hint) {
   proto::LlmMetadata& metadata = GetMutableLlmMetadata();
   // Copy the metadata from the file if it is provided.
   if (metadata_from_file != nullptr) {
@@ -105,14 +109,37 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
           start_token_ids->begin(), start_token_ids->end());
     }
   }
+
+  int num_prompt_tokens = 0;
+  if (!input_prompt_as_hint.empty()) {
+    num_prompt_tokens = tokenizer.TextToTokenIds(input_prompt_as_hint)
+                            .value_or(std::vector<int>())
+                            .size();
+  }
+
   // Load the max num tokens from the model file.
-  // If not set, we set the default value to 4096.
+  // If not set, we set the default value to one based on the number of tokens
+  // in the prompt.
   if (main_executor_settings_.GetMaxNumTokens() == 0) {
-    int max_num_tokens = 4096;
+    // The default maximum number of tokens is set to the smallest multiple of
+    // 4096 greater than the number of tokens in the prompt plus the default
+    // decode length, 1024.
+    int max_num_tokens = ((num_prompt_tokens + 1023) / 4096 + 1) * 4096;
     if (metadata.max_num_tokens() > 0) {
       max_num_tokens = metadata.max_num_tokens();
     }
     main_executor_settings_.SetMaxNumTokens(max_num_tokens);
+  }
+
+  if (num_prompt_tokens > 0) {
+    AdvancedSettings advanced_settings;
+    if (main_executor_settings_.GetAdvancedSettings()) {
+      advanced_settings = *main_executor_settings_.GetAdvancedSettings();
+    }
+    if (advanced_settings.prefill_batch_size == 0) {
+      advanced_settings.prefill_batch_size = num_prompt_tokens;
+      main_executor_settings_.SetAdvancedSettings(advanced_settings);
+    }
   }
 
   // Set the default values for the sampler params.

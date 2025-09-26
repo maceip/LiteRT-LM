@@ -22,6 +22,7 @@
 #include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -78,7 +79,8 @@ class EngineSettings {
   // are set correctly. Returns an error if the validation fails.
   absl::Status MaybeUpdateAndValidate(
       Tokenizer& tokenizer,
-      const proto::LlmMetadata* absl_nullable metadata_from_file);
+      const proto::LlmMetadata* absl_nullable metadata_from_file,
+      absl::string_view input_prompt_as_hint = "");
 
   // Returns the LlmExecutorSettings.
   const LlmExecutorSettings& GetMainExecutorSettings() const;

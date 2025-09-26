@@ -25,6 +25,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "third_party/odml/infra/genai/inference/executor/litert_executor_utils.h"
 #include "third_party/odml/infra/genai/inference/executor/llm_litert_opencl_executor.h"
@@ -185,7 +186,7 @@ class EngineImpl : public Engine {
 
 // Method to create Engine.
 absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
-    EngineSettings engine_settings) {
+    EngineSettings engine_settings, absl::string_view input_prompt_as_hint) {
   ABSL_LOG(INFO) << "Constructing legacy EngineImpl...";
   std::optional<BenchmarkInfo> benchmark_info;
   if (engine_settings.IsBenchmarkEnabled()) {
@@ -230,8 +231,8 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
   }
   // Update and load the parameters from the model file and convert the tokens
   // to ids.
-  RETURN_IF_ERROR(
-      engine_settings.MaybeUpdateAndValidate(*tokenizer, &llm_metadata));
+  RETURN_IF_ERROR(engine_settings.MaybeUpdateAndValidate(
+      *tokenizer, &llm_metadata, input_prompt_as_hint));
 
   ASSIGN_OR_RETURN(auto executor,
                    BuildExecutor(*model_resources, engine_settings));

@@ -48,6 +48,7 @@
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/executor/llm_executor_settings.h"
+#include "runtime/executor/magic_number_configs_helper.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/file_util.h"
 #include "runtime/util/litert_status_util.h"
@@ -799,7 +800,14 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
           "Unsupported backend: ", executor_settings.GetBackend()));
   }
 
-  auto lrt_env = ::litert::Environment::Create({});
+  std::vector<Environment::Option> env_options;
+  if (!executor_settings.GetAdvancedSettings() ||  // Default is true.
+      executor_settings.GetAdvancedSettings()->configure_magic_numbers) {
+    MagicNumberConfigsHelper helper(*litert_model, executor_settings);
+    env_options = helper.GetLiteRtEnvOptions();
+  }
+
+  auto lrt_env = ::litert::Environment::Create(env_options);
   if (!lrt_env) {
     return absl::InternalError(absl::StrCat(
         "Failed to create litert environment: ", lrt_env.Error().Message()));

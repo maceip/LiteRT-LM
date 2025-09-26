@@ -230,6 +230,10 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
       EngineSettings engine_settings,
       EngineSettings::CreateDefault(std::move(model_assets), backend,
                                     vision_backend, audio_backend));
+  if (settings.max_num_tokens > 0) {
+    engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(
+        settings.max_num_tokens);
+  }
   if (settings.force_f32) {
     engine_settings.GetMutableMainExecutorSettings().SetActivationDataType(
         litert::lm::ActivationDataType::FLOAT32);
@@ -267,6 +271,9 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
   }
 
   AdvancedSettings advanced_settings{
+      .prefill_batch_size = settings.prefill_batch_size,
+      .configure_magic_numbers = settings.configure_magic_numbers,
+      .verify_magic_numbers = settings.verify_magic_numbers,
       .clear_kv_cache_before_prefill = settings.clear_kv_cache_before_prefill,
       .num_logits_to_print_after_decode =
           static_cast<uint32_t>(settings.num_logits_to_print_after_decode),
@@ -303,9 +310,11 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
     benchmark_params.set_num_decode_tokens(settings.benchmark_decode_tokens);
     engine_settings.GetMutableBenchmarkParams() = benchmark_params;
   }
+
   ABSL_LOG(INFO) << "Creating engine";
   absl::StatusOr<std::unique_ptr<litert::lm::Engine>> engine =
-      litert::lm::Engine::CreateEngine(std::move(engine_settings));
+      litert::lm::Engine::CreateEngine(std::move(engine_settings),
+                                       settings.input_prompt);
   ABSL_CHECK_OK(engine) << "Failed to create engine";
 
   ABSL_LOG(INFO) << "Creating session";

@@ -90,6 +90,27 @@ std::ostream& operator<<(std::ostream& os, const CpuConfig& config);
 
 // Optional advanced settings for the LLM executor.
 struct AdvancedSettings {
+  // The maximum number of prefill tokens processed at once when the graph has
+  // dynamic prefill length.
+  int prefill_batch_size = 0;
+
+  // Whether to configure magic numbers when the model contains magic numbers.
+  // Magic number for the context length will be replaced with max_num_tokens_
+  // in LlmExecutorSettings.
+  // Magic number of the prefill length will be replaced with the
+  // prefill_batch_size above.
+  // The numbers that replaced magic numbers must be less than magic numbers.
+  // Otherwise, default values less than magic numbers will be used that are
+  // chosen by some heuristics.
+  bool configure_magic_numbers = true;
+
+  // Whether to verify magic numbers when the model contains magic numbers and
+  // test signatures.
+  // If true, the subgraphs replacing magic numbers with real dimensions must be
+  // the same as or supersets of the subgraphs in test signatures of the same
+  // dimensions.
+  bool verify_magic_numbers = false;
+
   // For debugging purpose, whether to clear kv cache before the first prefill
   // step which may help to disclose any issues related to kv cache.
   bool clear_kv_cache_before_prefill = false;
@@ -100,7 +121,8 @@ struct AdvancedSettings {
   uint32_t num_logits_to_print_after_decode = 0;
 
   bool operator==(const AdvancedSettings& other) const {
-    return clear_kv_cache_before_prefill ==
+    return prefill_batch_size == other.prefill_batch_size &&
+           clear_kv_cache_before_prefill ==
                other.clear_kv_cache_before_prefill &&
            num_logits_to_print_after_decode ==
                other.num_logits_to_print_after_decode;

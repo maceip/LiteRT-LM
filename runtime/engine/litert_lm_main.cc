@@ -51,6 +51,16 @@ ABSL_FLAG(std::string, model_path, "", "Model path to use for LLM execution.");
 ABSL_FLAG(std::string, input_prompt,
           "What is the tallest building in the world?",
           "Input prompt to use for testing LLM execution.");
+ABSL_FLAG(int, max_num_tokens, 0,
+          "Maximum number of tokens or context length to use for LLM execution "
+          "of a graph with dynamic context length. If 0, the maximum context "
+          "length will be determined by some heuristic. On benchmark mode, it "
+          "will be set to one equal to or greater than "
+          "benchmark_prefill_tokens + benchmark_decode_tokens.");
+ABSL_FLAG(int, prefill_batch_size, 0,
+          "Maximum number of prefill tokens processed at once. If 0, it will "
+          "be the same as the length of the input prompt tokens or "
+          "benchmark_prefill_tokens when benchmark mode is enabled.");
 ABSL_FLAG(bool, benchmark, false, "Benchmark the LLM execution.");
 ABSL_FLAG(
     int, benchmark_prefill_tokens, 0,
@@ -76,6 +86,13 @@ ABSL_FLAG(bool, gpu_no_external_tensor_mode, true,
           "mode which runs slightly faster during decode. It should be set "
           "false when GPU backend doesn't support no external tensor mode, "
           "e.g. Vulkan or OpenGL.");
+ABSL_FLAG(bool, configure_magic_numbers, true,
+          "If true and the model contains magic numbers, present magic number "
+          "configs when the model is initialized.");
+ABSL_FLAG(bool, verify_magic_numbers, false,
+          "If true and the model contains magic numbers and test signatures, "
+          "verify magic number configs when the real dimensions that replaced "
+          "magic numbers match with ones of test signatures.");
 ABSL_FLAG(bool, clear_kv_cache_before_prefill, false,
           "If true, clear kv cache before the first prefill step. This may "
           "help to disclose any issues related to kv cache.");
@@ -123,6 +140,8 @@ absl::Status MainHelper(int argc, char** argv) {
     ABSL_LOG(INFO)
         << "Example usage: ./litert_lm_main --model_path=<model_path> "
            "[--input_prompt=<input_prompt>] [--backend=<cpu|gpu|npu>] "
+           "[--max_num_tokens=<max_num_tokens>] "
+           "[--prefill_batch_size=<prefill_batch_size>]"
            "[--vision_backend=<cpu|gpu>] [--audio_backend=<cpu|gpu>] "
            "[--image_files=<image_path1>,<image_path2>,...] "
            "[--audio_files=<audio_path1>,<audio_path2>,...] "
@@ -133,6 +152,8 @@ absl::Status MainHelper(int argc, char** argv) {
            "[--report_peak_memory_footprint] [--multi_turns=<true|false>] "
            "[--num_cpu_threads=<num_cpu_threads>] "
            "[--gpu_no_external_tensor_mode=<true|false>] "
+           "[--configure_magic_numbers=<true|false>] "
+           "[--verify_magic_numbers=<true|false>] "
            "[--clear_kv_cache_before_prefill=<true|false>] "
            "[--num_logits_to_print_after_decode=<num_logits_to_print>]"
            "[--score_target_text=<target_text>]";
@@ -147,6 +168,8 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.sampler_backend = absl::GetFlag(FLAGS_sampler_backend);
   settings.model_path = absl::GetFlag(FLAGS_model_path);
   settings.input_prompt = absl::GetFlag(FLAGS_input_prompt);
+  settings.max_num_tokens = absl::GetFlag(FLAGS_max_num_tokens);
+  settings.prefill_batch_size = absl::GetFlag(FLAGS_prefill_batch_size);
   settings.image_files = absl::GetFlag(FLAGS_image_files);
   settings.audio_files = absl::GetFlag(FLAGS_audio_files);
   settings.benchmark = absl::GetFlag(FLAGS_benchmark);
@@ -162,11 +185,26 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.num_cpu_threads = absl::GetFlag(FLAGS_num_cpu_threads);
   settings.gpu_no_external_tensor_mode =
       absl::GetFlag(FLAGS_gpu_no_external_tensor_mode);
+  settings.configure_magic_numbers =
+      absl::GetFlag(FLAGS_configure_magic_numbers);
+  settings.verify_magic_numbers = absl::GetFlag(FLAGS_verify_magic_numbers);
   settings.clear_kv_cache_before_prefill =
       absl::GetFlag(FLAGS_clear_kv_cache_before_prefill);
   settings.num_logits_to_print_after_decode =
       absl::GetFlag(FLAGS_num_logits_to_print_after_decode);
   settings.score_target_text = absl::GetFlag(FLAGS_score_target_text);
+
+  // Adjust max_num_tokens and prefill_batch_size if not set on benchmark mode.
+  if (settings.benchmark && settings.benchmark_prefill_tokens > 0) {
+    if (settings.max_num_tokens == 0 && settings.benchmark_decode_tokens > 0) {
+      settings.max_num_tokens =
+          settings.benchmark_prefill_tokens + settings.benchmark_decode_tokens;
+    }
+    if (settings.prefill_batch_size == 0) {
+      settings.prefill_batch_size = settings.benchmark_prefill_tokens;
+    }
+  }
+
   return litert::lm::RunLiteRtLm(settings);
 }
 

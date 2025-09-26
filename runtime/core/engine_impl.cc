@@ -22,9 +22,7 @@
 #include <vector>
 
 #include "absl/log/absl_check.h"  // from @com_google_absl
-#include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/log/check.h"  // from @com_google_absl
-#include "absl/log/log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
@@ -158,7 +156,7 @@ class EngineImpl : public Engine {
 
 // Method to create Engine.
 absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
-    EngineSettings engine_settings) {
+    EngineSettings engine_settings, absl::string_view input_prompt_as_hint) {
   std::optional<BenchmarkInfo> benchmark_info;
   if (engine_settings.IsBenchmarkEnabled()) {
     benchmark_info = std::make_optional<BenchmarkInfo>(
@@ -186,8 +184,8 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
 
   // Update and load the parameters from the model file and convert the
   // tokens to ids.
-  RETURN_IF_ERROR(
-      engine_settings.MaybeUpdateAndValidate(*tokenizer, llm_metadata));
+  RETURN_IF_ERROR(engine_settings.MaybeUpdateAndValidate(
+      *tokenizer, llm_metadata, input_prompt_as_hint));
 
   std::unique_ptr<LlmExecutor> executor;
   if ((engine_settings.GetMainExecutorSettings().GetBackend() ==
