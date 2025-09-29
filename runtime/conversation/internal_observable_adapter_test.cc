@@ -448,7 +448,8 @@ TEST_F(InternalObservableAdapterTest, InvalidFunctionCall) {
   observer->OnNext(CreateResponses("\n```"));
 
   EXPECT_TRUE(user_observer_->done());
-  EXPECT_THAT(user_observer_->status(), StatusIs(absl::StatusCode::kInternal));
+  EXPECT_THAT(user_observer_->status(),
+              StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
 }  // namespace

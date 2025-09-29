@@ -131,6 +131,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@nlohmann_json//:json",
+        "//runtime/util:litert_status_util",
         "@com_googlesource_code_re2//:re2",
     ],
 )

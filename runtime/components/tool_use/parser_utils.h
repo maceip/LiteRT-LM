@@ -21,12 +21,6 @@
 
 namespace litert::lm {
 
-// A struct to hold the text and tool call strings.
-struct TextAndToolCallStrings {
-  absl::string_view text;
-  absl::string_view tool_calls;
-};
-
 // The syntax type of the tool calls.
 enum class SyntaxType {
   kUnknown = 0,
@@ -37,39 +31,19 @@ enum class SyntaxType {
 // Maps from string to SyntaxType.
 SyntaxType GetSyntaxType(absl::string_view syntax_type);
 
-// Extracts text and code blocks from a string. A code block is delimited
-// by `code_fence_start` and `code_fence_end`.
-//
-// Args:
-//   `response_str`: The raw string response from the model.
-//   `code_fence_start`: The string marking the beginning of the code block.
-//   `code_fence_end`: The string marking the end of the code block.
-//   `escape_fence_strings`: If true, regex special characters within the
-//     fence strings will be escaped using RE2::QuoteMeta. Set to false if the
-//     fence strings already contain valid regex patterns.
-// Returns:
-//   A TextAndToolCallStrings struct. `text` contains the portion of
-//   `response_str` *before* the `code_fence_start`. `tool_calls` contains
-//   the portion of `response_str` *between* the start and end fences.
-//   If the pattern is not found, behavior depends:
-//     - If `code_fence_start` is not found at all, the entire `response_str`
-//       is returned in `text`, and `tool_calls` is empty.
-//     - If `code_fence_start` is found but `code_fence_end` is not (or the
-//       regex match fails), the text before the start fence is returned in
-//       `text`, and the text *after* the start fence is returned in
-//       `tool_calls`.
-TextAndToolCallStrings ExtractTextAndToolCallStrings(
-    absl::string_view response_str, absl::string_view code_fence_start,
-    absl::string_view code_fence_end, bool escape_fence_strings = true);
-
 // Parses a string into text and tool calls.
 //
+// Tool calls are parsed from tool code blocks. A tool code block is delimited
+// by `code_fence_start` and `code_fence_end`.
+//
+// If `tool_code_regex` is provided, each line of the tool code block will be
+// checked against the regex and only the captured substring will be parsed as a
+// tool call.
+//
 // Args:
 //   `response_str`: The raw string response from the model.
 //   `code_fence_start`: The string marking the beginning of the code block.
 //   `code_fence_end`: The string marking the end of the code block.
-//   `response_role`: The role to assign to the response content (e.g.,
-//      "model").
 //   `syntax_type`: The syntax type of the tool calls.
 //   `escape_fence_strings`: If true, regex special characters
 //      within the fence strings will be escaped.
@@ -77,8 +51,7 @@ TextAndToolCallStrings ExtractTextAndToolCallStrings(
 //      of the tool call string.
 //
 // Returns:
-//   A JSON array of content parts. Each content part has type "text" or
-//   "tool_call".
+//   A JSON array containing "text" and "tool_call" content items.
 absl::StatusOr<nlohmann::ordered_json> ParseTextAndToolCalls(
     absl::string_view response_str, absl::string_view code_fence_start,
     absl::string_view code_fence_end, SyntaxType syntax_type,

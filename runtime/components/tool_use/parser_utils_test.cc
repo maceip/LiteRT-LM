@@ -22,7 +22,6 @@
 namespace litert::lm {
 namespace {
 
-using ::testing::FieldsAre;
 using ::testing::status::IsOkAndHolds;
 
 TEST(ParserUtilsTest, GetSyntaxType) {
@@ -31,45 +30,17 @@ TEST(ParserUtilsTest, GetSyntaxType) {
   EXPECT_EQ(GetSyntaxType("unknown"), SyntaxType::kUnknown);
 }
 
-TEST(ParserUtilsTest, ExtractTextAndToolCallStrings) {
-  EXPECT_THAT(
-      ExtractTextAndToolCallStrings(
-          R"(This is some text.
-```tool_code
-tool_name(x=1)
-```)",
-          /*code_fence_start=*/"```tool_code\n", /*code_fence_end=*/"\n```"),
-      FieldsAre(/*text=*/R"(This is some text.
-)",
-                /*tool_calls =*/"tool_name(x=1)"));
-}
-
-TEST(ParserUtilsTest, ExtractOnlyText) {
-  EXPECT_THAT(
-      ExtractTextAndToolCallStrings("This is some text.",
+TEST(ParserUtilsTest, TextOnly) {
+  EXPECT_THAT(ParseTextAndToolCalls("This is some text.",
                                     /*code_fence_start=*/"```tool_code\n",
-                                    /*code_fence_end=*/"\n```"),
-      FieldsAre(/*text=*/"This is some text.",
-                /*tool_calls =*/""));
-}
-
-TEST(ParserUtilsTest, ExtractOnlyToolCalls) {
-  EXPECT_THAT(
-      ExtractTextAndToolCallStrings(R"(```tool_code
-tool_name(x=1)
-```)",
-                                    /*code_fence_start=*/"```tool_code\n",
-                                    /*code_fence_end=*/"\n```"),
-      FieldsAre(/*text=*/"",
-                /*tool_calls =*/"tool_name(x=1)"));
-}
-
-TEST(ParserUtilsTest, ExtractPartialToolCodeAsText) {
-  EXPECT_THAT(
-      ExtractTextAndToolCallStrings("```tool_code\ntool_name(x=1)",
-                                    /*code_fence_start=*/"```tool_code\n",
-                                    /*code_fence_end=*/"\n```"),
-      FieldsAre(/*text=*/"```tool_code\ntool_name(x=1)", /*tool_calls =*/""));
+                                    /*code_fence_end=*/"\n```",
+                                    /*syntax_type=*/SyntaxType::kPython),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([
+                {
+                  "type": "text",
+                  "text": "This is some text."
+                }
+              ])json")));
 }
 
 TEST(ParserUtilsTest, ParsePythonToolCall) {
@@ -246,6 +217,227 @@ TEST(ParserUtilsTest, ParseTextAndJsonToolCalls) {
                       "x": 1
                     }
                   }
+                }
+              ])json")));
+}
+
+TEST(ParserUtilsTest, ParseTextThenCodeThenText) {
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  R"(This is some text.
+```tool_code
+tool_1(x=1)
+```
+This is some more text.
+)",
+                  /*code_fence_start=*/"```tool_code\n",
+                  /*code_fence_end=*/"\n```",
+                  /*syntax_type=*/SyntaxType::kPython),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([
+                {
+                  "type": "text",
+                  "text": "This is some text.\n"
+                },
+                {
+                  "type": "tool_call",
+                  "tool_call": {
+                    "name": "tool_1",
+                    "args": {
+                      "x": 1
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "\nThis is some more text.\n"
+                }
+              ])json")));
+}
+
+TEST(ParserUtilsTest, ParseTextThenCodeThenTextThenCode) {
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  R"(This is some text.
+```tool_code
+tool_1(x=1)
+```
+This is some more text.
+```tool_code
+tool_2(y=2)
+```)",
+                  /*code_fence_start=*/"```tool_code\n",
+                  /*code_fence_end=*/"\n```",
+                  /*syntax_type=*/SyntaxType::kPython),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([
+                {
+                  "type": "text",
+                  "text": "This is some text.\n"
+                },
+                {
+                  "type": "tool_call",
+                  "tool_call": {
+                    "name": "tool_1",
+                    "args": {
+                      "x": 1
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "\nThis is some more text.\n"
+                },
+                {
+                  "type": "tool_call",
+                  "tool_call": {
+                    "name": "tool_2",
+                    "args": {
+                      "y": 2
+                    }
+                  }
+                }
+              ])json")));
+}
+
+TEST(ParserUtilsTest, ParseTextThenParallelToolCalls) {
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  R"(This is some text.
+```tool_code
+tool_1(x=1)
+tool_2(y=2)
+```)",
+                  /*code_fence_start=*/"```tool_code\n",
+                  /*code_fence_end=*/"\n```",
+                  /*syntax_type=*/SyntaxType::kPython),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([
+                {
+                  "type": "text",
+                  "text": "This is some text.\n"
+                },
+                {
+                  "type": "tool_call",
+                  "tool_call": {
+                    "name": "tool_1",
+                    "args": {
+                      "x": 1
+                    }
+                  }
+                },
+                {
+                  "type": "tool_call",
+                  "tool_call": {
+                    "name": "tool_2",
+                    "args": {
+                      "y": 2
+                    }
+                  }
+                }
+              ]
+              )json")));
+}
+
+TEST(ParserUtilsTest, ParseTextThenParallelToolCallsThenText) {
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  R"(This is some text.
+```tool_code
+tool_1(x=1)
+tool_2(y=2)
+```
+This is some more text.
+)",
+                  /*code_fence_start=*/"```tool_code\n",
+                  /*code_fence_end=*/"\n```",
+                  /*syntax_type=*/SyntaxType::kPython),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([
+                {
+                  "type": "text",
+                  "text": "This is some text.\n"
+                },
+                {
+                  "type": "tool_call",
+                  "tool_call": {
+                    "name": "tool_1",
+                    "args": {
+                      "x": 1
+                    }
+                  }
+                },
+                {
+                  "type": "tool_call",
+                  "tool_call": {
+                    "name": "tool_2",
+                    "args": {
+                      "y": 2
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "\nThis is some more text.\n"
+                }
+              ]
+              )json")));
+}
+
+TEST(ParserUtilsTest, ParseTextThenCodeThenCode) {
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  R"(This is some text.
+```tool_code
+tool_1(x=1)
+```
+```tool_code
+tool_2(y=2)
+```
+This is some more text.
+)",
+                  /*code_fence_start=*/"```tool_code\n",
+                  /*code_fence_end=*/"\n```",
+                  /*syntax_type=*/SyntaxType::kPython),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([
+                {
+                  "type": "text",
+                  "text": "This is some text.\n"
+                },
+                {
+                  "type": "tool_call",
+                  "tool_call": {
+                    "name": "tool_1",
+                    "args": {
+                      "x": 1
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "\n"
+                },
+                {
+                  "type": "tool_call",
+                  "tool_call": {
+                    "name": "tool_2",
+                    "args": {
+                      "y": 2
+                    }
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "\nThis is some more text.\n"
+                }
+              ]
+              )json")));
+}
+
+TEST(ParserUtilsTest, IncompleteToolCodeIsText) {
+  // Missing the closing ```.
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  R"(```tool_code
+tool_name(x=1)
+)",
+                  /*code_fence_start=*/"```tool_code\n",
+                  /*code_fence_end=*/"\n```",
+                  /*syntax_type=*/SyntaxType::kPython),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([
+                {
+                  "type": "text",
+                  "text": "```tool_code\ntool_name(x=1)\n"
                 }
               ])json")));
 }
