@@ -109,16 +109,8 @@ absl::StatusOr<std::unique_ptr<MemoryMappedFile>> MemoryMappedFile::Create(
     length = file_size - offset;
   }
 
-  // Some Mac versions (Macbook Pro 2019) have very bad performance with
-  // MAP_PRIVATE, so use MAP_SHARED here. The Metal API for importing host
-  // memory doesn't require it to be writable, so it's fine to just use
-  // PROT_READ here.
-#if defined(__APPLE__)
-  void* data = mmap(nullptr, length, PROT_READ, MAP_SHARED, file, offset);
-#else
   void* data =
       mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_PRIVATE, file, offset);
-#endif
   RET_CHECK_NE(data, MAP_FAILED) << "Failed to map, error: " << strerror(errno);
   RET_CHECK_NE(data, nullptr) << "Failed to map.";
   RET_CHECK_EQ(madvise(data, length, MADV_WILLNEED), 0) << "madvise failed.";
