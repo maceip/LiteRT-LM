@@ -453,10 +453,13 @@ cc_test(
     srcs = ["lora_data_test.cc"],
     data = ["//runtime/testdata"],
     deps = [
+        ":litert_status_util",
         ":lora_data",
         ":memory_mapped_file",
+        ":scoped_file",
         ":test_utils",
         "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status:statusor",
         "@litert//litert/cc:litert_buffer_ref",
         "//runtime/executor:executor_settings_base",
     ],

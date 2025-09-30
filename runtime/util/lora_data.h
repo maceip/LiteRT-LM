@@ -51,6 +51,9 @@ class LoraData {
   static absl::StatusOr<std::unique_ptr<LoraData>> CreateFromBuffer(
       BufferRef<uint8_t> buffer);
 
+  // Get the LoRA rank from the model.
+  virtual absl::StatusOr<int> GetLoRARank() = 0;
+
   // Virtual destructor to allow proper cleanup of derived classes.
   virtual ~LoraData() = default;
 };

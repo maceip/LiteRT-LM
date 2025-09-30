@@ -32,6 +32,8 @@
 namespace litert::lm {
 namespace {
 
+constexpr absl::string_view kLoRARank = "lora_rank";
+
 absl::StatusOr<std::unique_ptr<tflite::FlatBufferModel>>
 CreateFlatBufferModelFromBuffer(const void* buffer_addr, size_t buffer_size) {
   const bool obfuscated = !tflite::ModelBufferHasIdentifier(buffer_addr);
@@ -52,11 +54,34 @@ class FlatBufferLoraData : public LoraData {
  public:
   ~FlatBufferLoraData() override = default;
 
+  absl::StatusOr<int> GetLoRARank() override {
+    const tflite::Metadata* metadata = GetMetadata(kLoRARank);
+    if (metadata == nullptr) {
+      return absl::NotFoundError("No LoRA metadata found.");
+    }
+    return static_cast<int>(metadata->buffer());
+  }
+
  protected:
   // Returns the FlatBufferModel object reference.
   // FlatBufferModel is owned by derived classes to be destroyed in correct
   // order, thus it is accessed by base class with a reference here.
-  virtual const tflite::FlatBufferModel* GetModel() const = 0;
+  virtual const tflite::FlatBufferModel* GetFlatBufferModel() const = 0;
+
+  // Get metadata from the flatbuffer model.
+  const tflite::Metadata* GetMetadata(absl::string_view name) {
+    const tflite::Model* tflite_model = GetFlatBufferModel()->GetModel();
+    if (tflite_model->metadata() == nullptr) {
+      return nullptr;
+    }
+
+    for (const tflite::Metadata* metadata : *tflite_model->metadata()) {
+      if (name == metadata->name()->c_str()) {
+        return metadata;
+      }
+    }
+    return nullptr;
+  }
 };
 
 // FlatBufferModel based LoRA data backed by a file.
@@ -80,7 +105,7 @@ class FileLoraData : public FlatBufferLoraData {
   ~FileLoraData() override = default;
 
  private:
-  const tflite::FlatBufferModel* GetModel() const override {
+  const tflite::FlatBufferModel* GetFlatBufferModel() const override {
     return model_.get();
   }
 
@@ -105,7 +130,7 @@ class BufferLoraData : public FlatBufferLoraData {
   ~BufferLoraData() override = default;
 
  private:
-  const tflite::FlatBufferModel* GetModel() const override {
+  const tflite::FlatBufferModel* GetFlatBufferModel() const override {
     return model_.get();
   }
 
