@@ -430,3 +430,31 @@ cc_test(
         "//runtime/proto:token_cc_proto",
     ],
 )
+
+cc_library(
+    name = "lora_data",
+    srcs = ["lora_data.cc"],
+    hdrs = ["lora_data.h"],
+    deps = [
+        ":litert_status_util",
+        ":memory_mapped_file",
+        ":scoped_file",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@litert//tflite:framework",
+        "@litert//tflite/schema:schema_fbs",
+    ],
+)
+
+cc_test(
+    name = "lora_data_test",
+    srcs = ["lora_data_test.cc"],
+    data = ["//runtime/testdata"],
+    deps = [
+        ":lora_data",
+        ":test_utils",
+        "@com_google_googletest//:gtest_main",
+        "//runtime/executor:executor_settings_base",
+    ],
+)
