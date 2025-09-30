@@ -442,6 +442,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
+        "@litert//litert/cc:litert_buffer_ref",
         "@litert//tflite:framework",
         "@litert//tflite/schema:schema_fbs",
     ],
@@ -453,8 +454,10 @@ cc_test(
     data = ["//runtime/testdata"],
     deps = [
         ":lora_data",
+        ":memory_mapped_file",
         ":test_utils",
         "@com_google_googletest//:gtest_main",
+        "@litert//litert/cc:litert_buffer_ref",
         "//runtime/executor:executor_settings_base",
     ],
 )

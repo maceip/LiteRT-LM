@@ -15,10 +15,12 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_UTIL_LORA_DATA_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_UTIL_LORA_DATA_H_
 
+#include <cstdint>
 #include <memory>
 
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/util/scoped_file.h"
 
 namespace litert::lm {
@@ -41,6 +43,13 @@ class LoraData {
   // @return A unique_ptr to the LoraData instance, or an error status.
   static absl::StatusOr<std::unique_ptr<LoraData>> CreateFromScopedFile(
       std::shared_ptr<const ScopedFile> file);
+
+  // Create a LoraData instance from a BufferRef object.
+  //
+  // @param buffer A BufferRef object as the holder of the LoRA data.
+  // @return A unique_ptr to the LoraData instance, or an error status.
+  static absl::StatusOr<std::unique_ptr<LoraData>> CreateFromBuffer(
+      BufferRef<uint8_t> buffer);
 
   // Virtual destructor to allow proper cleanup of derived classes.
   virtual ~LoraData() = default;

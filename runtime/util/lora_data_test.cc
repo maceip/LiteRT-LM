@@ -14,6 +14,7 @@
 
 #include "runtime/util/lora_data.h"
 
+#include <cstdint>
 #include <filesystem>  // NOLINT: Required for path manipulation.
 #include <memory>
 #include <string>
@@ -21,7 +22,9 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/executor/executor_settings_base.h"
+#include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
@@ -45,6 +48,17 @@ TEST(LoraDataTest, CanCreateLoraDataFromScopedFile) {
 TEST(LoraDataTest, CanCreateLoraDataFromFilePath) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<LoraData> lora,
                        LoraData::CreateFromFilePath(GetLoraFilePath()));
+}
+
+TEST(LoraDataTest, CanCreateLoraDataFromBuffer) {
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ::litert::lm::ModelAssets::Create(GetLoraFilePath()));
+  ASSERT_OK_AND_ASSIGN(auto scoped_file, model_assets.GetOrCreateScopedFile());
+  ASSERT_OK_AND_ASSIGN(auto mapped_file, ::litert::lm::MemoryMappedFile::Create(
+                                             scoped_file->file()));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<LoraData> lora,
+                       LoraData::CreateFromBuffer(BufferRef<uint8_t>(
+                           mapped_file->data(), mapped_file->length())));
 }
 
 }  // namespace

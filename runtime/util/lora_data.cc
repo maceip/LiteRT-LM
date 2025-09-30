@@ -14,12 +14,15 @@
 
 #include "runtime/util/lora_data.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <utility>
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"
@@ -29,16 +32,31 @@
 namespace litert::lm {
 namespace {
 
+absl::StatusOr<std::unique_ptr<tflite::FlatBufferModel>>
+CreateFlatBufferModelFromBuffer(const void* buffer_addr, size_t buffer_size) {
+  const bool obfuscated = !tflite::ModelBufferHasIdentifier(buffer_addr);
+  if (obfuscated) {
+    return absl::UnimplementedError(
+        "Input is not valid flatbuffer model. Deobfuscation is not supported "
+        "yet.");
+  }
+  std::unique_ptr<tflite::FlatBufferModel> model =
+      tflite::FlatBufferModel::VerifyAndBuildFromBuffer(
+          reinterpret_cast<const char*>(buffer_addr), buffer_size);
+  RET_CHECK(model) << "Error building tflite model.";
+  return model;
+}
+
 // LoRA data based on FlatBufferModel.
 class FlatBufferLoraData : public LoraData {
  public:
   ~FlatBufferLoraData() override = default;
 
  protected:
-  // Returns the FlatBufferModel object.
+  // Returns the FlatBufferModel object reference.
   // FlatBufferModel is owned by derived classes to be destroyed in correct
   // order, thus it is accessed by base class with a reference here.
-  virtual std::shared_ptr<tflite::FlatBufferModel> GetModel() const = 0;
+  virtual const tflite::FlatBufferModel* GetModel() const = 0;
 };
 
 // FlatBufferModel based LoRA data backed by a file.
@@ -50,11 +68,11 @@ class FileLoraData : public FlatBufferLoraData {
   // data file.
   // @param region A unique_ptr to the MemoryMappedFile object representing the
   // memory mapped region of the file.
-  // @param model A shared_ptr to the FlatBufferModel object representing the
+  // @param model A unique_ptr to the FlatBufferModel object representing the
   // LoRA data.
   explicit FileLoraData(std::shared_ptr<const ScopedFile> file,
                         std::unique_ptr<MemoryMappedFile> region,
-                        std::shared_ptr<tflite::FlatBufferModel> model)
+                        std::unique_ptr<tflite::FlatBufferModel> model)
       : file_(std::move(file)),
         region_(std::move(region)),
         model_(std::move(model)) {}
@@ -62,14 +80,38 @@ class FileLoraData : public FlatBufferLoraData {
   ~FileLoraData() override = default;
 
  private:
-  std::shared_ptr<tflite::FlatBufferModel> GetModel() const override {
-    return model_;
+  const tflite::FlatBufferModel* GetModel() const override {
+    return model_.get();
   }
 
  private:
   std::shared_ptr<const ScopedFile> file_;
   std::unique_ptr<MemoryMappedFile> region_;
-  std::shared_ptr<tflite::FlatBufferModel> model_;
+  std::unique_ptr<tflite::FlatBufferModel> model_;
+};
+
+// FlatBufferModel based LoRA data backed by a BufferRef.
+class BufferLoraData : public FlatBufferLoraData {
+ public:
+  // Constructor for BufferLoraData.
+  //
+  // @param data A BufferRef object representing the LoRA data.
+  // @param model A unique_ptr to the FlatBufferModel object representing the
+  // LoRA data.
+  explicit BufferLoraData(BufferRef<uint8_t> data,
+                          std::unique_ptr<tflite::FlatBufferModel> model)
+      : data_(std::move(data)), model_(std::move(model)) {}
+
+  ~BufferLoraData() override = default;
+
+ private:
+  const tflite::FlatBufferModel* GetModel() const override {
+    return model_.get();
+  }
+
+ private:
+  BufferRef<uint8_t> data_;
+  std::unique_ptr<tflite::FlatBufferModel> model_;
 };
 
 }  // namespace
@@ -86,19 +128,20 @@ absl::StatusOr<std::unique_ptr<LoraData>> LoraData::CreateFromScopedFile(
     std::shared_ptr<const ScopedFile> file) {
   ASSIGN_OR_RETURN(auto mapped_file,
                    ::litert::lm::MemoryMappedFile::Create(file->file()));
-  bool obfuscated = !tflite::ModelBufferHasIdentifier(mapped_file->data());
-  if (obfuscated) {
-    return absl::UnimplementedError(
-        "Input is not valid flatbuffer model. Deobfuscation is not supported "
-        "yet.");
-  }
-  std::unique_ptr<tflite::FlatBufferModel> model =
-      tflite::FlatBufferModel::VerifyAndBuildFromBuffer(
-          reinterpret_cast<const char*>(mapped_file->data()),
-          mapped_file->length());
+  ASSIGN_OR_RETURN(auto model, CreateFlatBufferModelFromBuffer(
+                                   mapped_file->data(), mapped_file->length()));
   RET_CHECK(model) << "Error building tflite model.";
   return std::make_unique<FileLoraData>(std::move(file), std::move(mapped_file),
                                         std::move(model));
+}
+
+// static
+absl::StatusOr<std::unique_ptr<LoraData>> LoraData::CreateFromBuffer(
+    BufferRef<uint8_t> buffer) {
+  ASSIGN_OR_RETURN(auto model, CreateFlatBufferModelFromBuffer(buffer.Data(),
+                                                               buffer.Size()));
+  RET_CHECK(model) << "Error building tflite model.";
+  return std::make_unique<BufferLoraData>(std::move(buffer), std::move(model));
 }
 
 }  // namespace litert::lm
