@@ -167,6 +167,7 @@ cc_library(
         "@com_google_absl//absl/time",
         "@litert//litert/c:litert_tensor_buffer_types",
         "@litert//litert/cc:litert_layout",
+        "@litert//litert/cc:litert_macros",
         "//runtime/components:sampler",
         "//runtime/components:sampler_factory",
         "//runtime/components:stop_token_detector",
@@ -182,9 +183,11 @@ cc_library(
         "//runtime/executor:llm_executor_io_types",
         "//runtime/executor:vision_executor",
         "//runtime/framework:threadpool",
+        "//runtime/proto:llm_model_type_cc_proto",
         "//runtime/proto:sampler_params_cc_proto",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:litert_status_util",
+        "//runtime/util:model_type_utils",
         "//runtime/util:tensor_buffer_util",
     ] + select({
         "@litert//litert:litert_link_capi_so": [

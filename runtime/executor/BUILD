@@ -444,6 +444,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "//runtime/util:litert_status_util",
+        "//runtime/proto:llm_model_type_cc_proto",
         "//runtime/util:logging",
     ],
 )

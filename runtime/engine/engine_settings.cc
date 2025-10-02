@@ -31,8 +31,10 @@
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/proto/engine.pb.h"
 #include "runtime/proto/llm_metadata.pb.h"
+#include "runtime/proto/llm_model_type.pb.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/proto/token.pb.h"
+#include "runtime/util/model_type_utils.h"
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
 
 namespace litert::lm {
@@ -168,6 +170,12 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
           absl::StrCat("Not recognized backend: ", backend));
     }
   }
+
+  if (!metadata.has_llm_model_type()) {
+    ASSIGN_OR_RETURN(*metadata.mutable_llm_model_type(),
+                     InferLlmModelType(metadata, tokenizer));
+  }
+
   ABSL_LOG(INFO) << "The llm metadata: " << metadata.DebugString();
   ABSL_LOG(INFO) << "The validated engine settings: " << *this;
   return absl::OkStatus();
@@ -329,6 +337,8 @@ absl::Status SessionConfig::MaybeUpdateAndValidate(
     if (!prompt_templates_.has_user() && llm_metadata.has_prompt_templates()) {
       prompt_templates_ = llm_metadata.prompt_templates();
     }
+
+    llm_model_type_ = llm_metadata.llm_model_type();
   }
 
   // Validating the required fields are set correctly.

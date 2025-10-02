@@ -464,3 +464,34 @@ cc_test(
         "//runtime/executor:executor_settings_base",
     ],
 )
+
+cc_library(
+    name = "model_type_utils",
+    srcs = ["model_type_utils.cc"],
+    hdrs = ["model_type_utils.h"],
+    deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "//runtime/components:tokenizer",
+        "//runtime/proto:llm_metadata_cc_proto",
+        "//runtime/proto:llm_model_type_cc_proto",
+        "//runtime/proto:token_cc_proto",
+        "//runtime/util:litert_status_util",
+    ],
+)
+
+cc_test(
+    name = "model_type_utils_test",
+    srcs = ["model_type_utils_test.cc"],
+    deps = [
+        ":model_type_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "//runtime/components:tokenizer",
+        "//runtime/proto:llm_metadata_cc_proto",
+        "//runtime/proto:llm_model_type_cc_proto",
+        "//runtime/util:test_utils",
+    ],
+)

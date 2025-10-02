@@ -41,6 +41,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
+        "//runtime/proto:llm_model_type_cc_proto",
     ],
 )
 
@@ -184,6 +185,7 @@ cc_library(
         "//runtime/proto:sampler_params_cc_proto",
         "//runtime/proto:token_cc_proto",
         "//runtime/util:litert_status_util",
+        "//runtime/util:model_type_utils",
     ],
 )
 

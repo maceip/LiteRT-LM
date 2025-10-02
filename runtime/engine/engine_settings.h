@@ -217,6 +217,7 @@ class SessionConfig {
   // Backend to use for sampling.
   Backend sampler_backend_ = Backend::UNSPECIFIED;
 };
+
 std::ostream& operator<<(std::ostream& os, const SessionConfig& config);
 
 }  // namespace litert::lm

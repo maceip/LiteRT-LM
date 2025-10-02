@@ -25,6 +25,7 @@ message LlmModelType {
   oneof model_type {
     GenericModel generic_model = 1;
     Gemma3N gemma3n = 2;
+    Gemma3 gemma3 = 4;
   }
 }
 
@@ -49,3 +50,6 @@ message Gemma3N {
   // The end of audio token indicates the end of audio in the prompt.
   TokenUnion end_of_audio_token = 6;
 }
+
+// Google's Gemma3 model.
+message Gemma3 {}

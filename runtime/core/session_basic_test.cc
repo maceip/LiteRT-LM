@@ -1092,6 +1092,7 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsAudioSuccess) {
   SessionConfig session_config = SessionConfig::CreateDefault();
   session_config.SetStartTokenId(2);
   session_config.SetSamplerBackend(Backend::CPU);
+  session_config.GetMutableLlmModelType().mutable_gemma3n();
 
   ByPassAudioPreprocessor bypass_audio_preprocessor;
   ASSERT_OK_AND_ASSIGN(
@@ -1160,6 +1161,7 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsTextAndAudioSuccess) {
       "[END]");
   session_config.GetMutablePromptTemplates().mutable_model()->set_prefix(
       "Model:");
+  session_config.GetMutableLlmModelType().mutable_gemma3n();
 
   ByPassAudioPreprocessor bypass_audio_preprocessor;
   ASSERT_OK_AND_ASSIGN(
@@ -1216,6 +1218,7 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsTextAudioTextSuccess) {
       "[END]");
   session_config.GetMutablePromptTemplates().mutable_model()->set_prefix(
       "Model:");
+  session_config.GetMutableLlmModelType().mutable_gemma3n();
 
   ByPassAudioPreprocessor bypass_audio_preprocessor;
   ASSERT_OK_AND_ASSIGN(

@@ -39,6 +39,7 @@ using ::litert::lm::EngineSettings;
 using ::testing::ContainsRegex;
 using ::testing::ElementsAre;
 using ::testing::Eq;
+using ::testing::Return;
 using ::testing::status::StatusIs;
 
 proto::LlmMetadata CreateLlmMetadata() {
@@ -253,29 +254,14 @@ TEST(EngineSettingsTest, LlmMetadata) {
             "test_token_str");
 }
 
-class FakeTokenizer : public Tokenizer {
+class MockTokenizer : public Tokenizer {
  public:
-  explicit FakeTokenizer(std::vector<int> fake_token_ids = {1},
-                         std::string fake_text = "fake_text")
-      : fake_token_ids_(fake_token_ids), fake_text_(fake_text) {}
-
-  absl::StatusOr<std::vector<int>> TextToTokenIds(
-      absl::string_view text) override {
-    return fake_token_ids_;
-  }
-
-  absl::StatusOr<std::string> TokenIdsToText(
-      const std::vector<int>& token_ids) override {
-    return fake_text_;
-  }
-
-  absl::StatusOr<int> BosId() const override { return 2; }
-
-  absl::StatusOr<int> EosId() const override { return 1; }
-
- private:
-  std::vector<int> fake_token_ids_;
-  std::string fake_text_;
+  MOCK_METHOD(absl::StatusOr<std::string>, TokenIdsToText,
+              (const std::vector<int>& token_ids), (override));
+  MOCK_METHOD(absl::StatusOr<std::vector<int>>, TextToTokenIds,
+              (absl::string_view text), (override));
+  MOCK_METHOD(absl::StatusOr<int>, BosId, (), (const, override));
+  MOCK_METHOD(absl::StatusOr<int>, EosId, (), (const, override));
 };
 
 absl::Status IsExpectedLlmMetadata(const proto::LlmMetadata& llm_metadata) {
@@ -307,6 +293,10 @@ absl::Status IsExpectedLlmMetadata(const proto::LlmMetadata& llm_metadata) {
       llm_metadata.sampler_params().seed() != 0) {
     return absl::InvalidArgumentError("Sampler params is not set correctly.");
   }
+  if (llm_metadata.llm_model_type().model_type_case() !=
+      proto::LlmModelType::kGenericModel) {
+    return absl::InvalidArgumentError("LLM model type is not set correctly.");
+  }
   return absl::OkStatus();
 }
 
@@ -316,7 +306,12 @@ TEST(EngineSettingsTest, MaybeUpdateAndValidate) {
   auto settings = EngineSettings::CreateDefault(*model_assets);
   EXPECT_OK(settings);
 
-  FakeTokenizer tokenizer;
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>{1}));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
@@ -329,7 +324,12 @@ TEST(EngineSettingsTest, MaybeUpdateAndValidateNPU) {
   auto settings = EngineSettings::CreateDefault(*model_assets, Backend::NPU);
   EXPECT_OK(settings);
 
-  FakeTokenizer tokenizer;
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>{1}));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
@@ -418,13 +418,20 @@ TEST(SessionConfigTest, MaybeUpdateAndValidate) {
   EXPECT_THAT(session_config.MaybeUpdateAndValidate(*settings),
               testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
 
-  FakeTokenizer tokenizer;
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>{1}));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
   // The validation should pass now.
   EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
   EXPECT_EQ(session_config.GetSamplerBackend(), Backend::CPU);
+  EXPECT_EQ(session_config.GetLlmModelType().model_type_case(),
+            proto::LlmModelType::kGenericModel);
 }
 
 TEST(SessionConfigTest, MaybeUpdateAndValidatePickGpuAsSamplerBackend) {
@@ -439,7 +446,12 @@ TEST(SessionConfigTest, MaybeUpdateAndValidatePickGpuAsSamplerBackend) {
   EXPECT_THAT(session_config.MaybeUpdateAndValidate(*settings),
               testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
 
-  FakeTokenizer tokenizer;
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>{1}));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
@@ -456,7 +468,12 @@ TEST(SessionConfigTest, MaybeUpdateAndValidateMaxNumTokens) {
   EXPECT_OK(settings);
   EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 0);
 
-  FakeTokenizer tokenizer;
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>{1}));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
   llm_metadata.set_max_num_tokens(1280);
@@ -478,7 +495,12 @@ TEST(SessionConfigTest,
   EXPECT_OK(settings);
   EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 0);
 
-  FakeTokenizer tokenizer(std::vector<int>(kNumInputPromptTokens, 1));
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>(kNumInputPromptTokens, 1)));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata, " "));
@@ -501,7 +523,12 @@ TEST(SessionConfigTest,
   EXPECT_OK(settings);
   EXPECT_EQ(settings->GetMainExecutorSettings().GetMaxNumTokens(), 0);
 
-  FakeTokenizer tokenizer(std::vector<int>(kNumInputPromptTokens, 1));
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>(kNumInputPromptTokens, 1)));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
 
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata, " "));
@@ -512,6 +539,76 @@ TEST(SessionConfigTest,
             1);
   EXPECT_EQ(*main_settings1.GetAdvancedSettings()->prefill_batch_sizes.begin(),
             kNumInputPromptTokens + /*margin=*/2);
+}
+
+TEST(SessionConfigTest, MaybeUpdateAndValidateLlmGemma3N) {
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings = EngineSettings::CreateDefault(*model_assets);
+  auto session_config = SessionConfig::CreateDefault();
+  EXPECT_OK(settings);
+  // We didn't call MaybeUpdateAndValidate on EngineSettings, so some of the
+  // required fields are not set. So the validation should fail.
+  EXPECT_THAT(session_config.MaybeUpdateAndValidate(*settings),
+              testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TextToTokenIds("<eos>"))
+      .WillRepeatedly(Return(std::vector<int>({1})));
+  EXPECT_CALL(tokenizer, TextToTokenIds("<ctrl>"))
+      .WillRepeatedly(Return(std::vector<int>({1})));
+  EXPECT_CALL(tokenizer, TextToTokenIds("<end_of_turn>"))
+      .WillRepeatedly(Return(std::vector<int>({1})));
+  EXPECT_CALL(tokenizer, TokenIdsToText(std::vector<int>({105})))
+      .WillRepeatedly(Return("<start_of_turn>"));
+  EXPECT_CALL(tokenizer, TextToTokenIds("<start_of_audio>"))
+      .WillRepeatedly(Return(std::vector<int>({256000})));
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
+
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
+  // The validation should pass now.
+  EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
+  EXPECT_EQ(session_config.GetSamplerBackend(), Backend::CPU);
+  EXPECT_EQ(session_config.GetLlmModelType().model_type_case(),
+            proto::LlmModelType::kGemma3N);
+}
+
+TEST(SessionConfigTest, MaybeUpdateAndValidateLlmGemma3) {
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings = EngineSettings::CreateDefault(*model_assets);
+  auto session_config = SessionConfig::CreateDefault();
+  EXPECT_OK(settings);
+  // We didn't call MaybeUpdateAndValidate on EngineSettings, so some of the
+  // required fields are not set. So the validation should fail.
+  EXPECT_THAT(session_config.MaybeUpdateAndValidate(*settings),
+              testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TextToTokenIds("<eos>"))
+      .WillRepeatedly(Return(std::vector<int>({1})));
+  EXPECT_CALL(tokenizer, TextToTokenIds("<ctrl>"))
+      .WillRepeatedly(Return(std::vector<int>({1})));
+  EXPECT_CALL(tokenizer, TextToTokenIds("<end_of_turn>"))
+      .WillRepeatedly(Return(std::vector<int>({1})));
+  EXPECT_CALL(tokenizer, TokenIdsToText(std::vector<int>({105})))
+      .WillRepeatedly(Return("<start_of_turn>"));
+  EXPECT_CALL(tokenizer, TextToTokenIds("<start_of_audio>"))
+      .WillRepeatedly(Return(
+          // The encoded ids for "<start_of_audio>" in the Gemma3 1B tokenizer.
+          std::vector<int>{236820, 3041, 236779, 1340, 236779, 20156, 236813}));
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
+
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
+  // The validation should pass now.
+  EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
+  EXPECT_EQ(session_config.GetSamplerBackend(), Backend::CPU);
+  EXPECT_EQ(session_config.GetLlmModelType().model_type_case(),
+            proto::LlmModelType::kGemma3);
 }
 
 TEST(SessionConfigTest, PrintOperator) {
@@ -542,7 +639,12 @@ TEST(SessionConfigTest,
   auto settings = EngineSettings::CreateDefault(*model_assets);
   EXPECT_OK(settings);
 
-  FakeTokenizer tokenizer;
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>{1}));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
 
@@ -561,7 +663,12 @@ TEST(SessionConfigTest,
   auto settings = EngineSettings::CreateDefault(*model_assets);
   EXPECT_OK(settings);
 
-  FakeTokenizer tokenizer;
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>{1}));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
 
@@ -583,7 +690,12 @@ TEST(SessionConfigTest,
   auto settings = EngineSettings::CreateDefault(*model_assets);
   EXPECT_OK(settings);
 
-  FakeTokenizer tokenizer;
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>{1}));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
 
@@ -603,7 +715,12 @@ TEST(SessionConfigTest,
   auto settings = EngineSettings::CreateDefault(*model_assets);
   EXPECT_OK(settings);
 
-  FakeTokenizer tokenizer;
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, BosId()).WillRepeatedly(Return(2));
+  EXPECT_CALL(tokenizer, EosId()).WillRepeatedly(Return(1));
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TextToTokenIds)
+      .WillRepeatedly(Return(std::vector<int>{1}));
   proto::LlmMetadata llm_metadata = CreateLlmMetadata();
   llm_metadata.clear_prompt_templates();
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
