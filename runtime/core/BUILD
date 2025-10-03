@@ -216,6 +216,7 @@ cc_test(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
+        "@litert//litert/cc:litert_tensor_buffer",
         "@litert//litert/test:matchers",
         "//runtime/components:sentencepiece_tokenizer",
         "//runtime/components:tokenizer",
@@ -234,14 +235,7 @@ cc_test(
         "//runtime/util:scoped_file",
         "//runtime/util:tensor_buffer_util",
         "//runtime/util:test_utils",
-    ] + select({
-        "@litert//litert:litert_link_capi_so": [
-            "@litert//litert/cc:litert_api_with_dynamic_runtime",
-        ],
-        "//conditions:default": [
-            "@litert//litert/cc:litert_tensor_buffer",
-        ],
-    }),
+    ],
 )
 
 cc_library(

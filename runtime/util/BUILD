@@ -57,16 +57,10 @@ cc_test(
         "@litert//litert/c:litert_common",
         "@litert//litert/c:litert_tensor_buffer_types",
         "@litert//litert/cc:litert_layout",
+        "@litert//litert/cc:litert_model",
+        "@litert//litert/cc:litert_tensor_buffer",
         "@litert//litert/test:matchers",
-    ] + select({
-        "@litert//litert:litert_link_capi_so": [
-            "@litert//litert/cc:litert_api_with_dynamic_runtime",
-        ],
-        "//conditions:default": [
-            "@litert//litert/cc:litert_model",
-            "@litert//litert/cc:litert_tensor_buffer",
-        ],
-    }),
+    ],
 )
 
 cc_library(
@@ -202,15 +196,9 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@litert//litert/c:litert_tensor_buffer",
         "@litert//litert/cc:litert_element_type",
-    ] + select({
-        "@litert//litert:litert_link_capi_so": [
-            "@litert//litert/cc:litert_api_with_dynamic_runtime",
-        ],
-        "//conditions:default": [
-            "@litert//litert/cc:litert_model",
-            "@litert//litert/cc:litert_tensor_buffer",
-        ],
-    }),
+        "@litert//litert/cc:litert_model",
+        "@litert//litert/cc:litert_tensor_buffer",
+    ],
 )
 
 cc_library(

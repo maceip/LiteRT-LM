@@ -79,17 +79,11 @@ cc_test(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@litert//litert/cc:litert_layout",
+        "@litert//litert/cc:litert_tensor_buffer",
         "@litert//litert/test:matchers",
         "//runtime/util:convert_tensor_buffer",
-    ] + select({
-        "@litert//litert:litert_link_capi_so": [
-            "@litert//litert/cc:litert_api_with_dynamic_runtime",
-        ],
-        "//conditions:default": [
-            "@litert//litert/cc:litert_layout",
-            "@litert//litert/cc:litert_tensor_buffer",
-        ],
-    }),
+    ],
 )
 
 cc_library(
@@ -315,15 +309,9 @@ cc_test(
         ":top_p_cpu_sampler",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/types:span",
+        "@litert//litert/cc:litert_tensor_buffer",
         "//runtime/util:convert_tensor_buffer",
-    ] + select({
-        "@litert//litert:litert_link_capi_so": [
-            "@litert//litert/cc:litert_api_with_dynamic_runtime",
-        ],
-        "//conditions:default": [
-            "@litert//litert/cc:litert_tensor_buffer",
-        ],
-    }),
+    ],
 )
 
 cc_library(
@@ -379,25 +367,19 @@ cc_test(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
+        "@litert//litert/c:litert_common",
+        "@litert//litert/cc:litert_compiled_model",
+        "@litert//litert/cc:litert_environment",
+        "@litert//litert/cc:litert_expected",
+        "@litert//litert/cc:litert_options",
+        "@litert//litert/cc/options:litert_gpu_options",
         "//runtime/executor:executor_settings_base",
         "//runtime/proto:sampler_params_cc_proto",
         "//runtime/util:litert_status_util",
         "//runtime/util:model_asset_bundle_resources",
         "//runtime/util:scoped_file",
         "//runtime/util:test_utils",
-    ] + select({
-        "@litert//litert:litert_link_capi_so": [
-            "@litert//litert/cc:litert_api_with_dynamic_runtime",
-        ],
-        "//conditions:default": [
-            "@litert//litert/c:litert_common",
-            "@litert//litert/cc:litert_compiled_model",
-            "@litert//litert/cc:litert_environment",
-            "@litert//litert/cc:litert_expected",
-            "@litert//litert/cc:litert_options",
-            "@litert//litert/cc/options:litert_gpu_options",
-        ],
-    }),
+    ],
 )
 
 cc_test(
