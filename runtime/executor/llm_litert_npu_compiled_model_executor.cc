@@ -56,7 +56,6 @@
 #include "runtime/executor/llm_executor_processed_tokens.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/util/convert_tensor_buffer.h"
-#include "runtime/util/litert_status_util.h"
 #include "runtime/util/status_macros.h"  // NOLINT
 
 namespace litert::lm {

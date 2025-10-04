@@ -92,7 +92,12 @@ jobs:
 
       - name: Run bazel build for iOS Simulator
         run: |
+          # The `ios_sim_arm64` config causes bazel to build some mac-only
+          # targets that are not compatible with the iOS simulator, which
+          # leads to build failures. These flags filter out those
+          # incompatible builds.
           bazel build --disk_cache=~/.cache/bazel-ios --config=ios_sim_arm64 \
+            --build_tag_filters=-requires-mac-inputs:hard,-no_mac \
             //... \
             //runtime/engine:litert_lm_main \
             -- \
