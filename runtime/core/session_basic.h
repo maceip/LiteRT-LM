@@ -85,7 +85,7 @@ class SessionBasic : public Engine::Session {
   // text after the model has been prefilled. The returned score is the sum of
   // the negative log probability of seeing the target text during decode.
   absl::StatusOr<Responses> RunTextScoring(
-      std::vector<absl::string_view> target_text) override;
+      const std::vector<absl::string_view>& target_text) override;
 
   absl::Status RunPrefill(const std::vector<InputData>& contents) override;
   absl::Status RunPrefillAsync(const std::vector<InputData>& contents,

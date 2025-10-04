@@ -619,7 +619,7 @@ absl::StatusOr<Responses> SessionBasic::GenerateContent(
 }
 
 absl::StatusOr<Responses> SessionBasic::RunTextScoring(
-    std::vector<absl::string_view> target_text) {
+    const std::vector<absl::string_view>& target_text) {
   if (target_text.empty()) {
     return absl::InvalidArgumentError("Target text is empty.");
   }

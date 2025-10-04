@@ -98,7 +98,7 @@ class Engine {
     // text after the model has been prefilled. The returned score is the sum of
     // the negative log probability of seeing the target text during decode.
     virtual absl::StatusOr<Responses> RunTextScoring(
-        std::vector<absl::string_view> target_text) = 0;
+        const std::vector<absl::string_view>& target_text) = 0;
 
     // Adds the input prompt/query to the model for starting the prefilling
     // process. Note that the user can break down their prompt/query into
