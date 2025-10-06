@@ -16,7 +16,9 @@
 
 #include <filesystem>  // NOLINT: Required for path manipulation.
 #include <fstream>
+#include <ios>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <variant>
@@ -27,11 +29,18 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "litert/cc/litert_layout.h"  // from @litert
+#include "runtime/components/preprocessor/audio_preprocessor.h"
+#include "runtime/components/preprocessor/audio_preprocessor_miniaudio.h"
+#include "runtime/components/preprocessor/image_preprocessor.h"
+#include "runtime/components/preprocessor/stb_image_preprocessor.h"
 #include "runtime/components/prompt_template.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
@@ -44,9 +53,19 @@ using ::testing::status::IsOkAndHolds;
 constexpr char kTestdataDir[] =
     "litert_lm/runtime/components/testdata/";
 
+constexpr char kImageTestdataDir[] =
+    "litert_lm/runtime/components/preprocessor/testdata/";
+
 std::string GetTestdataPath(const std::string& file_name) {
   return (std::filesystem::path(::testing::SrcDir()) / kTestdataDir / file_name)
       .string();
+}
+
+std::string ReadFile(absl::string_view path) {
+  std::ifstream ifstr(std::string(path), std::ios::binary);
+  std::stringstream contents;
+  contents << ifstr.rdbuf();
+  return contents.str();
 }
 
 absl::StatusOr<std::string> GetContents(const std::string& path) {
@@ -76,11 +95,48 @@ MATCHER_P(HasInputImage, image_input, "") {
   if (!std::holds_alternative<InputImage>(arg)) {
     return false;
   }
-  auto image_bytes = std::get<InputImage>(arg).GetRawImageBytes();
-  if (!image_bytes.ok()) {
+  if (std::get<InputImage>(arg).GetRawImageBytes().ok()) {
+    auto image_bytes = std::get<InputImage>(arg).GetRawImageBytes();
+    return image_bytes.value() == image_input->GetRawImageBytes().value();
+  }
+  if (std::get<InputImage>(arg).GetPreprocessedImageTensor().ok()) {
+    auto buffer_span = ReferTensorBufferAsSpan<float>(
+        *std::get<InputImage>(arg).GetPreprocessedImageTensor().value());
+    if (!buffer_span.HasValue()) {
+      return false;
+    }
+    auto expected_buffer_span = ReferTensorBufferAsSpan<float>(
+        *image_input->GetPreprocessedImageTensor().value());
+    if (!expected_buffer_span.HasValue()) {
+      return false;
+    }
+    return *buffer_span == *expected_buffer_span;
+  }
+  return true;
+}
+
+MATCHER_P(HasInputAudio, audio_input, "") {
+  if (!std::holds_alternative<InputAudio>(arg)) {
     return false;
   }
-  return image_bytes.value() == image_input->GetRawImageBytes().value();
+  if (std::get<InputAudio>(arg).GetRawAudioBytes().ok()) {
+    auto audio_bytes = std::get<InputAudio>(arg).GetRawAudioBytes();
+    return audio_bytes.value() == audio_input->GetRawAudioBytes().value();
+  }
+  if (std::get<InputAudio>(arg).GetPreprocessedAudioTensor().ok()) {
+    auto buffer_span = ReferTensorBufferAsSpan<float>(
+        *std::get<InputAudio>(arg).GetPreprocessedAudioTensor().value());
+    if (!buffer_span.HasValue()) {
+      return false;
+    }
+    auto expected_buffer_span = ReferTensorBufferAsSpan<float>(
+        *audio_input->GetPreprocessedAudioTensor().value());
+    if (!expected_buffer_span.HasValue()) {
+      return false;
+    }
+    return *buffer_span == *expected_buffer_span;
+  }
+  return true;
 }
 
 TEST(Gemma3DataProcessorTest, ToInputDataVectorTextOnly) {
@@ -100,23 +156,38 @@ TEST(Gemma3DataProcessorTest, ToInputDataVectorTextOnly) {
 }
 
 TEST(Gemma3DataProcessorTest, ToInputDataVectorTextAndImage) {
-  ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
+  ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create(
+                                           /*Gemma3DataProcessorConfig=*/{
+                                               .image_tensor_height = 224,
+                                               .image_tensor_width = 128}));
   const std::string rendered_template_prompt =
-      "<start_of_turn>user\nHere is an image of a cat "
+      "<start_of_turn>user\nHere is an image of apples "
       "<start_of_image><end_of_turn>";
-  const nlohmann::ordered_json messages = {
+
+  std::string image_path = (std::filesystem::path(::testing::SrcDir()) /
+                            kImageTestdataDir / "apple.png")
+                               .string();
+  const nlohmann::ordered_json message = {
       {"role", "user"},
       {"content",
-       {{{"type", "text"}, {"text", "Here is an image of a cat"}},
-        {{"type", "image"}}}}};
+       {{{"type", "text"}, {"text", "Here is an image of apples "}},
+        {{"type", "image"}, {"path", image_path}}}}};
   ASSERT_OK_AND_ASSIGN(
       const std::vector<InputData> input_data,
-      processor->ToInputDataVector(rendered_template_prompt, messages, {}));
-  InputText expected_text1("<start_of_turn>user\nHere is an image of a cat ");
-  InputImage image_input("");
+      processor->ToInputDataVector(rendered_template_prompt,
+                                   json::array({message}), {}));
+
+  InputText expected_text1(
+      "<start_of_turn>user\nHere is an image of apples <start_of_image>");
+  StbImagePreprocessor image_preprocessor;
+  ImagePreprocessParameter image_params;
+  image_params.SetTargetDimensions(Dimensions({1, 224, 128, 3}));
+  ASSERT_OK_AND_ASSIGN(InputImage expected_image,
+                       image_preprocessor.Preprocess(
+                           InputImage(ReadFile(image_path)), image_params));
   InputText expected_text2("<end_of_turn>");
   EXPECT_THAT(input_data, ElementsAre(HasInputText(&expected_text1),
-                                      HasInputImage(&image_input),
+                                      HasInputImage(&expected_image),
                                       HasInputText(&expected_text2)));
 }
 
@@ -227,16 +298,20 @@ TEST(Gemma3DataProcessorTest, PromptTemplateToInputDataVectorTextAndImage) {
                        GetContents(test_file_path));
   PromptTemplate prompt_template(template_content);
 
+  std::string image_path = (std::filesystem::path(::testing::SrcDir()) /
+                            kImageTestdataDir / "apple.png")
+                               .string();
   const nlohmann::ordered_json messages = {
       {{"role", "system"}, {"content", "Hello world!"}},
       {{"role", "user"},
        {"content",
-        {{{"type", "text"}, {"text", "How are you?"}}, {{"type", "image"}}}}},
+        {{{"type", "text"}, {"text", "How are you?"}},
+         {{"type", "image"}, {"path", image_path}}}}},
       {{"role", "assistant"},
        {"content", "I am doing well, thanks for asking."}},
       {{"role", "user"},
        {"content",
-        {{{"type", "image"}},
+        {{{"type", "image"}, {"path", image_path}},
          {{"type", "text"}, {"text", "What is the capital of France?"}}}}}};
   PromptTemplateInput template_input = {.messages = messages,
                                         .add_generation_prompt = true};
@@ -251,20 +326,25 @@ TEST(Gemma3DataProcessorTest, PromptTemplateToInputDataVectorTextAndImage) {
   InputText expected_text1(R"""(<start_of_turn>user
 Hello world!
 
-How are you?)""");
-  InputImage image_input("");
+How are you?<start_of_image>)""");
+  StbImagePreprocessor image_preprocessor;
+  ImagePreprocessParameter image_params;
+  image_params.SetTargetDimensions(Dimensions({1, 768, 768, 3}));
+  ASSERT_OK_AND_ASSIGN(InputImage expected_image,
+                       image_preprocessor.Preprocess(
+                           InputImage(ReadFile(image_path)), image_params));
   InputText expected_text2(R"""(<end_of_turn>
 <start_of_turn>model
 I am doing well, thanks for asking.<end_of_turn>
 <start_of_turn>user
-)""");
+<start_of_image>)""");
   InputText expected_text3(R"""(What is the capital of France?<end_of_turn>
 <start_of_turn>model
 )""");
   EXPECT_THAT(
       input_data,
-      ElementsAre(HasInputText(&expected_text1), HasInputImage(&image_input),
-                  HasInputText(&expected_text2), HasInputImage(&image_input),
+      ElementsAre(HasInputText(&expected_text1), HasInputImage(&expected_image),
+                  HasInputText(&expected_text2), HasInputImage(&expected_image),
                   HasInputText(&expected_text3)));
 }
 
@@ -353,8 +433,8 @@ TEST(Gemma3DataProcessorTest, MessageToTemplateInputWithStringContent) {
       {"content", "test prompt"},
   };
 
-  // The template input is identical to the original message if the content is a
-  // string.
+  // The template input is identical to the original message if the content is
+  // a string.
   EXPECT_THAT(processor->MessageToTemplateInput(message),
               IsOkAndHolds(message));
 }
@@ -597,6 +677,100 @@ get_weather(location="London")
 <start_of_turn>model
 )");
 }
+
+// TODO(b/441514829): Enable the tests on Windows once the bug is fixed.
+#if !defined(WIN32) && !defined(_WIN32) && !defined(__WIN32__) && \
+    !defined(__NT__) && !defined(_WIN64)
+TEST(Gemma3DataProcessorTest, ToInputDataVectorTextAndAudio) {
+  ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
+  const std::string rendered_template_prompt =
+      "<start_of_turn>user\nHere is an audio. Please transcribe it: "
+      "<start_of_audio><end_of_turn>";
+
+  std::string audio_path = (std::filesystem::path(::testing::SrcDir()) /
+                            kTestdataDir / "audio_sample.wav")
+                               .string();
+  const nlohmann::ordered_json message = {
+      {"role", "user"},
+      {"content",
+       {{{"type", "text"},
+         {"text", "Here is an audio. Please transcribe it: "}},
+        {{"type", "audio"}, {"path", audio_path}}}}};
+  ASSERT_OK_AND_ASSIGN(
+      const std::vector<InputData> input_data,
+      processor->ToInputDataVector(rendered_template_prompt,
+                                   json::array({message}), {}));
+
+  InputText expected_text1(
+      "<start_of_turn>user\nHere is an audio. Please transcribe it: "
+      "<start_of_audio>");
+  ASSERT_OK_AND_ASSIGN(auto audio_preprocessor,
+                       AudioPreprocessorMiniAudio::Create(
+                           AudioPreprocessorConfig::CreateDefaultUsmConfig()));
+  ASSERT_OK_AND_ASSIGN(
+      InputAudio expected_audio,
+      audio_preprocessor->Preprocess(InputAudio(ReadFile(audio_path))));
+  InputText expected_text2("<end_of_turn>");
+  EXPECT_THAT(input_data, ElementsAre(HasInputText(&expected_text1),
+                                      HasInputAudio(&expected_audio),
+                                      HasInputText(&expected_text2)));
+}
+
+TEST(Gemma3DataProcessorTest, PromptTemplateToInputDataVectorTextAndAudio) {
+  const std::string test_file_path =
+      GetTestdataPath("google-gemma-3n-e2b-it.jinja");
+  ASSERT_OK_AND_ASSIGN(const std::string template_content,
+                       GetContents(test_file_path));
+  PromptTemplate prompt_template(template_content);
+
+  std::string audio_path = (std::filesystem::path(::testing::SrcDir()) /
+                            kTestdataDir / "audio_sample.wav")
+                               .string();
+  const nlohmann::ordered_json messages = {
+      {{"role", "system"}, {"content", "Hello world!"}},
+      {{"role", "user"},
+       {"content",
+        {{{"type", "text"}, {"text", "How are you?"}},
+         {{"type", "audio"}, {"path", audio_path}}}}},
+      {{"role", "assistant"},
+       {"content", "I am doing well, thanks for asking."}},
+      {{"role", "user"},
+       {"content",
+        {{{"type", "text"}, {"text", "What is the capital of France?"}}}}}};
+  PromptTemplateInput template_input = {.messages = messages,
+                                        .add_generation_prompt = true};
+
+  ASSERT_OK_AND_ASSIGN(const std::string rendered_prompt,
+                       prompt_template.Apply(template_input));
+
+  ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
+  ASSERT_OK_AND_ASSIGN(
+      const std::vector<InputData> input_data,
+      processor->ToInputDataVector(rendered_prompt, messages, {}));
+  InputText expected_text1(R"""(<start_of_turn>user
+Hello world!
+
+How are you?<start_of_audio>)""");
+  ASSERT_OK_AND_ASSIGN(auto audio_preprocessor,
+                       AudioPreprocessorMiniAudio::Create(
+                           AudioPreprocessorConfig::CreateDefaultUsmConfig()));
+  ASSERT_OK_AND_ASSIGN(
+      InputAudio expected_audio,
+      audio_preprocessor->Preprocess(InputAudio(ReadFile(audio_path))));
+  InputText expected_text2(R"""(<end_of_turn>
+<start_of_turn>model
+I am doing well, thanks for asking.<end_of_turn>
+<start_of_turn>user
+What is the capital of France?<end_of_turn>
+<start_of_turn>model
+)""");
+  EXPECT_THAT(input_data, ElementsAre(HasInputText(&expected_text1),
+                                      HasInputAudio(&expected_audio),
+                                      HasInputText(&expected_text2)));
+}
+
+#endif  // !defined(WIN32) && !defined(_WIN32) && !defined(__WIN32__) &&
+        // !defined(__NT__) && !defined(_WIN64)
 
 }  // namespace
 }  // namespace litert::lm

@@ -20,17 +20,19 @@
 namespace litert::lm {
 
 // Config for Gemma3DataProcessor.
-// TODO: b/438830175, b/436674053 - Refactor these config to Image Preprocessor
-// Configs once image preprocessor is ready.
 struct Gemma3DataProcessorConfig {
-  // The number of image soft tokens for a single image.
-  int num_image_tokens = 256;
   // The string for beginning of image token.
   std::string boi_token = "<start_of_image>";
-  // The string for image soft token.
-  std::string image_token = "<image_soft_token>";
   // The string for end of image token.
   std::string eoi_token = "<end_of_image>";
+
+  int image_tensor_height = 768;
+  int image_tensor_width = 768;
+
+  // The string for beginning of audio token.
+  std::string bao_token = "<start_of_audio>";
+  // The string for end of audio token.
+  std::string eao_token = "<end_of_audio>";
 
   // Tool call parsing configuration.
   std::string code_fence_start = "```tool_code\n";

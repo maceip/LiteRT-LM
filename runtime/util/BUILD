@@ -241,6 +241,7 @@ cc_library(
         ":litert_status_util",
         ":scoped_file",
         "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

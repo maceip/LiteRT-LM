@@ -18,7 +18,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
+#include <utility>
 
+#include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/util/scoped_file.h"
@@ -72,6 +75,29 @@ class MemoryMappedFile {
  protected:
   // Protected default constructor to prevent direct instantiation
   MemoryMappedFile() = default;
+};
+
+// Represents an in-memory file from a memory data. This is useful for
+// in-memory data that are not backed by a file. For example, the unit test data
+// and the image or audio data passed as raw bytes.
+class InMemoryFile : public MemoryMappedFile {
+ public:
+  // Creates a InMemoryFile object from a memory data.
+  static absl::StatusOr<std::unique_ptr<InMemoryFile>> Create(
+      std::string blob) {
+    return absl::WrapUnique(new InMemoryFile(std::move(blob)));
+  }
+
+  // Returns the size of the memory data.
+  uint64_t length() override { return blob_.size(); }
+
+  // Returns a pointer to the memory data.
+  void* data() override { return blob_.data(); }
+
+ private:
+  explicit InMemoryFile(std::string blob) : blob_(std::move(blob)) {}
+
+  std::string blob_;
 };
 
 }  // namespace litert::lm

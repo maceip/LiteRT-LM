@@ -18,11 +18,14 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "runtime/components/preprocessor/audio_preprocessor.h"
+#include "runtime/components/preprocessor/image_preprocessor.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/model_data_processor.h"
@@ -30,7 +33,7 @@
 
 namespace litert::lm {
 
-// Gemma3DataProcessor is a model data processor for Gemma3 models.
+// Gemma3DataProcessor is a model data processor for Gemma3 and Gemma3N models.
 class Gemma3DataProcessor
     : public TypeSafeModelDataProcessor<Gemma3DataProcessorConfig,
                                         Gemma3DataProcessorArguments> {
@@ -60,8 +63,13 @@ class Gemma3DataProcessor
  private:
   explicit Gemma3DataProcessor(
       const Gemma3DataProcessorConfig& config = Gemma3DataProcessorConfig(),
-      std::optional<Preface> preface = std::nullopt)
-      : config_(config), preface_(preface) {};
+      std::optional<Preface> preface = std::nullopt,
+      std::unique_ptr<ImagePreprocessor> image_preprocessor = nullptr,
+      std::unique_ptr<AudioPreprocessor> audio_preprocessor = nullptr)
+      : config_(config),
+        preface_(preface),
+        image_preprocessor_(std::move(image_preprocessor)),
+        audio_preprocessor_(std::move(audio_preprocessor)) {};
 
   absl::StatusOr<std::vector<InputData>> ToInputDataVectorImpl(
       const std::string& rendered_template_prompt,
@@ -74,6 +82,8 @@ class Gemma3DataProcessor
 
   Gemma3DataProcessorConfig config_;
   std::optional<Preface> preface_;
+  std::unique_ptr<ImagePreprocessor> image_preprocessor_;
+  std::unique_ptr<AudioPreprocessor> audio_preprocessor_;
 };
 
 }  // namespace litert::lm

@@ -207,5 +207,11 @@ TEST(MemoryMappedFile, ModifiesScopedFileWhenMutable) {
   EXPECT_EQ(ReadFile(path.string()), "xoo bar");
 }
 
+TEST(InMemoryFile, SucceedsMappingFromMemory) {
+  auto file = InMemoryFile::Create("foo bar");
+  ASSERT_OK(file);
+  CheckContents(**file, "foo bar");
+}
+
 }  // namespace
 }  // namespace litert::lm

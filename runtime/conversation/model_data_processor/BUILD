@@ -34,6 +34,33 @@ cc_library(
 )
 
 cc_library(
+    name = "data_utils",
+    srcs = ["data_utils.cc"],
+    hdrs = ["data_utils.h"],
+    deps = [
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@nlohmann_json//:json",
+        "//runtime/util:memory_mapped_file",
+    ],
+)
+
+cc_test(
+    name = "data_utils_test",
+    srcs = ["data_utils_test.cc"],
+    deps = [
+        ":data_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings:string_view",
+        "@nlohmann_json//:json",
+        "//runtime/util:memory_mapped_file",
+        "//runtime/util:test_utils",
+    ],
+)
+
+cc_library(
     name = "gemma3_data_processor_config",
     hdrs = [
         "gemma3_data_processor_config.h",
@@ -152,11 +179,19 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@nlohmann_json//:json",
+        "@litert//litert/cc:litert_layout",
+        "//runtime/components/preprocessor:audio_preprocessor",
+        "//runtime/components/preprocessor:audio_preprocessor_miniaudio",
+        "//runtime/components/preprocessor:image_preprocessor",
+        "//runtime/components/preprocessor:stb_image_preprocessor",
         "//runtime/components/tool_use:parser_utils",
         "//runtime/components/tool_use:python_tool_format_utils",
         "//runtime/conversation:io_types",
+        "//runtime/conversation/model_data_processor:data_utils",
         "//runtime/engine:io_types",
         "//runtime/util:litert_status_util",
+        "//runtime/util:memory_mapped_file",
+        "@com_googlesource_code_re2//:re2",
     ],
 )
 
@@ -164,6 +199,7 @@ cc_test(
     name = "gemma3_data_processor_test",
     srcs = ["gemma3_data_processor_test.cc"],
     data = [
+        "//runtime/components/preprocessor/testdata",
         "//runtime/components/testdata",
     ],
     deps = [
@@ -174,9 +210,15 @@ cc_test(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@nlohmann_json//:json",
+        "@litert//litert/cc:litert_layout",
         "//runtime/components:prompt_template",
+        "//runtime/components/preprocessor:audio_preprocessor",
+        "//runtime/components/preprocessor:audio_preprocessor_miniaudio",
+        "//runtime/components/preprocessor:image_preprocessor",
+        "//runtime/components/preprocessor:stb_image_preprocessor",
         "//runtime/conversation:io_types",
         "//runtime/engine:io_types",
+        "//runtime/util:convert_tensor_buffer",
         "//runtime/util:test_utils",
     ],
 )
