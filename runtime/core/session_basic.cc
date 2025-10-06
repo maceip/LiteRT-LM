@@ -634,7 +634,7 @@ absl::StatusOr<Responses> SessionBasic::RunTextScoring(
   // testing.
   auto temperature = 1.0f;
   absl::StatusOr<Responses> score;
-  // Scheduled on the worker thread pool to ensire serialized execution with
+  // Scheduled on the worker thread pool to ensure serialized execution with
   // other engine operations as the function waits for completion.
   RETURN_IF_ERROR(worker_thread_pool_.Schedule(
       [this, &score, &target_text, &decoded_ids_buffer, &temperature]() {

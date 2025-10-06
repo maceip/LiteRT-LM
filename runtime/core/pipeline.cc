@@ -437,7 +437,7 @@ absl::StatusOr<Responses> ScoreCustomSampling(
   std::fill(scores.begin(), scores.end(), 0.0f);
 
   // We support multiple targets by padding the targets with a null token which
-  // does notexist in the vocabulary and thus does not contribute to the
+  // does not exist in the vocabulary and thus does not contribute to the
   // perplexity.
   std::vector<int> decoded_ids_for_each_target_in_batch(num_output_candidates,
                                                         0);
