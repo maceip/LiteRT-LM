@@ -19,10 +19,13 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/util/memory_mapped_file.h"
@@ -33,7 +36,9 @@
 namespace litert::lm {
 namespace {
 
+using ::testing::ElementsAreArray;
 using ::testing::status::IsOkAndHolds;
+using ::testing::status::StatusIs;
 
 std::string GetLoraFilePath() {
   auto path =
@@ -85,9 +90,40 @@ TEST_P(LoraDataTest, CanCreateLoraData) {
   EXPECT_NE(lora, nullptr);
 }
 
-TEST_P(LoraDataTest, GetLoraRank) {
+TEST_P(LoraDataTest, GetLoraRankWorksAsExpected) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<LoraData> lora, CreateLoraData());
   EXPECT_THAT(lora->GetLoRARank(), IsOkAndHolds(32));
+}
+
+TEST_P(LoraDataTest, ReadTensorDataWorksAsExpected) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<LoraData> lora, CreateLoraData());
+
+  for (int i : {0, 5, 10, 15, 20}) {
+    const std::string tensor_name =
+        absl::StrCat("transformer.layer_", i, ".attn.q.w_prime_left");
+    ASSERT_OK_AND_ASSIGN(auto tensor, lora->ReadTensor(tensor_name));
+    EXPECT_NE(tensor, nullptr);
+    EXPECT_EQ(tensor->Size(), 32 * 2048 * 2);
+
+    const int num_elements = 32 * 2048;
+    // 1.0f in float16 is 0x3C00
+    const uint16_t expected_value = 0x3C00;
+    std::vector<uint16_t> expected_data(num_elements, expected_value);
+
+    const uint16_t* actual_data =
+        reinterpret_cast<const uint16_t*>(tensor->Data());
+    EXPECT_THAT(std::vector<uint16_t>(actual_data, actual_data + num_elements),
+                ElementsAreArray(expected_data))
+        << "for tensor: " << tensor_name;
+  }
+}
+
+TEST_P(LoraDataTest, ReadTensorDataFailsForUnknownTensor) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<LoraData> lora, CreateLoraData());
+
+  const std::string tensor_name = "unknown_tensor";
+  EXPECT_THAT(lora->ReadTensor(tensor_name),
+              StatusIs(absl::StatusCode::kNotFound));
 }
 
 INSTANTIATE_TEST_SUITE_P(

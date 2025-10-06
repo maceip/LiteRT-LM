@@ -21,6 +21,7 @@
 
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
 
@@ -61,6 +62,21 @@ class MemoryMappedFileWithAutoAlignment {
   // Internal offset and size when accessing the file_.
   uint64_t offset_;
   uint64_t size_;
+};
+
+// A BufferRef that owns the memory mapped file.
+template <typename ByteT = uint8_t>
+class MmapBufferRef : public litert::BufferRef<ByteT> {
+ public:
+  explicit MmapBufferRef(
+      std::unique_ptr<MemoryMappedFileWithAutoAlignment> mapped_file)
+      : litert::BufferRef<ByteT>(mapped_file->data(), mapped_file->length()),
+        mapped_file_(std::move(mapped_file)) {}
+
+  ~MmapBufferRef() override = default;
+
+ private:
+  std::unique_ptr<MemoryMappedFileWithAutoAlignment> mapped_file_;
 };
 
 }  // namespace litert::lm

@@ -52,7 +52,16 @@ class LoraData {
       BufferRef<uint8_t> buffer);
 
   // Get the LoRA rank from the model.
+  // @return The LoRA rank, or an error status.
   virtual absl::StatusOr<int> GetLoRARank() = 0;
+
+  // Returns the tensor data of the tensor with `name`.
+  //
+  // @param name The name of the tensor to read.
+  // @return A unique_ptr to the BufferRef object containing the tensor data,
+  // or an error status.
+  virtual absl::StatusOr<std::unique_ptr<BufferRef<uint8_t>>> ReadTensor(
+      absl::string_view name) = 0;
 
   // Virtual destructor to allow proper cleanup of derived classes.
   virtual ~LoraData() = default;

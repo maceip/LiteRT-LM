@@ -425,11 +425,13 @@ cc_library(
     hdrs = ["lora_data.h"],
     deps = [
         ":litert_status_util",
-        ":memory_mapped_file",
+        ":lora_util",
         ":scoped_file",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
+        "@flatbuffers//:runtime_cc",
         "@litert//litert/cc:litert_buffer_ref",
         "@litert//tflite:framework",
         "@litert//tflite/schema:schema_fbs",
@@ -447,7 +449,9 @@ cc_test(
         ":scoped_file",
         ":test_utils",
         "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@litert//litert/cc:litert_buffer_ref",
         "//runtime/executor:executor_settings_base",
     ],
@@ -464,6 +468,7 @@ cc_library(
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
+        "@litert//litert/cc:litert_buffer_ref",
     ],
 )
 

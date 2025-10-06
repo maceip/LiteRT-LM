@@ -14,16 +14,21 @@
 
 #include "runtime/util/lora_data.h"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "flatbuffers/buffer.h"  // from @flatbuffers
+#include "flatbuffers/vector.h"  // from @flatbuffers
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
-#include "runtime/util/memory_mapped_file.h"
+#include "runtime/util/lora_util.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"
 #include "tflite/model_builder.h"  // from @litert
@@ -33,6 +38,9 @@ namespace litert::lm {
 namespace {
 
 constexpr absl::string_view kLoRARank = "lora_rank";
+// The maximum size of the metadata buffer.
+// This is the max length we need to mmap to build the flatbuffer model.
+constexpr int kMetadataMaxSize = 1024 * 1024;  // 1MB
 
 absl::StatusOr<std::unique_ptr<tflite::FlatBufferModel>>
 CreateFlatBufferModelFromBuffer(const void* buffer_addr, size_t buffer_size) {
@@ -62,12 +70,27 @@ class FlatBufferLoraData : public LoraData {
     return static_cast<int>(metadata->buffer());
   }
 
+  absl::StatusOr<std::unique_ptr<BufferRef<uint8_t>>> ReadTensor(
+      absl::string_view name) override {
+    const tflite::Buffer* buffer = GetBuffer(name);
+    if (buffer == nullptr) {
+      return absl::NotFoundError(
+          absl::StrCat("No buffer found for tensor: ", name));
+    }
+    return ReadData(buffer->offset(), buffer->size());
+  }
+
  protected:
   // Returns the FlatBufferModel object reference.
   // FlatBufferModel is owned by derived classes to be destroyed in correct
   // order, thus it is accessed by base class with a reference here.
   virtual const tflite::FlatBufferModel* GetFlatBufferModel() const = 0;
 
+  // Reads data stored at the given offset and size.
+  virtual absl::StatusOr<std::unique_ptr<BufferRef<uint8_t>>> ReadData(
+      uint64_t offset, uint64_t size) = 0;
+
+ private:
   // Get metadata from the flatbuffer model.
   const tflite::Metadata* GetMetadata(absl::string_view name) {
     const tflite::Model* tflite_model = GetFlatBufferModel()->GetModel();
@@ -82,6 +105,24 @@ class FlatBufferLoraData : public LoraData {
     }
     return nullptr;
   }
+
+  const tflite::Buffer* GetBuffer(absl::string_view name) const {
+    const tflite::Model* tflite_model = GetFlatBufferModel()->GetModel();
+    const flatbuffers::Vector<flatbuffers::Offset<tflite::Buffer>>& buffers =
+        *tflite_model->buffers();
+    for (const tflite::SubGraph* subgraph : *tflite_model->subgraphs()) {
+      for (const tflite::Tensor* tfl_tensor : *subgraph->tensors()) {
+        if (name != tfl_tensor->name()->c_str()) {
+          continue;
+        }
+        if (tfl_tensor->buffer() >= buffers.size()) {
+          continue;
+        }
+        return buffers.Get(tfl_tensor->buffer());
+      }
+    }
+    return nullptr;
+  }
 };
 
 // FlatBufferModel based LoRA data backed by a file.
@@ -91,16 +132,18 @@ class FileLoraData : public FlatBufferLoraData {
   //
   // @param file A shared_ptr to the ScopedFile object representing the LoRA
   // data file.
-  // @param region A unique_ptr to the MemoryMappedFile object representing the
-  // memory mapped region of the file.
+  // @param region A unique_ptr to the MemoryMappedFileWithAutoAlignment object
+  // representing the memory mapped region of the FlatBufferModel metadata.
   // @param model A unique_ptr to the FlatBufferModel object representing the
-  // LoRA data.
-  explicit FileLoraData(std::shared_ptr<const ScopedFile> file,
-                        std::unique_ptr<MemoryMappedFile> region,
-                        std::unique_ptr<tflite::FlatBufferModel> model)
+  // LoRA data metadata.
+  explicit FileLoraData(
+      std::shared_ptr<const ScopedFile> file,
+      std::unique_ptr<MemoryMappedFileWithAutoAlignment> region,
+      std::unique_ptr<tflite::FlatBufferModel> model, const std::string& key)
       : file_(std::move(file)),
         region_(std::move(region)),
-        model_(std::move(model)) {}
+        model_(std::move(model)),
+        key_(key) {}
 
   ~FileLoraData() override = default;
 
@@ -109,10 +152,20 @@ class FileLoraData : public FlatBufferLoraData {
     return model_.get();
   }
 
+  absl::StatusOr<std::unique_ptr<BufferRef<uint8_t>>> ReadData(
+      uint64_t offset, uint64_t size) override {
+    ASSIGN_OR_RETURN(auto mapped_region,
+                     MemoryMappedFileWithAutoAlignment::Create(
+                         file_->file(), /*offset=*/offset,
+                         /*size=*/size, key_));
+    return std::make_unique<MmapBufferRef<uint8_t>>(std::move(mapped_region));
+  }
+
  private:
   std::shared_ptr<const ScopedFile> file_;
-  std::unique_ptr<MemoryMappedFile> region_;
+  std::unique_ptr<MemoryMappedFileWithAutoAlignment> region_;
   std::unique_ptr<tflite::FlatBufferModel> model_;
+  const std::string key_;
 };
 
 // FlatBufferModel based LoRA data backed by a BufferRef.
@@ -134,6 +187,12 @@ class BufferLoraData : public FlatBufferLoraData {
     return model_.get();
   }
 
+  absl::StatusOr<std::unique_ptr<BufferRef<uint8_t>>> ReadData(
+      uint64_t offset, uint64_t size) override {
+    return std::make_unique<BufferRef<uint8_t>>(
+        data_.Data(), /*end_offset=*/offset + size, /*start_offset=*/offset);
+  }
+
  private:
   BufferRef<uint8_t> data_;
   std::unique_ptr<tflite::FlatBufferModel> model_;
@@ -151,13 +210,16 @@ absl::StatusOr<std::unique_ptr<LoraData>> LoraData::CreateFromFilePath(
 // static
 absl::StatusOr<std::unique_ptr<LoraData>> LoraData::CreateFromScopedFile(
     std::shared_ptr<const ScopedFile> file) {
-  ASSIGN_OR_RETURN(auto mapped_file,
-                   ::litert::lm::MemoryMappedFile::Create(file->file()));
+  static std::atomic<uint32_t> next_key{0};
+  const std::string key{absl::StrCat("FileLoraData_", next_key.fetch_add(1))};
+  ASSIGN_OR_RETURN(auto mapped_file, MemoryMappedFileWithAutoAlignment::Create(
+                                         file->file(), /*offset=*/0,
+                                         /*size=*/kMetadataMaxSize, key));
   ASSIGN_OR_RETURN(auto model, CreateFlatBufferModelFromBuffer(
                                    mapped_file->data(), mapped_file->length()));
   RET_CHECK(model) << "Error building tflite model.";
   return std::make_unique<FileLoraData>(std::move(file), std::move(mapped_file),
-                                        std::move(model));
+                                        std::move(model), key);
 }
 
 // static
