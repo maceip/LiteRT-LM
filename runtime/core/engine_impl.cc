@@ -45,7 +45,6 @@
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/executor/llm_litert_compiled_model_executor.h"
-#include "runtime/executor/llm_litert_npu_compiled_model_executor.h"
 #include "runtime/executor/vision_executor.h"
 #include "runtime/executor/vision_executor_settings.h"
 #include "runtime/executor/vision_litert_compiled_model_executor.h"
@@ -54,6 +53,10 @@
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/util/file_format_util.h"
 #include "runtime/util/status_macros.h"  // NOLINT
+
+#if !defined(LITERT_DISABLE_NPU)
+#include "runtime/executor/llm_litert_npu_compiled_model_executor.h"
+#endif  // !defined(LITERT_DISABLE_NPU)
 
 namespace litert::lm {
 namespace {
@@ -206,6 +209,10 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
                                    engine_settings.GetMainExecutorSettings(),
                                    *model_resources));
   } else {
+#if defined(LITERT_DISABLE_NPU)
+    return absl::InvalidArgumentError(
+        "Only CPU and GPU backends are supported.");
+#else
     std::string model_path(engine_settings.GetMainExecutorSettings()
                                .GetModelAssets()
                                .GetPath()
@@ -220,6 +227,7 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
         LlmLiteRtNpuCompiledModelExecutor::Create(
             engine_settings.GetMainExecutorSettings(), *model_resources,
             path.parent_path().string(), benchmark_info.has_value()));
+#endif  // defined(LITERT_DISABLE_NPU)
   }
 
   // TODO - b/436674053: Modularize the executor creation logic into a
