@@ -143,5 +143,68 @@ TEST(MemoryMappedFileWithAutoAlignment, FailsMappingNonExistentFile) {
   EXPECT_FALSE(handle.ok());
 }
 
+// Test fixture for IsLoRAInputName tests.
+class IsLoRAInputNameTest : public ::testing::Test {};
+
+TEST_F(IsLoRAInputNameTest, MatchesValidPattern1) {
+  // Test various valid combinations for the first pattern.
+  EXPECT_TRUE(IsLoRAInputName("query_w_prime_left_0"));
+  EXPECT_TRUE(IsLoRAInputName("key_w_prime_right_34"));
+  EXPECT_TRUE(IsLoRAInputName("value_w_prime_left_9"));
+  EXPECT_TRUE(IsLoRAInputName("post_w_prime_right_123"));
+}
+
+TEST_F(IsLoRAInputNameTest, MatchesValidPattern2) {
+  // Test various valid combinations for the second pattern.
+  EXPECT_TRUE(IsLoRAInputName("lora_atten_q_a_prime_weight_0"));
+  EXPECT_TRUE(IsLoRAInputName("lora_atten_k_b_prime_weight_34"));
+  EXPECT_TRUE(IsLoRAInputName("lora_atten_v_a_prime_weight_9"));
+  EXPECT_TRUE(IsLoRAInputName("lora_atten_o_b_prime_weight_123"));
+}
+
+TEST_F(IsLoRAInputNameTest, RejectsIncorrectComponentCount) {
+  // Too few parts.
+  EXPECT_FALSE(IsLoRAInputName("query_w_prime_left"));
+  EXPECT_FALSE(IsLoRAInputName("lora_atten_q_a_prime_weight"));
+  // Too many parts.
+  EXPECT_FALSE(IsLoRAInputName("query_w_prime_left_0_extra"));
+  EXPECT_FALSE(IsLoRAInputName("lora_atten_q_a_prime_weight_0_extra"));
+}
+
+TEST_F(IsLoRAInputNameTest, RejectsInvalidPrefixOrKeywords) {
+  // Pattern 1 with incorrect keywords.
+  EXPECT_FALSE(IsLoRAInputName("badprefix_w_prime_left_0"));
+  EXPECT_FALSE(IsLoRAInputName("query_x_prime_left_0"));
+  EXPECT_FALSE(IsLoRAInputName("query_w_bad_left_0"));
+  EXPECT_FALSE(IsLoRAInputName("query_w_prime_badside_0"));
+
+  // Pattern 2 with incorrect keywords.
+  EXPECT_FALSE(IsLoRAInputName("bad_atten_q_a_prime_weight_0"));
+  EXPECT_FALSE(IsLoRAInputName("lora_bad_q_a_prime_weight_0"));
+  EXPECT_FALSE(IsLoRAInputName("lora_atten_x_a_prime_weight_0"));
+  EXPECT_FALSE(IsLoRAInputName("lora_atten_q_x_prime_weight_0"));
+  EXPECT_FALSE(IsLoRAInputName("lora_atten_q_a_bad_weight_0"));
+  EXPECT_FALSE(IsLoRAInputName("lora_atten_q_a_prime_bad_0"));
+}
+
+TEST_F(IsLoRAInputNameTest, RejectsNonNumericLayerNumber) {
+  EXPECT_FALSE(IsLoRAInputName("query_w_prime_left_ten"));
+  EXPECT_FALSE(IsLoRAInputName("lora_atten_q_a_prime_weight_one"));
+  EXPECT_FALSE(IsLoRAInputName("key_w_prime_right_"));
+  EXPECT_FALSE(IsLoRAInputName("key_w_prime_right_1a"));
+}
+
+TEST_F(IsLoRAInputNameTest, RejectsPartialOrIncompleteMatches) {
+  // Looks like the start of a pattern but isn't a full match.
+  EXPECT_FALSE(IsLoRAInputName("query_w_prime_left_0_but_theres_more"));
+  EXPECT_FALSE(IsLoRAInputName("not_the_start_query_w_prime_left_0"));
+}
+
+TEST_F(IsLoRAInputNameTest, RejectsEmptyAndMalformedStrings) {
+  EXPECT_FALSE(IsLoRAInputName(""));
+  EXPECT_FALSE(IsLoRAInputName("____"));
+  EXPECT_FALSE(IsLoRAInputName("just_a_string"));
+}
+
 }  // namespace
 }  // namespace litert::lm

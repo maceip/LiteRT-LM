@@ -470,6 +470,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@litert//litert/cc:litert_buffer_ref",
+        "@com_googlesource_code_re2//:re2",
     ],
 )
 

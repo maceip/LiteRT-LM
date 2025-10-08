@@ -79,6 +79,12 @@ class MmapBufferRef : public litert::BufferRef<ByteT> {
   std::unique_ptr<MemoryMappedFileWithAutoAlignment> mapped_file_;
 };
 
+// Returns true if the given name is a LoRA input name for the model.
+// The LoRA name is in the format of
+// "(query|key|value|post)_w_prime_(left|right)_[0-num_layers)" or
+// "lora_atten_(q|k|v|o)_(a|b)_prime_weight_[0-num_layers)".
+bool IsLoRAInputName(absl::string_view name);
+
 }  // namespace litert::lm
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_UTIL_LORA_UTIL_H_

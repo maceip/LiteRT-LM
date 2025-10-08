@@ -25,9 +25,14 @@
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"
+#include "re2/re2.h"  // from @com_googlesource_code_re2
 
 namespace litert::lm {
 namespace {
+
+static constexpr LazyRE2 kLoRAInputNamePattern(
+    "^(?:(?:query|key|value|post)_w_prime_(?:left|right)|"
+    "lora_atten_(?:q|k|v|o)_(?:a|b)_prime_weight)_\\d+$");
 
 uint64_t AlignByN(uint64_t number, uint64_t n) {
   const uint64_t q = number / n;
@@ -65,6 +70,14 @@ MemoryMappedFileWithAutoAlignment::Create(ScopedFile::PlatformFile file,
 
   return absl::WrapUnique(new MemoryMappedFileWithAutoAlignment(
       std::move(region), internal_offset, final_size));
+}
+
+// Returns true if the given name is a LoRA input name for the model.
+// The LoRA name is in the format of
+// "(query|key|value|post)_w_prime_(left|right)_[0-num_layers)" or
+// "lora_atten_(q|k|v|o)_(a|b)_prime_weight_[0-num_layers)".
+bool IsLoRAInputName(absl::string_view name) {
+  return RE2::FullMatch(name, *kLoRAInputNamePattern);
 }
 
 }  // namespace litert::lm
