@@ -100,6 +100,7 @@ py_test(
         ":litertlm_peek",
         "//runtime/proto:llm_metadata_py_pb2",
         "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
         "@com_google_protobuf//:protobuf_python",
     ],
 )

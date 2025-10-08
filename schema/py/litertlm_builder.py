@@ -34,13 +34,17 @@ builder.add_llm_metadata(llm_metadata_path)
 with litertlm_core.open_file(output_path, "wb") as f:
   builder.build(f)
 ```
+
+Note: The build method uses `seek` to write the header and sections. The io
+interface used must support `seek`.
 """
 
 import dataclasses
 import enum
-import os  # pylint: disable=unused-import
+import os
+import pathlib
 import tomllib
-from typing import Any, BinaryIO, Callable, Optional, TypeVar, Union
+from typing import Any, BinaryIO, Callable, Optional, TypeVar
 import zlib
 import flatbuffers
 from google.protobuf import message
@@ -159,8 +163,19 @@ class LitertLmFileBuilder:
     self._has_tokenizer = False
 
   @classmethod
-  def from_toml_str(cls, toml_str: str) -> LitertLmFileBuilderT:
-    """Initializes a LitertLmFileBuilder from a loaded TOML string."""
+  def from_toml_str(
+      cls, toml_str: str, parent_dir: str | None = None
+  ) -> LitertLmFileBuilderT:
+    """Initializes a LitertLmFileBuilder from a loaded TOML string.
+
+    Args:
+      toml_str: The TOML string to parse.
+      parent_dir: The parent directory of the TOML file. If provided, it will be
+        used to resolve the relative paths in the TOML file.
+
+    Returns:
+      The LitertLmFileBuilder object.
+    """
     builder = cls()
     toml_data = tomllib.loads(toml_str)
 
@@ -200,7 +215,8 @@ class LitertLmFileBuilder:
 
         if section["section_type"] == "LlmMetadata":
           builder.add_llm_metadata(
-              section["data_path"], additional_metadata=additional_metadata
+              _resolve_path(section["data_path"], parent_dir),
+              additional_metadata=additional_metadata,
           )
         elif section["section_type"] == "TFLiteModel":
           assert (
@@ -210,17 +226,19 @@ class LitertLmFileBuilder:
               section["model_type"]
           )
           builder.add_tflite_model(
-              section["data_path"],
+              _resolve_path(section["data_path"], parent_dir),
               model_type,
               additional_metadata=additional_metadata,
           )
         elif section["section_type"] == "SP_Tokenizer":
           builder.add_sentencepiece_tokenizer(
-              section["data_path"], additional_metadata=additional_metadata
+              _resolve_path(section["data_path"], parent_dir),
+              additional_metadata=additional_metadata,
           )
         elif section["section_type"] == "HF_Tokenizer":
           builder.add_hf_tokenizer(
-              section["data_path"], additional_metadata=additional_metadata
+              _resolve_path(section["data_path"], parent_dir),
+              additional_metadata=additional_metadata,
           )
         else:
           raise ValueError(
@@ -233,7 +251,8 @@ class LitertLmFileBuilder:
   def from_toml_file(cls, toml_path: str) -> LitertLmFileBuilderT:
     """Initializes a LitertLmFileBuilder from a TOML file."""
     with litertlm_core.open_file(toml_path, "r") as f:
-      return cls.from_toml_str(f.read())
+      parent_path = pathlib.Path(toml_path).parent.as_posix()
+      return cls.from_toml_str(f.read(), parent_path)
 
   def add_system_metadata(
       self,
@@ -416,12 +435,7 @@ class LitertLmFileBuilder:
     self._sections.append(section_object)
     return self
 
-  def build(
-      self,
-      stream: Union[
-          BinaryIO,
-      ],
-  ) -> None:
+  def build(self, stream: BinaryIO) -> None:
     """Builds the litertlm into the given stream."""
     stream.seek(0)
     # To simplify the build logic, we reserved the first block for the header.
@@ -649,3 +663,15 @@ def _write_section_object(
   schema.SectionObjectAddEndOffset(builder, section_offset[1])
   schema.SectionObjectAddDataType(builder, section_type)
   return schema.SectionObjectEnd(builder)
+
+
+def _resolve_path(path: str, parent_dir: str | None) -> str:
+  """Resolve the path and check if it exists."""
+  is_abs = os.path.isabs(path)
+  if not is_abs and not parent_dir:
+    raise ValueError("Parent directory is required for relative path.")
+
+  abs_path = path if is_abs else os.path.join(parent_dir, path)
+  if not litertlm_core.path_exists(abs_path):
+    raise FileNotFoundError(f"File {abs_path} does not exist.")
+  return abs_path

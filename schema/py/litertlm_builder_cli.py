@@ -77,6 +77,7 @@ bazel run //third_party/odml/litert_lm/schema/py:litertlm_builder_cli -- \
 
 import argparse
 import sys
+from typing import BinaryIO, cast
 
 from absl import app
 
@@ -442,7 +443,7 @@ def _build_litertlm_file(parsed_args: list[argparse.Namespace]) -> None:
 
     assert output_path, "Output path is required."
     with litertlm_core.open_file(output_path, "wb") as f:
-      builder.build(f)
+      builder.build(cast(BinaryIO, f))
 
   print(f"LiteRT-LM file successfully created at {output_path}")
 

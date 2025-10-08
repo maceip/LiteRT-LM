@@ -16,6 +16,7 @@ import io
 import os
 import pathlib
 from absl.testing import absltest
+from absl.testing import parameterized
 from google.protobuf import text_format
 from litert_lm.runtime.proto import llm_metadata_pb2
 from litert_lm.schema.py import litertlm_builder
@@ -57,7 +58,7 @@ additional_metadata = [
 """
 
 
-class LitertlmBuilderTest(absltest.TestCase):
+class LitertlmBuilderTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -284,22 +285,34 @@ class LitertlmBuilderTest(absltest.TestCase):
     self.assertIn("Data Type:    LlmMetadataProto", ss)
     self.assertIn("max_num_tokens: 123", ss)
 
-  def test_from_toml(self):
+  @parameterized.named_parameters(
+      ("relative_path", True),
+      ("absolute_path", False),
+  )
+  def test_from_toml(self, use_relative_path: bool):
     """Tests that a LitertLmFileBuilder can be initialized from a TOML file."""
-    sp_path = pathlib.Path(
-        self._create_dummy_file("sp.model", b"dummy sp content")
-    ).as_posix()
-    tflite_path = pathlib.Path(
-        self._create_dummy_file("model.tflite", b"dummy tflite content")
-    ).as_posix()
-    metadata_path = pathlib.Path(
-        self._create_dummy_file(
-            "llm.pb",
-            llm_metadata_pb2.LlmMetadata(
-                max_num_tokens=123
-            ).SerializeToString(),
-        )
-    ).as_posix()
+    sp_filename = "sp.model"
+    tflite_filename = "model.tflite"
+    metadata_filename = "llm.pb"
+
+    sp_path_abs = self._create_dummy_file(sp_filename, b"dummy sp content")
+    tflite_path_abs = self._create_dummy_file(
+        tflite_filename, b"dummy tflite content"
+    )
+    metadata_path_abs = self._create_dummy_file(
+        metadata_filename,
+        llm_metadata_pb2.LlmMetadata(max_num_tokens=123).SerializeToString(),
+    )
+
+    if use_relative_path:
+      sp_path = sp_filename
+      tflite_path = tflite_filename
+      metadata_path = metadata_filename
+    else:
+      sp_path = pathlib.Path(sp_path_abs).as_posix()
+      tflite_path = pathlib.Path(tflite_path_abs).as_posix()
+      metadata_path = pathlib.Path(metadata_path_abs).as_posix()
+
     toml_path = self._create_dummy_file(
         "test.toml",
         _TOML_TEMPLATE.replace("{LLM_METADATA_PATH}", metadata_path)
