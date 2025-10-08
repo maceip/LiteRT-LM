@@ -63,6 +63,12 @@ class LoraData {
   virtual absl::StatusOr<std::unique_ptr<BufferRef<uint8_t>>> ReadTensor(
       absl::string_view name) = 0;
 
+  // Checks if a tensor with the given name exists in the LoRA data.
+  //
+  // @param name The name of the tensor to check.
+  // @return True if the tensor exists, false otherwise.
+  virtual bool HasTensor(absl::string_view name) const = 0;
+
   // Virtual destructor to allow proper cleanup of derived classes.
   virtual ~LoraData() = default;
 };

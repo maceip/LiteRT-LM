@@ -80,6 +80,10 @@ class FlatBufferLoraData : public LoraData {
     return ReadData(buffer->offset(), buffer->size());
   }
 
+  bool HasTensor(absl::string_view name) const override {
+    return GetBuffer(name) != nullptr;
+  }
+
  protected:
   // Returns the FlatBufferModel object reference.
   // FlatBufferModel is owned by derived classes to be destroyed in correct

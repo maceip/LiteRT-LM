@@ -126,6 +126,18 @@ TEST_P(LoraDataTest, ReadTensorDataFailsForUnknownTensor) {
               StatusIs(absl::StatusCode::kNotFound));
 }
 
+TEST_P(LoraDataTest, HasTensorWorksAsExpected) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<LoraData> lora, CreateLoraData());
+
+  for (int i : {0, 5, 10, 15, 20}) {
+    const std::string tensor_name =
+        absl::StrCat("transformer.layer_", i, ".attn.q.w_prime_left");
+    EXPECT_TRUE(lora->HasTensor(tensor_name));
+  }
+
+  EXPECT_FALSE(lora->HasTensor("unknown_tensor"));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     LoraDataTests, LoraDataTest,
     ::testing::Values(LoraLoadType::kFilePath, LoraLoadType::kScopedFile,
