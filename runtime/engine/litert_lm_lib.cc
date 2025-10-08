@@ -142,7 +142,7 @@ void RunSingleTurn(const LiteRtLmSettings& settings, litert::lm::Engine* engine,
     auto responses = session->GenerateContent(inputs);
     ABSL_CHECK_OK(responses);
     if (!is_dummy_io) {
-      ABSL_LOG(INFO) << "Responses: " << *responses;
+      std::cout << "Responses: " << *responses << std::endl;
     }
   }
 
