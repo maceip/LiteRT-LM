@@ -224,6 +224,7 @@ cc_test(
         "@litert//litert/test:matchers",
         "//runtime/components:sentencepiece_tokenizer",
         "//runtime/components:tokenizer",
+        "//runtime/components/constrained_decoding:fake_constraint",
         "//runtime/components/preprocessor:by_pass_audio_preprocessor",
         "//runtime/engine:engine_settings",
         "//runtime/engine:io_types",

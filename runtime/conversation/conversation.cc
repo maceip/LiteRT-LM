@@ -14,7 +14,6 @@
 
 #include "runtime/conversation/conversation.h"
 
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -159,8 +158,9 @@ absl::StatusOr<Message> Conversation::SendMessage(
       model_data_processor_->ToInputDataVector(
           single_turn_text, nlohmann::ordered_json::array({json_message}),
           args.value_or(std::monostate())));
+  RETURN_IF_ERROR(session_->RunPrefill(session_inputs));
   ASSIGN_OR_RETURN(const Responses& responses,
-                   session_->GenerateContent(session_inputs));
+                   session_->RunDecode(DecodeConfig::CreateDefault()));
   ASSIGN_OR_RETURN(const Message assistant_message,
                    model_data_processor_->ToMessage(
                        responses, args.value_or(std::monostate())));
@@ -201,8 +201,8 @@ absl::Status Conversation::SendMessageStream(
       std::move(complete_message_callback));
 
   RETURN_IF_ERROR(session_->RunPrefill(session_inputs));
-  RETURN_IF_ERROR(
-      session_->RunDecodeAsync(std::move(internal_callbacks_adapter)));
+  RETURN_IF_ERROR(session_->RunDecodeAsync(
+      std::move(internal_callbacks_adapter), DecodeConfig::CreateDefault()));
   return absl::OkStatus();
 };
 

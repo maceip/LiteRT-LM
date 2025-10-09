@@ -51,6 +51,7 @@ cc_library(
     srcs = ["io_types.cc"],
     hdrs = ["io_types.h"],
     deps = [
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
@@ -58,6 +59,7 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
+        "//runtime/components/constrained_decoding:constraint",
         "//runtime/proto:engine_cc_proto",
         "//runtime/util:litert_status_util",
     ] + select({
@@ -88,6 +90,7 @@ cc_test(
         "@litert//litert/cc:litert_model",
         "@litert//litert/cc:litert_tensor_buffer",
         "@litert//litert/test:matchers",
+        "//runtime/components/constrained_decoding:fake_constraint",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:test_utils",
     ],

@@ -23,11 +23,13 @@
 #include <variant>
 #include <vector>
 
+#include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/constrained_decoding/constraint.h"
 #include "runtime/proto/engine.pb.h"
 #include "runtime/util/litert_status_util.h"
 
@@ -340,6 +342,28 @@ class InferenceCallbacks {
 
   // Called when an error is encountered during the inference.
   virtual void OnError(const absl::Status& status);
+};
+
+// Configurations used for a single decode request.
+class DecodeConfig {
+ public:
+  // Creates a default DecodeConfig.
+  static DecodeConfig CreateDefault();
+
+  // Sets the optional constraint used to guide the generation.
+  // `DecodeConfig` does not take ownership of the `constraint`, which must
+  // outlives the single generation process.
+  void SetConstraint(Constraint* absl_nullable constraint) {
+    constraint_ = constraint;
+  }
+
+  // Returns a pointer to the constraint, or nullptr if no constraint is set.
+  Constraint* GetConstraint() const { return constraint_; }
+
+ private:
+  DecodeConfig() = default;
+
+  Constraint* absl_nullable constraint_ = nullptr;
 };
 
 }  // namespace litert::lm

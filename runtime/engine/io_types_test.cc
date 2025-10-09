@@ -34,6 +34,7 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/test/matchers.h"  // from @litert
+#include "runtime/components/constrained_decoding/fake_constraint.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
@@ -663,6 +664,18 @@ TEST(BenchmarkInfoTests, OperatorOutputWithData) {
 --------------------------------------------------
 )";
   EXPECT_THAT(ss.str(), ContainsRegex(expected_output));
+}
+
+TEST(DecodeConfigTest, CreateDefault) {
+  DecodeConfig decode_config = DecodeConfig::CreateDefault();
+  EXPECT_EQ(decode_config.GetConstraint(), nullptr);
+}
+
+TEST(DecodeConfigTest, SetAndGetConstraint) {
+  DecodeConfig decode_config = DecodeConfig::CreateDefault();
+  auto constraint = FakeConstraint({1, 2, 3}, /*vocabulary_size=*/10);
+  decode_config.SetConstraint(&constraint);
+  EXPECT_EQ(decode_config.GetConstraint(), &constraint);
 }
 
 }  // namespace

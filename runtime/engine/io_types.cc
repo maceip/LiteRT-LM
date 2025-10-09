@@ -435,4 +435,6 @@ void InferenceCallbacks::OnError(const absl::Status& status) {
   LOG(ERROR) << "Inference Error: " << status.message() << std::endl;
 }
 
+DecodeConfig DecodeConfig::CreateDefault() { return DecodeConfig(); }
+
 }  // namespace litert::lm

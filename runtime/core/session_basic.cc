@@ -548,7 +548,8 @@ absl::Status SessionBasic::RunPrefillAsync(
   return absl::OkStatus();
 }
 
-absl::StatusOr<Responses> SessionBasic::DecodeInternal() {
+absl::StatusOr<Responses> SessionBasic::DecodeInternal(
+    const DecodeConfig& decode_config) {
   if (sampler_ == nullptr) {
     ASSIGN_OR_RETURN(auto responses,
                      Decode(executor_, tokenizer_, stop_token_detector_,
@@ -564,14 +565,16 @@ absl::StatusOr<Responses> SessionBasic::DecodeInternal() {
         DecodeCustomSampling(executor_, tokenizer_, stop_token_detector_,
                              /*num_output_candidates=*/1, *sampler_,
                              *decoded_ids_buffer,
-                             /*constraint=*/std::make_optional(nullptr),
+                             /*constraint=*/
+                             std::make_optional(decode_config.GetConstraint()),
                              benchmark_info_, &cancelled_));
     return responses;
   }
 }
 
 absl::Status SessionBasic::DecodeInternalStreaming(
-    std::unique_ptr<InferenceCallbacks> callbacks) {
+    std::unique_ptr<InferenceCallbacks> callbacks,
+    const DecodeConfig& decode_config) {
   if (sampler_ == nullptr) {
     RETURN_IF_ERROR(DecodeStreaming(executor_, tokenizer_, stop_token_detector_,
                                     benchmark_info_, std::move(callbacks),
@@ -584,35 +587,49 @@ absl::Status SessionBasic::DecodeInternalStreaming(
     RETURN_IF_ERROR(DecodeCustomSamplingStreaming(
         executor_, tokenizer_, stop_token_detector_,
         /*num_output_candidates=*/1, *sampler_, *decoded_ids_buffer,
-        /*constraint=*/std::make_optional(nullptr), benchmark_info_,
-        std::move(callbacks), &cancelled_));
+        /*constraint=*/std::make_optional(decode_config.GetConstraint()),
+        benchmark_info_, std::move(callbacks), &cancelled_));
   }
   return absl::OkStatus();
 }
 
 absl::StatusOr<Responses> SessionBasic::RunDecode() {
+  return RunDecode(DecodeConfig::CreateDefault());
+}
+
+absl::StatusOr<Responses> SessionBasic::RunDecode(
+    const DecodeConfig& decode_config) {
   ABSL_LOG(INFO) << "RunDecodeSync";
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
   }
   absl::StatusOr<Responses> responses;
-  RETURN_IF_ERROR(worker_thread_pool_.Schedule(
-      [this, &responses]() { responses = this->DecodeInternal(); }));
+  RETURN_IF_ERROR(
+      worker_thread_pool_.Schedule([this, &responses, decode_config]() {
+        responses = this->DecodeInternal(decode_config);
+      }));
   RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
   return responses;
 }
 
 absl::Status SessionBasic::RunDecodeAsync(
     std::unique_ptr<InferenceCallbacks> callbacks) {
+  return RunDecodeAsync(std::move(callbacks), DecodeConfig::CreateDefault());
+}
+
+absl::Status SessionBasic::RunDecodeAsync(
+    std::unique_ptr<InferenceCallbacks> callbacks,
+    const DecodeConfig& decode_config) {
   ABSL_LOG(INFO) << "RunDecodeAsync";
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
   }
   return worker_thread_pool_.Schedule(
-      [this, callbacks = std::move(callbacks)]() mutable {
-        this->DecodeInternalStreaming(std::move(callbacks)).IgnoreError();
+      [this, callbacks = std::move(callbacks), decode_config]() mutable {
+        this->DecodeInternalStreaming(std::move(callbacks), decode_config)
+            .IgnoreError();
       });
 }
 
@@ -623,7 +640,7 @@ absl::StatusOr<Responses> SessionBasic::GenerateContent(
     cancelled_ = false;
   }
   RETURN_IF_ERROR(RunPrefill(contents));
-  return RunDecode();
+  return RunDecode(DecodeConfig::CreateDefault());
 }
 
 absl::StatusOr<Responses> SessionBasic::RunTextScoring(
@@ -678,8 +695,8 @@ absl::Status SessionBasic::GenerateContentStream(
     }
 
     void OnDone() override {
-      absl::Status status =
-          session_->RunDecodeAsync(std::move(next_callbacks_));
+      absl::Status status = session_->RunDecodeAsync(
+          std::move(next_callbacks_), DecodeConfig::CreateDefault());
       if (!status.ok()) {
         ABSL_LOG(ERROR) << "Failed to start decode async: " << status;
       }

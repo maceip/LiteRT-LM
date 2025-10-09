@@ -18,7 +18,6 @@
 #include <atomic>
 #include <memory>
 #include <optional>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -95,8 +94,14 @@ class SessionBasic : public Engine::Session {
 
   absl::StatusOr<Responses> RunDecode() override;
 
+  absl::StatusOr<Responses> RunDecode(
+      const DecodeConfig& decode_config) override;
+
   absl::Status RunDecodeAsync(
       std::unique_ptr<InferenceCallbacks> callbacks) override;
+
+  absl::Status RunDecodeAsync(std::unique_ptr<InferenceCallbacks> callbacks,
+                              const DecodeConfig& decode_config) override;
 
   absl::StatusOr<BenchmarkInfo> GetBenchmarkInfo() override;
 
@@ -203,9 +208,10 @@ class SessionBasic : public Engine::Session {
 
   // The internal functions to decode the input prompt. It is for convenience to
   // wrap it with lambda function for scheduling.
-  absl::StatusOr<Responses> DecodeInternal();
+  absl::StatusOr<Responses> DecodeInternal(const DecodeConfig& decode_config);
   absl::Status DecodeInternalStreaming(
-      std::unique_ptr<InferenceCallbacks> callbacks);
+      std::unique_ptr<InferenceCallbacks> callbacks,
+      const DecodeConfig& decode_config);
 
   // The util function to convert the string to processed input text.
   absl::StatusOr<InputText> StringToProcessedInputText(absl::string_view text);

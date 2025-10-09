@@ -33,6 +33,7 @@
 #include "absl/time/time.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/test/matchers.h"  // from @litert
+#include "runtime/components/constrained_decoding/fake_constraint.h"
 #include "runtime/components/preprocessor/by_pass_audio_preprocessor.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
 #include "runtime/components/tokenizer.h"
@@ -48,7 +49,7 @@
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"  // NOLINT
 #include "runtime/util/tensor_buffer_util.h"
-#include "runtime/util/test_utils.h"     // NOLINT
+#include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
 namespace {
@@ -125,6 +126,30 @@ CreateAudioExecutor(const std::string& model_path, int max_sequence_length,
       audio_executor_settings);
 }
 
+class StreamingTestCallbacks : public InferenceCallbacks {
+ public:
+  StreamingTestCallbacks(absl::Status& status, std::vector<std::string>& texts,
+                         absl::Notification& done)
+      : status_(status), texts_(texts), done_(done) {}
+
+  void OnNext(const Responses& responses) override {
+    ASSERT_EQ(responses.GetNumOutputCandidates(), 1);
+    texts_.push_back(std::string(*responses.GetResponseTextAt(0)));
+  }
+
+  void OnError(const absl::Status& status) override {
+    status_ = status;
+    done_.Notify();
+  }
+
+  void OnDone() override { done_.Notify(); }
+
+ private:
+  absl::Status& status_;
+  std::vector<std::string>& texts_;
+  absl::Notification& done_;
+};
+
 TEST_F(SessionBasicTest, RunPrefill) {
   const std::vector<std::vector<int>> stop_token_ids = {{2294}};
   SessionConfig session_config = SessionConfig::CreateDefault();
@@ -185,6 +210,49 @@ TEST_F(SessionBasicTest, RunDecode) {
   // The response is " How's it going?" since "!" is the stop token which is
   // not included in the response.
   EXPECT_EQ(*(responses->GetResponseTextAt(0)), " How's it going?");
+}
+
+TEST_F(SessionBasicTest, RunDecodeWithSamplerAndConstrainedDecoding) {
+  // Fake constraint that expects " How's it".
+  std::vector<int> expected_token_ids = {2, 224, 24, 8, 66, 0};
+  auto constraint =
+      FakeConstraint(expected_token_ids, /*vocabulary_size=*/2560);
+
+  const std::vector<std::vector<int>> stop_token_ids = {{2294}, {0}};
+  // Top P sampler.
+  proto::SamplerParameters sampler_params;
+  sampler_params.set_type(proto::SamplerParameters::TOP_P);
+  sampler_params.set_k(1);
+  sampler_params.set_temperature(1.0);
+  sampler_params.set_p(0.5);
+  sampler_params.set_seed(1);
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.GetMutableSamplerParams() = sampler_params;
+  session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetStartTokenId(2);
+  session_config.SetSamplerBackend(Backend::CPU);
+  ASSERT_OK_AND_ASSIGN(
+      auto executor,
+      CreateFakeLlmExecutor(
+          /*prefill_tokens=*/{{2, 224}},
+          // "How's it going?"
+          /*decode_tokens=*/{
+              {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
+  auto session = SessionBasic::Create(
+      executor.get(), tokenizer_.get(),
+      /*image_preprocessor=*/nullptr,
+      /*vision_executor=*/nullptr, /*audio_preprocessor=*/nullptr,
+      /*audio_executor=*/nullptr, session_config,
+      /*benchmark_info=*/std::nullopt, worker_thread_pool_.get());
+
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("How"));
+  auto decode_config = DecodeConfig::CreateDefault();
+  decode_config.SetConstraint(&constraint);
+  EXPECT_OK((*session)->RunPrefill(inputs));
+  ASSERT_OK_AND_ASSIGN(auto responses, (*session)->RunDecode(decode_config));
+  EXPECT_EQ(responses.GetNumOutputCandidates(), 1);
+  EXPECT_EQ(*responses.GetResponseTextAt(0), " How's it");
 }
 
 class TestCallbacks : public InferenceCallbacks {
@@ -264,29 +332,59 @@ TEST_F(SessionBasicTest, RunDecodeAsync) {
   EXPECT_TRUE(done_decode);
 }
 
-class StreamingTestCallbacks : public InferenceCallbacks {
- public:
-  StreamingTestCallbacks(absl::Status& status, std::vector<std::string>& texts,
-                         absl::Notification& done)
-      : status_(status), texts_(texts), done_(done) {}
+TEST_F(SessionBasicTest, RunDecodeAsyncWithSamplerAndConstrainedDecoding) {
+  // Fake constraint that expects " How's it".
+  std::vector<int> expected_token_ids = {2, 224, 24, 8, 66, 0};
+  auto constraint =
+      FakeConstraint(expected_token_ids, /*vocabulary_size=*/2560);
 
-  void OnNext(const Responses& responses) override {
-    ASSERT_EQ(responses.GetNumOutputCandidates(), 1);
-    texts_.push_back(std::string(*responses.GetResponseTextAt(0)));
-  }
+  const std::vector<std::vector<int>> stop_token_ids = {{2294}, {0}};
+  // Top P sampler.
+  proto::SamplerParameters sampler_params;
+  sampler_params.set_type(proto::SamplerParameters::TOP_P);
+  sampler_params.set_k(1);
+  sampler_params.set_temperature(1.0);
+  sampler_params.set_p(0.5);
+  sampler_params.set_seed(1);
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.GetMutableSamplerParams() = sampler_params;
+  session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetStartTokenId(2);
+  session_config.SetSamplerBackend(Backend::CPU);
+  ASSERT_OK_AND_ASSIGN(
+      auto executor,
+      CreateFakeLlmExecutor(
+          /*prefill_tokens=*/{{2, 224}},
+          // "How's it going?"
+          /*decode_tokens=*/{
+              {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
+  auto session = SessionBasic::Create(
+      executor.get(), tokenizer_.get(),
+      /*image_preprocessor=*/nullptr,
+      /*vision_executor=*/nullptr, /*audio_preprocessor=*/nullptr,
+      /*audio_executor=*/nullptr, session_config,
+      /*benchmark_info=*/std::nullopt, worker_thread_pool_.get());
 
-  void OnError(const absl::Status& status) override {
-    status_ = status;
-    done_.Notify();
-  }
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("How"));
+  bool done_prefill = false;
+  EXPECT_OK((*session)->RunPrefillAsync(
+      inputs, std::make_unique<TestCallbacks>(done_prefill)));
 
-  void OnDone() override { done_.Notify(); }
+  absl::Status status;
+  std::vector<std::string> texts;
+  absl::Notification done_decode = absl::Notification();
+  auto decode_config = DecodeConfig::CreateDefault();
+  decode_config.SetConstraint(&constraint);
+  EXPECT_OK((*session)->RunDecodeAsync(
+      std::make_unique<StreamingTestCallbacks>(status, texts, done_decode),
+      decode_config));
 
- private:
-  absl::Status& status_;
-  std::vector<std::string>& texts_;
-  absl::Notification& done_;
-};
+  done_decode.WaitForNotification();
+  EXPECT_OK(status);
+  EXPECT_EQ(texts.size(), 4);
+  EXPECT_THAT(texts, testing::ElementsAre(" How", "'", "s", " it"));
+}
 
 TEST_F(SessionBasicTest, RunTextScoringEmptyTargetTextFailure) {
   const std::vector<std::vector<int>> stop_token_ids = {{2294}};
@@ -347,7 +445,6 @@ TEST_F(SessionBasicTest, RunTextScoringSuccess) {
   EXPECT_EQ(*(responses->GetScoreAt(0)), 0.0f);
 }
 
-
 TEST_F(SessionBasicTest, GenerateContentStream) {
   const std::vector<std::vector<int>> stop_token_ids = {{2294}};
   SessionConfig session_config = SessionConfig::CreateDefault();
@@ -367,8 +464,8 @@ TEST_F(SessionBasicTest, GenerateContentStream) {
       executor.get(), tokenizer_.get(),
       /*image_preprocessor=*/nullptr,
       /*vision_executor=*/nullptr, /*audio_preprocessor=*/nullptr,
-      /*audio_executor=*/nullptr, session_config, std::nullopt,
-      worker_thread_pool_.get());
+      /*audio_executor=*/nullptr, session_config,
+      /*benchmark_info=*/std::nullopt, worker_thread_pool_.get());
 
   std::vector<InputData> inputs;
   inputs.emplace_back(InputText("Hello World!"));

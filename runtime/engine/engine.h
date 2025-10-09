@@ -74,6 +74,7 @@ class Engine {
     // function will handle the prefill and decode processes internally and
     // the usage is similar to the Gemini Text Generation API
     // (https://ai.google.dev/gemini-api/docs/text-generation).
+    // - contents: The input data for generation.
     virtual absl::StatusOr<Responses> GenerateContent(
         const std::vector<InputData>& contents) = 0;
 
@@ -83,6 +84,8 @@ class Engine {
     // The callbacks will only receive callbacks if the function returns an OK
     // status. If the function returns an error status, the callbacks will not
     // receive any callbacks.
+    // - contents: The input data for generation.
+    // - callbacks: Callbacks to receive streamed results.
     virtual absl::Status GenerateContentStream(
         const std::vector<InputData>& contents,
         std::unique_ptr<InferenceCallbacks> callbacks) = 0;
@@ -121,12 +124,26 @@ class Engine {
     // process is done.
     virtual absl::StatusOr<Responses> RunDecode() = 0;
 
+    // Same as above, but with a custom decode config.
+    // - decode_config: configuration for the model decode process.
+    virtual absl::StatusOr<Responses> RunDecode(
+        const DecodeConfig& decode_config) = 0;
+
     // Startes the decoding process for the model to predict the response based
     // on the input prompt/query added after using RunPrefill* functions.
     // This is a not blocking call and the function will return right away. The
     // result will be streamed through the callbacks.
+    // - callbacks: Callbacks to receive streamed results.
     virtual absl::Status RunDecodeAsync(
         std::unique_ptr<InferenceCallbacks> callbacks) {
+      return absl::UnimplementedError("Not implemented.");
+    }
+
+    // Same as above, but with a custom decode config.
+    // - decode_config: configuration for the model decode process.
+    virtual absl::Status RunDecodeAsync(
+        std::unique_ptr<InferenceCallbacks> callbacks,
+        const DecodeConfig& decode_config) {
       return absl::UnimplementedError("Not implemented.");
     }
 
