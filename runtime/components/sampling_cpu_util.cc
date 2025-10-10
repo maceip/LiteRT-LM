@@ -89,11 +89,11 @@ absl::StatusOr<std::vector<float>> Softmax(
         "%d.",
         logits.size(), batch_size));
   }
-  if (temperature <= 0.0) {
-    // A very small positive temperature can mimic greedy sampling,
-    // but 0.0 would cause division by zero.
+  if (temperature < 0.0) {
+    // A very small positive temperature can mimic greedy sampling.
+    // If temp = 0, we will clamp it to epsilon later.
     return absl::InvalidArgumentError(
-        absl::StrCat("Temperature must be positive, but got ", temperature));
+        absl::StrCat("Temperature must be >= 0, but got ", temperature));
   }
   const int vocab_size = logits.size() / batch_size;
   const int k = topk_indices.size() / batch_size;
@@ -116,11 +116,12 @@ absl::StatusOr<std::vector<float>> Softmax(
         logits[b * vocab_size + topk_indices[b * k + max_logit_idx]];
 
     float sum_of_exps = 0.0;
-    temperature = std::max(temperature, std::numeric_limits<float>::epsilon());
+    float current_temp =
+        std::max(temperature, std::numeric_limits<float>::epsilon());
     for (size_t i = b * k; i < (b + 1) * k; ++i) {
       probabilities[i] = std::exp(
           (logits[b * vocab_size + topk_indices[i]] - max_logit_values[b]) /
-          temperature);
+          current_temp);
       sum_of_exps += probabilities[i];
     }
 
@@ -186,6 +187,8 @@ absl::StatusOr<std::vector<int>> TopKTopPSampling(
   }
   sampled_ids.resize(batch_size);
   sampled_scores.resize(batch_size);
+  float current_temp =
+      std::max(temperature, std::numeric_limits<float>::epsilon());
   for (int b = 0; b < batch_size; ++b) {
     // Define the comparator for descending probability
     auto desc_prob_comp = [&probabilities, k, b](int i1, int i2) {
@@ -225,7 +228,7 @@ absl::StatusOr<std::vector<int>> TopKTopPSampling(
       sampled_ids[b] = (*topk_indices)[b * k];
       sampled_scores[b] = std::exp(
           (logits[b * vocab_size + sampled_ids[b]] - max_logit_values[b]) /
-          temperature);
+          current_temp);
       continue;
     }
 
@@ -239,7 +242,7 @@ absl::StatusOr<std::vector<int>> TopKTopPSampling(
         sampled_ids[b] = (*topk_indices)[b * k + i];
         sampled_scores[b] = std::exp(
             (logits[b * vocab_size + sampled_ids[b]] - max_logit_values[b]) /
-            temperature);
+            current_temp);
         break;
       }
     }

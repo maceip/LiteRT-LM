@@ -67,7 +67,7 @@ TEST(SamplingCpuUtilTest, Softmax_AllZeroLogits) {
   EXPECT_THAT(max_logit_values, ElementsAre(0.0f));
 }
 
-TEST(SamplingCpuUtilTest, Softmax_TemperatureZero) {
+TEST(SamplingCpuUtilTest, Softmax_TemperatureVerySmall) {
   const std::vector<float> logits = {0.0f, 1.0f, 2.0f};
   const std::vector<int> topk_indices = {0, 1, 2};
   std::vector<float> max_logit_values;
@@ -76,6 +76,19 @@ TEST(SamplingCpuUtilTest, Softmax_TemperatureZero) {
               /*temperature=*/0.00000001f, /*batch_size=*/1, max_logit_values);
   EXPECT_TRUE(probabilities.ok());
   // Very small temperature should mimic greedy sampling.
+  EXPECT_THAT(*probabilities, ElementsAre(0.0f, 0.0f, 1.0f));
+  EXPECT_THAT(max_logit_values, ElementsAre(2.0f));
+}
+
+TEST(SamplingCpuUtilTest, Softmax_TemperatureExactlyZero) {
+  const std::vector<float> logits = {0.0f, 1.0f, 2.0f};
+  const std::vector<int> topk_indices = {0, 1, 2};
+  std::vector<float> max_logit_values;
+  auto probabilities =
+      Softmax(absl::MakeConstSpan(logits), absl::MakeConstSpan(topk_indices),
+              /*temperature=*/0.0f, /*batch_size=*/1, max_logit_values);
+  EXPECT_TRUE(probabilities.ok());
+  // Exactly zero temperature should mimic greedy sampling.
   EXPECT_THAT(*probabilities, ElementsAre(0.0f, 0.0f, 1.0f));
   EXPECT_THAT(max_logit_values, ElementsAre(2.0f));
 }
