@@ -32,6 +32,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/log/absl_check.h"  // from @com_google_absl
@@ -41,6 +42,9 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "runtime/conversation/conversation.h"
+#include "runtime/conversation/io_types.h"
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
@@ -62,8 +66,12 @@ using ::litert::lm::InputAudio;
 using ::litert::lm::InputData;
 using ::litert::lm::InputImage;
 using ::litert::lm::InputText;
+using ::litert::lm::JsonMessage;
 using ::litert::lm::LlmExecutorSettings;
+using ::litert::lm::Message;
+using ::litert::lm::MessageCallbacks;
 using ::litert::lm::ModelAssets;
+using ::nlohmann::json;
 
 // Memory check interval in milliseconds.
 constexpr int kMemoryCheckIntervalMs = 50;
@@ -86,6 +94,44 @@ class LiteRtLmLibCallbacks : public InferenceCallbacks {
 
  private:
   bool is_dummy_io_;
+};
+
+absl::Status PrintJsonMessage(const JsonMessage& message,
+                              bool streaming = false) {
+  if (message["content"].is_array()) {
+    for (const auto& content : message["content"]) {
+      if (content["type"] == "text") {
+        std::cout << content["text"].get<std::string>();
+      }
+    }
+    if (!streaming) {
+      std::cout << std::endl << std::flush;
+    } else {
+      std::cout << std::flush;
+    }
+  } else if (message["content"]["text"].is_string()) {
+    if (!streaming) {
+      std::cout << message["content"]["text"].get<std::string>() << std::endl
+                << std::flush;
+    } else {
+      std::cout << message["content"]["text"].get<std::string>() << std::flush;
+    }
+  } else {
+    return absl::InvalidArgumentError("Invalid message: " + message.dump());
+  }
+  return absl::OkStatus();
+}
+
+class PrintMessageCallbacks : public MessageCallbacks {
+ public:
+  void OnMessage(const litert::lm::Message& message) override {
+    if (std::holds_alternative<JsonMessage>(message)) {
+      ABSL_CHECK_OK(
+          PrintJsonMessage(std::get<JsonMessage>(message), /*streaming=*/true));
+    }
+  }
+  void OnComplete() override { std::cout << std::endl << std::flush; }
+  void OnError(const absl::Status& status) override {}
 };
 
 void RunSingleTurn(const LiteRtLmSettings& settings, litert::lm::Engine* engine,
@@ -152,9 +198,57 @@ void RunSingleTurn(const LiteRtLmSettings& settings, litert::lm::Engine* engine,
   }
 }
 
-void RunMultiTurnConversation(const LiteRtLmSettings& settings,
-                              litert::lm::Engine* engine,
-                              litert::lm::Engine::Session* session) {
+absl::Status BuildContentList(absl::string_view prompt_view,
+                              json& content_list) {
+  int last_pos = 0;
+  std::string media_type;
+  std::string media_path;
+  // We expect the media path to be in the format of [image:/path/to/image.jpg]
+  // or [audio:/path/to/audio.wav]
+  //
+  // So the prompt can be like:
+  // 1. Briefly describe the two images [image:/path/to/image1.jpg] and
+  // [image:/path/to/image2.jpg]
+  //
+  // 2. Transcribe the audio [audio:/path/to/audio.wav]
+  //
+  // 3. First transcribe the [audio:/path/to/audio.wav] then describe the
+  // content in the [image:/path/to/image.jpg]
+  RE2 re_media("\\[(image|audio):([^\\s\\]]+)\\]");  // Regex to find image
+                                                     // or audio paths
+  constexpr int kBracketShift = 3;  // account for [] in the string
+  absl::string_view whole_prompt(prompt_view);
+  while (
+      RE2::FindAndConsume(&prompt_view, re_media, &media_type, &media_path)) {
+    if (!std::filesystem::exists(media_path)) {
+      return absl::NotFoundError(
+          absl::StrCat("[ERROR] Media path ", media_path, " does not exist."));
+    }
+    // Calculate the position of the match in the original string
+    const int media_string_size =
+        media_type.size() + media_path.size() + kBracketShift;
+    int match_pos =
+        whole_prompt.size() - prompt_view.size() - media_string_size;
+    // Add text part before the media path
+    if (match_pos > last_pos) {
+      content_list.push_back(
+          {{"type", "text"},
+           {"text", whole_prompt.substr(last_pos, match_pos - last_pos)}});
+    }
+    // Add media part
+    content_list.push_back({{"type", media_type}, {"path", media_path}});
+    last_pos = match_pos + media_string_size;
+  }
+  // Add any remaining text part
+  if (!prompt_view.empty()) {
+    content_list.push_back({{"type", "text"}, {"text", prompt_view}});
+  }
+  return absl::OkStatus();
+}
+
+absl::Status RunMultiTurnConversation(const LiteRtLmSettings& settings,
+                                      litert::lm::Engine* engine,
+                                      Conversation* conversation) {
   std::string input_prompt;
   do {
     std::cout << "Please enter the prompt (or press Enter to end): ";
@@ -162,11 +256,24 @@ void RunMultiTurnConversation(const LiteRtLmSettings& settings,
     if (input_prompt.empty()) {
       break;
     }
-    std::vector<std::string> image_bytes;
-    std::vector<std::string> audio_bytes;
-    RunSingleTurn(settings, engine, session, input_prompt, image_bytes,
-                  audio_bytes);
+    json content_list = json::array();
+
+    // If there is an error building the content list, skip the prompt and
+    // continue.
+    auto status = BuildContentList(input_prompt, content_list);
+    if (!status.ok()) {
+      std::cout << status.message() << std::endl;
+      continue;
+    }
+    if (content_list.empty()) {
+      continue;
+    }
+    RETURN_IF_ERROR(conversation->SendMessageStream(
+        json::object({{"role", "user"}, {"content", content_list}}),
+        std::make_unique<PrintMessageCallbacks>()));
+    RETURN_IF_ERROR(engine->WaitUntilDone(kWaitUntilDoneTimeout));
   } while (true);
+  return absl::OkStatus();
 }
 
 void RunScoreText(litert::lm::Engine* llm, litert::lm::Engine::Session* session,
@@ -204,8 +311,9 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
   ASSIGN_OR_RETURN(Backend backend,
                    litert::lm::GetBackendFromString(backend_str));
   std::optional<Backend> vision_backend = std::nullopt;
-  if (settings.image_files.has_value()) {
-    ABSL_LOG(INFO) << "Image files are provided, setting vision backend.";
+  if (settings.image_files.has_value() || settings.vision_backend.has_value()) {
+    ABSL_LOG(INFO) << "Image files are provided or vision backend is provided, "
+                      "setting vision backend.";
     if (settings.vision_backend.has_value()) {
       ABSL_LOG(INFO) << "Provided vision backend: " << *settings.vision_backend;
       ASSIGN_OR_RETURN(vision_backend, litert::lm::GetBackendFromString(
@@ -217,8 +325,9 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
     }
   }
   std::optional<Backend> audio_backend = std::nullopt;
-  if (settings.audio_files.has_value()) {
-    ABSL_LOG(INFO) << "Audio files are provided, setting audio backend.";
+  if (settings.audio_files.has_value() || settings.audio_backend.has_value()) {
+    ABSL_LOG(INFO) << "Audio files are provided or audio backend is provided, "
+                      "setting audio backend.";
     if (settings.audio_backend.has_value()) {
       ABSL_LOG(INFO) << "Provided audio backend: " << *settings.audio_backend;
       ASSIGN_OR_RETURN(audio_backend, litert::lm::GetBackendFromString(
@@ -325,6 +434,12 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
                                        settings.input_prompt);
   ABSL_CHECK_OK(engine) << "Failed to create engine";
 
+  // Clear the prompt templates for multi-turns usage where Conversation would
+  // take care of the prompt templates.
+  if (settings.multi_turns) {
+    session_config.GetMutablePromptTemplates().Clear();
+  }
+
   ABSL_LOG(INFO) << "Creating session";
   absl::StatusOr<std::unique_ptr<litert::lm::Engine::Session>> session =
       (*engine)->CreateSession(session_config);
@@ -337,7 +452,11 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
     RunScoreText(engine->get(), session->get(), input_prompt,
                  score_target_text);
   } else if (settings.multi_turns) {
-    RunMultiTurnConversation(settings, engine->get(), session->get());
+    ABSL_LOG(INFO) << "Running multi-turns conversation";
+    auto conversation = Conversation::Create(std::move(*session));
+    ABSL_CHECK_OK(conversation) << "Failed to create conversation";
+    RETURN_IF_ERROR(
+        RunMultiTurnConversation(settings, engine->get(), conversation->get()));
   } else {
     std::string input_prompt = settings.input_prompt;
     std::vector<std::string> images_bytes;
