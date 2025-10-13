@@ -179,6 +179,10 @@ TEST(ModelTypeConversionTest, StringToModelType) {
   ASSERT_OK(result);
   EXPECT_EQ(result.value(), ModelType::kTfLitePerLayerEmbedder);
 
+  result = StringToModelType("ARTISAN_TEXT_DECODER");
+  ASSERT_OK(result);
+  EXPECT_EQ(result.value(), ModelType::kArtisanTextDecoder);
+
   result = StringToModelType("unknown");
   EXPECT_FALSE(result.ok());
 }
@@ -189,6 +193,8 @@ TEST(ModelTypeConversionTest, ModelTypeToString) {
   EXPECT_EQ(ModelTypeToString(ModelType::kTfLiteEmbedder), "TF_LITE_EMBEDDER");
   EXPECT_EQ(ModelTypeToString(ModelType::kTfLitePerLayerEmbedder),
             "TF_LITE_PER_LAYER_EMBEDDER");
+  EXPECT_EQ(ModelTypeToString(ModelType::kArtisanTextDecoder),
+            "ARTISAN_TEXT_DECODER");
   EXPECT_EQ(ModelTypeToString(ModelType::kUnknown), "UNKNOWN");
 }
 

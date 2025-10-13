@@ -48,17 +48,19 @@ class ModelResourcesLitertLm : public ModelResources {
 
   absl::StatusOr<const proto::LlmMetadata*> GetLlmMetadata() override;
 
- private:
+ protected:
   explicit ModelResourcesLitertLm(
       std::unique_ptr<LitertLmLoader> litert_lm_loader)
       : litert_lm_loader_(std::move(litert_lm_loader)) {}
 
-  absl::flat_hash_map<ModelType, std::unique_ptr<litert::Model>> model_map_;
-  std::unique_ptr<Tokenizer> tokenizer_;
-  std::unique_ptr<proto::LlmMetadata> llm_metadata_;
   // The litert lm loader, used to mmap the tokenizer and tflite model etc from
   // the .litertlm model file.
   std::unique_ptr<LitertLmLoader> litert_lm_loader_;
+
+ private:
+  absl::flat_hash_map<ModelType, std::unique_ptr<litert::Model>> model_map_;
+  std::unique_ptr<Tokenizer> tokenizer_;
+  std::unique_ptr<proto::LlmMetadata> llm_metadata_;
 };
 
 }  // namespace litert::lm
