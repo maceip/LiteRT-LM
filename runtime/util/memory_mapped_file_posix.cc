@@ -109,20 +109,12 @@ absl::StatusOr<std::unique_ptr<MemoryMappedFile>> MemoryMappedFile::Create(
     length = file_size - offset;
   }
 
-  // iOS devices have very bad performance with
-  // MAP_PRIVATE, so use MAP_SHARED here. The Metal API for importing host
-  // memory doesn't require it to be writable, so it's fine to just use
-  // PROT_READ here.
-#if TARGET_OS_IPHONE
-  void* data = mmap(nullptr, length, PROT_READ, MAP_SHARED, file, offset);
-#else
   void* data =
       mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_PRIVATE, file, offset);
-#endif
   RET_CHECK_NE(data, MAP_FAILED) << "Failed to map, error: " << strerror(errno);
   RET_CHECK_NE(data, nullptr) << "Failed to map.";
-#if defined(__APPLE__) && !TARGET_OS_IPHONE
-  // Mark it not needed to avoid unnecessary page loading on MacOS.
+#ifdef __APPLE__
+  // Mark it not needed to avoid unnecessary page loading on MacOS or iOS.
   RET_CHECK_EQ(madvise(data, length, MADV_DONTNEED), 0) << "madvise failed.";
 #else
   RET_CHECK_EQ(madvise(data, length, MADV_WILLNEED), 0) << "madvise failed.";
