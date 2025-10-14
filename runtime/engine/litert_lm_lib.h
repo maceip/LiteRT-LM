@@ -32,6 +32,7 @@ struct LiteRtLmSettings {
   std::string sampler_backend = "";
   std::string model_path;
   std::string input_prompt = "What is the tallest building in the world?";
+  std::optional<std::string> expected_output = std::nullopt;
   int max_num_tokens = 0;
   std::set<int> prefill_batch_sizes;
   bool benchmark = false;

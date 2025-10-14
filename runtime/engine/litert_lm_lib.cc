@@ -25,7 +25,6 @@
 
 #include <cstdint>
 #include <filesystem>  // NOLINT
-#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -39,6 +38,7 @@
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
@@ -61,10 +61,7 @@ namespace lm {
 using ::litert::lm::Backend;
 using ::litert::lm::Engine;
 using ::litert::lm::EngineSettings;
-using ::litert::lm::InferenceCallbacks;
-using ::litert::lm::InputAudio;
 using ::litert::lm::InputData;
-using ::litert::lm::InputImage;
 using ::litert::lm::InputText;
 using ::litert::lm::JsonMessage;
 using ::litert::lm::LlmExecutorSettings;
@@ -80,40 +77,33 @@ const absl::Duration kWaitUntilDoneTimeout = absl::Minutes(10);
 
 namespace {
 
-class LiteRtLmLibCallbacks : public InferenceCallbacks {
- public:
-  explicit LiteRtLmLibCallbacks(bool is_dummy_io) {
-    is_dummy_io_ = is_dummy_io;
-  }
-
-  void OnNext(const Responses& responses) override {
-    if (!is_dummy_io_) {
-      std::cout << *responses.GetResponseTextAt(0) << std::flush;
-    }
-  }
-
- private:
-  bool is_dummy_io_;
-};
-
 absl::Status PrintJsonMessage(const JsonMessage& message,
+                              std::stringstream& captured_output,
                               bool streaming = false) {
   if (message["content"].is_array()) {
     for (const auto& content : message["content"]) {
       if (content["type"] == "text") {
+        captured_output << content["text"].get<std::string>();
         std::cout << content["text"].get<std::string>();
       }
     }
     if (!streaming) {
+      captured_output << std::endl << std::flush;
       std::cout << std::endl << std::flush;
     } else {
+      captured_output << std::flush;
       std::cout << std::flush;
     }
   } else if (message["content"]["text"].is_string()) {
     if (!streaming) {
+      captured_output << message["content"]["text"].get<std::string>()
+                      << std::endl
+                      << std::flush;
       std::cout << message["content"]["text"].get<std::string>() << std::endl
                 << std::flush;
     } else {
+      captured_output << message["content"]["text"].get<std::string>()
+                      << std::flush;
       std::cout << message["content"]["text"].get<std::string>() << std::flush;
     }
   } else {
@@ -124,15 +114,33 @@ absl::Status PrintJsonMessage(const JsonMessage& message,
 
 class PrintMessageCallbacks : public MessageCallbacks {
  public:
+  explicit PrintMessageCallbacks(std::stringstream& captured_output)
+      : captured_output_(captured_output) {}
+
   void OnMessage(const litert::lm::Message& message) override {
     if (std::holds_alternative<JsonMessage>(message)) {
-      ABSL_CHECK_OK(
-          PrintJsonMessage(std::get<JsonMessage>(message), /*streaming=*/true));
+      ABSL_CHECK_OK(PrintJsonMessage(std::get<JsonMessage>(message),
+                                     captured_output_,
+                                     /*streaming=*/true));
     }
   }
   void OnComplete() override { std::cout << std::endl << std::flush; }
   void OnError(const absl::Status& status) override {}
+
+ private:
+  std::stringstream& captured_output_;
 };
+
+void CheckExpectedOutput(const std::string& captured_output,
+                         const LiteRtLmSettings& settings) {
+  if (settings.expected_output.has_value()) {
+    if (!absl::StrContainsIgnoreCase(captured_output,
+                                     *settings.expected_output)) {
+      ABSL_LOG(FATAL) << "Expected output: " << *settings.expected_output
+                      << " was not found in response: " << captured_output;
+    }
+  }
+}
 
 absl::Status BuildContentList(absl::string_view prompt_view, json& content_list,
                               const LiteRtLmSettings& settings) {
@@ -199,17 +207,20 @@ absl::Status RunSingleTurnConversation(const std::string& input_prompt,
                                        Conversation* conversation) {
   json content_list = json::array();
   RETURN_IF_ERROR(BuildContentList(input_prompt, content_list, settings));
+  std::stringstream captured_output;
   if (settings.async) {
     RETURN_IF_ERROR(conversation->SendMessageStream(
         json::object({{"role", "user"}, {"content", content_list}}),
-        std::make_unique<PrintMessageCallbacks>()));
+        std::make_unique<PrintMessageCallbacks>(captured_output)));
     RETURN_IF_ERROR(engine->WaitUntilDone(kWaitUntilDoneTimeout));
   } else {
     ASSIGN_OR_RETURN(auto model_message,
                      conversation->SendMessage(json::object(
                          {{"role", "user"}, {"content", content_list}})));
-    RETURN_IF_ERROR(PrintJsonMessage(std::get<JsonMessage>(model_message)));
+    RETURN_IF_ERROR(PrintJsonMessage(std::get<JsonMessage>(model_message),
+                                     captured_output));
   }
+  CheckExpectedOutput(captured_output.str(), settings);
   return absl::OkStatus();
 }
 
@@ -217,6 +228,7 @@ absl::Status RunMultiTurnConversation(const LiteRtLmSettings& settings,
                                       litert::lm::Engine* engine,
                                       Conversation* conversation) {
   std::string input_prompt;
+  std::stringstream captured_output;
   do {
     std::cout << "Please enter the prompt (or press Enter to end): ";
     std::getline(std::cin, input_prompt);
@@ -238,15 +250,17 @@ absl::Status RunMultiTurnConversation(const LiteRtLmSettings& settings,
     if (settings.async) {
       RETURN_IF_ERROR(conversation->SendMessageStream(
           json::object({{"role", "user"}, {"content", content_list}}),
-          std::make_unique<PrintMessageCallbacks>()));
+          std::make_unique<PrintMessageCallbacks>(captured_output)));
       RETURN_IF_ERROR(engine->WaitUntilDone(kWaitUntilDoneTimeout));
     } else {
       ASSIGN_OR_RETURN(auto model_message,
                        conversation->SendMessage(json::object(
                            {{"role", "user"}, {"content", content_list}})));
-      RETURN_IF_ERROR(PrintJsonMessage(std::get<JsonMessage>(model_message)));
+      RETURN_IF_ERROR(PrintJsonMessage(std::get<JsonMessage>(model_message),
+                                       captured_output));
     }
   } while (true);
+  CheckExpectedOutput(captured_output.str(), settings);
   return absl::OkStatus();
 }
 

@@ -56,6 +56,10 @@ ABSL_FLAG(std::string, model_path, "", "Model path to use for LLM execution.");
 ABSL_FLAG(std::string, input_prompt,
           "What is the tallest building in the world?",
           "Input prompt to use for testing LLM execution.");
+ABSL_FLAG(std::string, expected_output, "",
+          "If not empty, the output will be checked against this string. If "
+          "the output does not contain the string, the program will exit with "
+          "an error.");
 ABSL_FLAG(int, max_num_tokens, 0,
           "Maximum number of tokens or context length to use for LLM execution "
           "of a graph with dynamic context length. If 0, the maximum context "
@@ -158,7 +162,8 @@ absl::Status MainHelper(int argc, char** argv) {
   if (argc <= 1) {
     ABSL_LOG(INFO)
         << "Example usage: ./litert_lm_main --model_path=<model_path> "
-           "[--input_prompt=<input_prompt>] [--backend=<cpu|gpu|npu>] "
+           "[--input_prompt=<input_prompt>] "
+           "[--expected_output=<expected_output>] [--backend=<cpu|gpu|npu>] "
            "[--max_num_tokens=<max_num_tokens>] "
            "[--prefill_batch_sizes=<size1>[,<size2>,...]]"
            "[--vision_backend=<cpu|gpu>] [--audio_backend=<cpu|gpu>] "
@@ -191,6 +196,7 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.sampler_backend = absl::GetFlag(FLAGS_sampler_backend);
   settings.model_path = absl::GetFlag(FLAGS_model_path);
   settings.input_prompt = absl::GetFlag(FLAGS_input_prompt);
+  settings.expected_output = absl::GetFlag(FLAGS_expected_output);
   settings.max_num_tokens = absl::GetFlag(FLAGS_max_num_tokens);
   ASSIGN_OR_RETURN(
       settings.prefill_batch_sizes,
