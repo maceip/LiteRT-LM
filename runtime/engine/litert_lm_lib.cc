@@ -402,44 +402,47 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
   }
 
   ABSL_LOG(INFO) << "Creating engine";
-  absl::StatusOr<std::unique_ptr<litert::lm::Engine>> engine =
-      litert::lm::Engine::CreateEngine(std::move(engine_settings),
-                                       settings.input_prompt);
-  ABSL_CHECK_OK(engine) << "Failed to create engine";
+  ASSIGN_OR_RETURN(auto engine,
+                   litert::lm::Engine::CreateEngine(std::move(engine_settings),
+                                                    settings.input_prompt));
 
   // Clear the prompt templates to prevent Session applying the prompt
   // templates twice.
   session_config.GetMutablePromptTemplates().mutable_user()->set_prefix("");
 
   ABSL_LOG(INFO) << "Creating session";
-  absl::StatusOr<std::unique_ptr<litert::lm::Engine::Session>> session =
-      (*engine)->CreateSession(session_config);
-  ABSL_CHECK_OK(session) << "Failed to create session";
+  ASSIGN_OR_RETURN(auto session, engine->CreateSession(session_config));
 
-  absl::StatusOr<std::unique_ptr<Conversation>> conversation;
-  ABSL_LOG(INFO) << "Creating conversation";
-  conversation = Conversation::Create(std::move(*session));
-  ABSL_CHECK_OK(conversation) << "Failed to create conversation";
-
+  std::unique_ptr<Conversation> conversation;
   if (settings.score_target_text.has_value() &&
       !settings.score_target_text->empty()) {
     std::string input_prompt = settings.input_prompt;
     std::string score_target_text = settings.score_target_text.value();
-    RunScoreText(engine->get(), session->get(), input_prompt,
-                 score_target_text);
-  } else if (settings.multi_turns) {
-    ABSL_LOG(INFO) << "Running multi-turns conversation";
-    RETURN_IF_ERROR(
-        RunMultiTurnConversation(settings, engine->get(), conversation->get()));
+    RunScoreText(engine.get(), session.get(), input_prompt, score_target_text);
   } else {
-    ABSL_LOG(INFO) << "Running single-turn conversation";
-    RETURN_IF_ERROR(RunSingleTurnConversation(
-        settings.input_prompt, settings, engine->get(), conversation->get()));
+    ABSL_LOG(INFO) << "Creating conversation";
+    ASSIGN_OR_RETURN(conversation, Conversation::Create(std::move(session)));
+    if (settings.multi_turns) {
+      ABSL_LOG(INFO) << "Running multi-turns conversation";
+      RETURN_IF_ERROR(
+          RunMultiTurnConversation(settings, engine.get(), conversation.get()));
+    } else {
+      ABSL_LOG(INFO) << "Running single-turn conversation";
+      RETURN_IF_ERROR(RunSingleTurnConversation(
+          settings.input_prompt, settings, engine.get(), conversation.get()));
+    }
   }
 
-  // Manually releasing the session to ensure that memory usage from
+  if (settings.benchmark) {
+    auto benchmark_info = conversation ? conversation->GetBenchmarkInfo()
+                                       : session->GetBenchmarkInfo();
+    ABSL_LOG(INFO) << *benchmark_info;
+  }
+
+  // Manually resetting the session to ensure that memory usage from
   // `GetMemoryUsage()` is reporting idle engine state without active sessions.
-  session->release();
+  conversation.reset();
+  session.reset();
 
   if (settings.report_peak_memory_footprint) {
     float peak_mem_mb = 0.0f;
