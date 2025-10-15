@@ -15,6 +15,7 @@
 #include "runtime/conversation/conversation.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -29,6 +30,7 @@
 #include "absl/time/clock.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "runtime/components/prompt_template.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
@@ -86,6 +88,68 @@ class TestMessageCallbacks : public MessageCallbacks {
   absl::Notification done_;
 };
 
+TEST(ConversationConfigTest, CreateDefault) {
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
+  ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
+                                                 model_assets, Backend::CPU));
+  engine_settings.GetMutableMainExecutorSettings().SetCacheDir(":nocache");
+  engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
+  ASSERT_OK_AND_ASSIGN(auto config, ConversationConfig::CreateDefault(*engine));
+  EXPECT_OK(Conversation::Create(*engine, config));
+}
+
+TEST(ConversationConfigTest, CreateDefaultWithOverwritePromptTemplate) {
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
+  ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
+                                                 model_assets, Backend::CPU));
+  engine_settings.GetMutableMainExecutorSettings().SetCacheDir(":nocache");
+  engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
+  ASSERT_OK_AND_ASSIGN(auto config, ConversationConfig::CreateDefault(
+                                        *engine, PromptTemplate("Hello world!"),
+                                        /*preface=*/std::nullopt));
+  EXPECT_EQ(config.GetPromptTemplate().GetTemplateSource(), "Hello world!");
+  EXPECT_TRUE(
+      config.GetSessionConfig().GetPromptTemplates().user().prefix().empty());
+  EXPECT_TRUE(config.GetSessionConfig().GetLlmModelType().has_gemma3());
+}
+
+TEST(ConversationConfigTest, CreateFromSessionConfig) {
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
+  ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
+                                                 model_assets, Backend::CPU));
+  engine_settings.GetMutableMainExecutorSettings().SetCacheDir(":nocache");
+  engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
+
+  auto session_config = SessionConfig::CreateDefault();
+  session_config.GetMutableJinjaPromptTemplate() = "A fixed content";
+  session_config.GetMutableLlmModelType().mutable_gemma3n();
+
+  ASSERT_OK_AND_ASSIGN(
+      auto config,
+      ConversationConfig::CreateFromSessionConfig(
+          *engine, session_config, /*preface=*/
+          JsonPreface{
+              .messages = {{{"role", "system"},
+                            {"content", "You are a helpful assistant."}}}}));
+  EXPECT_EQ(config.GetPromptTemplate().GetTemplateSource(), "A fixed content");
+  EXPECT_TRUE(std::holds_alternative<JsonPreface>(config.GetPreface()));
+  EXPECT_EQ(
+      std::get<JsonPreface>(config.GetPreface()).messages,
+      nlohmann::ordered_json(
+          {{{"role", "system"}, {"content", "You are a helpful assistant."}}}));
+  EXPECT_EQ(config.GetSessionConfig().GetLlmModelType().model_type_case(),
+            proto::LlmModelType::kGemma3N);
+  EXPECT_TRUE(
+      config.GetSessionConfig().GetPromptTemplates().user().prefix().empty());
+  EXPECT_OK(Conversation::Create(*engine, config));
+}
+
 TEST(ConversationTest, SendMessage) {
   ASSERT_OK_AND_ASSIGN(auto model_assets,
                        ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
@@ -94,13 +158,9 @@ TEST(ConversationTest, SendMessage) {
   engine_settings.GetMutableMainExecutorSettings().SetCacheDir(":nocache");
   engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(10);
   ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
-  auto session_config = SessionConfig::CreateDefault();
-  session_config.GetMutablePromptTemplates().mutable_user()->set_prefix("");
-  ASSERT_OK_AND_ASSIGN(auto session,
-                       engine->CreateSession(SessionConfig::CreateDefault()));
-
+  ASSERT_OK_AND_ASSIGN(auto config, ConversationConfig::CreateDefault(*engine));
   ASSERT_OK_AND_ASSIGN(auto conversation,
-                       Conversation::Create(std::move(session)));
+                       Conversation::Create(*engine, config));
   EXPECT_THAT(conversation->GetHistory(), testing::IsEmpty());
   JsonMessage user_message = {{"role", "user"}, {"content", "Hello world!"}};
   ASSERT_OK_AND_ASSIGN(const Message message,
@@ -126,11 +186,9 @@ TEST(ConversationTest, SendMessageStream) {
   engine_settings.GetMutableMainExecutorSettings().SetCacheDir(":nocache");
   engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(10);
   ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
-  auto session_config = SessionConfig::CreateDefault();
-  session_config.GetMutablePromptTemplates().mutable_user()->set_prefix("");
-  ASSERT_OK_AND_ASSIGN(auto session, engine->CreateSession(session_config));
+  ASSERT_OK_AND_ASSIGN(auto config, ConversationConfig::CreateDefault(*engine));
   ASSERT_OK_AND_ASSIGN(auto conversation,
-                       Conversation::Create(std::move(session)));
+                       Conversation::Create(*engine, config));
 
   JsonMessage user_message = {{"role", "user"}, {"content", "Hello world!"}};
   // The expected message is just some gibberish text, because the test LLM has
@@ -157,14 +215,17 @@ TEST(ConversationTest, SendMessageWithPreface) {
   engine_settings.GetMutableMainExecutorSettings().SetCacheDir(":nocache");
   engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(15);
   ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
-  auto session_config = SessionConfig::CreateDefault();
-  session_config.GetMutablePromptTemplates().mutable_user()->set_prefix("");
-  ASSERT_OK_AND_ASSIGN(auto session, engine->CreateSession(session_config));
-  Preface preface =
-      JsonPreface{.messages = {{{"role", "system"},
-                                {"content", "You are a helpful assistant."}}}};
+  ASSERT_OK_AND_ASSIGN(
+      auto config,
+      ConversationConfig::CreateDefault(
+          *engine,
+          /*overwrite_prompt_template=*/std::nullopt,
+          /*preface=*/
+          JsonPreface{
+              .messages = {{{"role", "system"},
+                            {"content", "You are a helpful assistant."}}}}));
   ASSERT_OK_AND_ASSIGN(auto conversation,
-                       Conversation::Create(std::move(session), preface));
+                       Conversation::Create(*engine, config));
   ASSERT_OK_AND_ASSIGN(const Message message,
                        conversation->SendMessage(JsonMessage{
                            {"role", "user"}, {"content", "Hello world!"}}));
@@ -189,13 +250,17 @@ TEST(ConversationTest, GetBenchmarkInfo) {
   proto::BenchmarkParams benchmark_params;
   engine_settings.GetMutableBenchmarkParams() = benchmark_params;
   ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
-  ASSERT_OK_AND_ASSIGN(auto session,
-                       engine->CreateSession(SessionConfig::CreateDefault()));
-  Preface preface =
-      JsonPreface{.messages = {{{"role", "system"},
-                                {"content", "You are a helpful assistant."}}}};
+  ASSERT_OK_AND_ASSIGN(
+      auto config,
+      ConversationConfig::CreateDefault(
+          *engine,
+          /*overwrite_prompt_template=*/std::nullopt,
+          /*preface=*/
+          JsonPreface{
+              .messages = {{{"role", "system"},
+                            {"content", "You are a helpful assistant."}}}}));
   ASSERT_OK_AND_ASSIGN(auto conversation,
-                       Conversation::Create(std::move(session), preface));
+                       Conversation::Create(*engine, config));
   ASSERT_OK_AND_ASSIGN(const Message message_1,
                        conversation->SendMessage(JsonMessage{
                            {"role", "user"}, {"content", "Hello world!"}}));
@@ -257,11 +322,9 @@ TEST_P(ConversationCancellationTest, CancelProcessWithBenchmarkInfo) {
     engine_settings.GetMutableBenchmarkParams() = benchmark_params;
   }
   ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
-  auto session_config = SessionConfig::CreateDefault();
-  session_config.GetMutablePromptTemplates().mutable_user()->set_prefix("");
-  ASSERT_OK_AND_ASSIGN(auto session, engine->CreateSession(session_config));
+  ASSERT_OK_AND_ASSIGN(auto config, ConversationConfig::CreateDefault(*engine));
   ASSERT_OK_AND_ASSIGN(auto conversation,
-                       Conversation::Create(std::move(session)));
+                       Conversation::Create(*engine, config));
 
   absl::Status status;
   absl::Notification done_1;

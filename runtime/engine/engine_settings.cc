@@ -356,8 +356,13 @@ absl::Status SessionConfig::MaybeUpdateAndValidate(
       prompt_templates_ = llm_metadata.prompt_templates();
     }
 
-    llm_model_type_ = llm_metadata.llm_model_type();
-    jinja_prompt_template_ = llm_metadata.jinja_prompt_template();
+    if (llm_model_type_.model_type_case() ==
+        proto::LlmModelType::MODEL_TYPE_NOT_SET) {
+      llm_model_type_ = llm_metadata.llm_model_type();
+    }
+    if (jinja_prompt_template_.empty()) {
+      jinja_prompt_template_ = llm_metadata.jinja_prompt_template();
+    }
   }
 
   // Validating the required fields are set correctly.

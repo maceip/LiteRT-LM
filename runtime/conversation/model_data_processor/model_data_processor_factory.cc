@@ -63,4 +63,17 @@ absl::StatusOr<std::unique_ptr<ModelDataProcessor>> CreateModelDataProcessor(
   return absl::InvalidArgumentError("Unsupported model type");
 }
 
+DataProcessorConfig GetDefaultDataProcessorConfig(
+    const proto::LlmModelType& llm_model_type) {
+  switch (llm_model_type.model_type_case()) {
+    case proto::LlmModelType::kGemma3N:
+    case proto::LlmModelType::kGemma3:
+      return Gemma3DataProcessorConfig();
+    case proto::LlmModelType::kGenericModel:
+      return GenericDataProcessorConfig();
+    default:
+      return std::monostate();
+  }
+}
+
 }  // namespace litert::lm

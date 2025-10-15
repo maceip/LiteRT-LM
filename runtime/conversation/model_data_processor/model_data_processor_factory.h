@@ -34,6 +34,10 @@ absl::StatusOr<std::unique_ptr<ModelDataProcessor>> CreateModelDataProcessor(
     const DataProcessorConfig& config = std::monostate(),
     std::optional<Preface> preface = std::nullopt);
 
+// Returns the default data processor config for the given model type.
+DataProcessorConfig GetDefaultDataProcessorConfig(
+    const proto::LlmModelType& llm_model_type);
+
 }  // namespace litert::lm
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_MODEL_DATA_PROCESSOR_MODEL_DATA_PROCESSOR_FACTORY_H_

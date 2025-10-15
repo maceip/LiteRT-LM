@@ -36,11 +36,56 @@
 #include "runtime/conversation/model_data_processor/model_data_processor.h"
 #include "runtime/conversation/model_data_processor/model_data_processor_factory.h"
 #include "runtime/engine/engine.h"
+#include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/proto/llm_model_type.pb.h"
 #include "runtime/util/status_macros.h"
 
 namespace litert::lm {
+
+absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
+    const Engine& engine,
+    std::optional<PromptTemplate> overwrite_prompt_template,
+    std::optional<Preface> preface,
+    std::optional<DataProcessorConfig> overwrite_processor_config) {
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  if (overwrite_prompt_template.has_value()) {
+    session_config.GetMutableJinjaPromptTemplate() =
+        overwrite_prompt_template->GetTemplateSource();
+  } else {
+    ABSL_LOG(INFO) << "Overwrite prompt template is not provided, using the "
+                      "default template from the model metadata.";
+  }
+  return CreateFromSessionConfig(engine, session_config, preface,
+                                 overwrite_processor_config);
+}
+
+absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
+    const Engine& engine, const SessionConfig& session_config,
+    std::optional<Preface> preface,
+    std::optional<DataProcessorConfig> overwrite_processor_config) {
+  if (preface.has_value() && !std::holds_alternative<JsonPreface>(*preface)) {
+    return absl::InvalidArgumentError("Only JsonPreface is supported for now.");
+  }
+  SessionConfig session_config_copy = session_config;
+  // Clear the prompt templates to prevent Session applying the prompt
+  // templates twice.
+  session_config_copy.GetMutablePromptTemplates().mutable_user()->set_prefix(
+      "");
+  RETURN_IF_ERROR(
+      session_config_copy.MaybeUpdateAndValidate(engine.GetEngineSettings()));
+  if (session_config_copy.GetJinjaPromptTemplate().empty()) {
+    return absl::InvalidArgumentError(
+        "Jinja prompt template is empty. Either the prompt template is not "
+        "read from model metadata or the prompt template is not set in "
+        "SessionConfig.");
+  }
+  return ConversationConfig(
+      session_config_copy, preface.value_or(JsonPreface()),
+      PromptTemplate(session_config_copy.GetJinjaPromptTemplate()),
+      overwrite_processor_config.value_or(GetDefaultDataProcessorConfig(
+          session_config_copy.GetLlmModelType())));
+}
 
 absl::StatusOr<std::string> Conversation::GetSingleTurnText(
     const Message& message) const {
@@ -117,29 +162,21 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
 }
 
 absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
-    std::unique_ptr<Engine::Session> session, std::optional<Preface> preface,
-    std::optional<PromptTemplate> prompt_template,
-    std::optional<DataProcessorConfig> processor_config) {
-  if (!preface.has_value()) {
-    preface = JsonPreface();
+    const Engine& engine, const ConversationConfig& config) {
+  if (!std::holds_alternative<JsonPreface>(config.GetPreface())) {
+    return absl::InvalidArgumentError("Only JsonPreface is supported for now.");
   }
+  ASSIGN_OR_RETURN(std::unique_ptr<Engine::Session> session,
+                   engine.CreateSession(config.GetSessionConfig()));
   const proto::LlmModelType& llm_model_type =
       session->GetSessionConfig().GetLlmModelType();
-  processor_config = processor_config.value_or(std::monostate());
   ASSIGN_OR_RETURN(
       std::unique_ptr<ModelDataProcessor> model_data_processor,
-      CreateModelDataProcessor(llm_model_type, *processor_config, *preface));
-  if (!prompt_template.has_value()) {
-    // Get template from the session or model file when the template is not
-    // provided by the user.
-    ABSL_LOG(INFO)
-        << "Prompt template is not provided, using default template.";
-    prompt_template =
-        PromptTemplate(session->GetSessionConfig().GetJinjaPromptTemplate());
-  }
-  auto conversation = absl::WrapUnique(
-      new Conversation(std::move(session), std::move(model_data_processor),
-                       *preface, *prompt_template));
+      CreateModelDataProcessor(llm_model_type, config.GetProcessorConfig(),
+                               config.GetPreface()));
+  auto conversation = absl::WrapUnique(new Conversation(
+      std::move(session), std::move(model_data_processor), config.GetPreface(),
+      config.GetPromptTemplate(), config));
   return conversation;
 }
 

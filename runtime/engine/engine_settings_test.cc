@@ -641,6 +641,7 @@ TEST(SessionConfigTest, MaybeUpdateAndValidateJinjaPromptTemplate) {
       "<start_of_turn>model\n");
   llm_metadata.mutable_prompt_templates()->mutable_system()->set_prefix(
       "<start_of_turn>system\n");
+  session_config.GetMutableJinjaPromptTemplate().clear();
   EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
   EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
   EXPECT_THAT(session_config.GetJinjaPromptTemplate(),
@@ -649,6 +650,29 @@ TEST(SessionConfigTest, MaybeUpdateAndValidateJinjaPromptTemplate) {
               testing::HasSubstr("<start_of_turn>model\n"));
   EXPECT_THAT(session_config.GetJinjaPromptTemplate(),
               testing::HasSubstr("<start_of_turn>system\n"));
+}
+
+TEST(SessionConfigTest, MaybeUpdateAndValidateNotOverwrite) {
+  auto model_assets = ModelAssets::Create("test_model_path_1");
+  ASSERT_OK(model_assets);
+  auto settings = EngineSettings::CreateDefault(*model_assets);
+  EXPECT_OK(settings);
+
+  MockTokenizer tokenizer;
+  EXPECT_CALL(tokenizer, TokenIdsToText).WillRepeatedly(Return("fake_text"));
+  EXPECT_CALL(tokenizer, TokenToId).WillRepeatedly(Return(1));
+  proto::LlmMetadata llm_metadata = CreateLlmMetadata();
+  llm_metadata.set_jinja_prompt_template("template_from_metadata");
+  llm_metadata.mutable_llm_model_type()->mutable_gemma3n();
+  EXPECT_OK(settings->MaybeUpdateAndValidate(tokenizer, &llm_metadata));
+
+  auto session_config = SessionConfig::CreateDefault();
+  session_config.GetMutableJinjaPromptTemplate() = "template_from_user";
+  session_config.GetMutableLlmModelType().mutable_gemma3();
+  EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
+  EXPECT_EQ(session_config.GetJinjaPromptTemplate(), "template_from_user");
+  EXPECT_EQ(session_config.GetLlmModelType().model_type_case(),
+            proto::LlmModelType::kGemma3);
 }
 
 TEST(SessionConfigTest, PrintOperator) {

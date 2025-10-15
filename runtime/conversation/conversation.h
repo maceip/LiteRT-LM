@@ -30,9 +30,85 @@
 #include "runtime/conversation/model_data_processor/config_registry.h"
 #include "runtime/conversation/model_data_processor/model_data_processor.h"
 #include "runtime/engine/engine.h"
+#include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 
 namespace litert::lm {
+
+// Configuration for the Conversation instance. This class is used to
+// initialize the Conversation instance. The configuration is created from the
+// Engine with default SessionConfig, or from a provided SessionConfig, with
+// optional overwrite for the prompt template, processor config.
+class ConversationConfig {
+ public:
+  // Creates a default ConversationConfig from the given Engine.
+  // Args:
+  // - `engine`: The Engine instance to be used for creating the default config.
+  // - `overwrite_prompt_template`: Optional PromptTemplate instance to be used
+  //     for the conversation. If not provided, the conversation will use the
+  //     template read from the model metadata.
+  // - `preface`: Optional Preface for the conversation. The Preface provides
+  //     the initial background for the conversation, tool uses and extra
+  //     context for the conversation. If not provided, the conversation will
+  //     start with an empty Preface.
+  // - `overwrite_processor_config`: Optional configuration for the model data
+  //     processor, if not provided, the default config for the model type's
+  //     data processor will be used. Most of the time, the users don't need to
+  //     provide the data processor config.
+  static absl::StatusOr<ConversationConfig> CreateDefault(
+      const Engine& engine,
+      std::optional<PromptTemplate> overwrite_prompt_template = std::nullopt,
+      std::optional<Preface> preface = std::nullopt,
+      std::optional<DataProcessorConfig> overwrite_processor_config =
+          std::nullopt);
+
+  // Creates a ConversationConfig from the given SessionConfig.
+  // Args:
+  // - `engine`: The Engine instance to be used to validate the SessionConfig.
+  // - `session_config`: The SessionConfig to be used for creating the
+  //     ConversationConfig.
+  // - `preface`: Optional Preface for the conversation. The Preface provides
+  //     the initial background for the conversation, tool uses and extra
+  //     context for the conversation. If not provided, the conversation will
+  //     start with an empty Preface.
+  // - `overwrite_processor_config`: Optional configuration for the model data
+  //     processor, if not provided, the default config for the model type's
+  //     data processor will be used. Most of the time, the users don't need to
+  //     provide the data processor config.
+  static absl::StatusOr<ConversationConfig> CreateFromSessionConfig(
+      const Engine& engine, const SessionConfig& session_config,
+      std::optional<Preface> preface = std::nullopt,
+      std::optional<DataProcessorConfig> overwrite_processor_config =
+          std::nullopt);
+
+  // Returns the SessionConfig used for creating the ConversationConfig.
+  const SessionConfig& GetSessionConfig() const { return session_config_; }
+
+  // Returns the Preface used for creating the ConversationConfig.
+  const Preface& GetPreface() const { return preface_; }
+
+  // Returns the PromptTemplate used for creating the ConversationConfig.
+  const PromptTemplate& GetPromptTemplate() const { return prompt_template_; }
+
+  // Returns the DataProcessorConfig used for creating the ConversationConfig.
+  const DataProcessorConfig& GetProcessorConfig() const {
+    return processor_config_;
+  }
+
+ private:
+  explicit ConversationConfig(SessionConfig session_config, Preface preface,
+                              PromptTemplate prompt_template,
+                              DataProcessorConfig processor_config)
+      : session_config_(std::move(session_config)),
+        preface_(std::move(preface)),
+        prompt_template_(std::move(prompt_template)),
+        processor_config_(std::move(processor_config)) {}
+
+  SessionConfig session_config_;
+  Preface preface_;
+  PromptTemplate prompt_template_;
+  DataProcessorConfig processor_config_;
+};
 
 // A multi-turn centric stateful Conversation API for high-level user
 // interaction. Conversation maintains the history for users, so the users'
@@ -48,12 +124,16 @@ namespace litert::lm {
 //
 // Example usage:
 //
-//   // Create a Conversation instance, by transferring the ownership of the
-//   // Session instance to the Conversation. The Session instance is created
-//   // from the LLM Engine, and Conversation acts as a delegate for users to
-//   // interact with the LLM Session.
+//   // Create an Engine instance.
+//   ASSIGN_OR_RETURN(auto engine, Engine::Create(model_assets));
+//
+//   // Create a ConversationConfig instance from the Engine.
+//   ASSIGN_OR_RETURN(auto conversation_config,
+//                    ConversationConfig::CreateDefault(*engine));
+//
+//   // Create a Conversation instance.
 //   ASSIGN_OR_RETURN(auto conversation,
-//       Conversation::Create(std::move(session)));
+//       Conversation::Create(*engine, conversation_config));
 //
 //   // Send a message to the LLM and returns the complete message.
 //   ASSIGN_OR_RETURN(const Message message,
@@ -61,34 +141,21 @@ namespace litert::lm {
 //                        {"role", "user"}, {"content", "Hello world!"}}));
 //
 //   // Send a message to the LLM and process the asynchronous message results
-//   // via the callbacks.
-//   // The callbacks is a user-defined callback class that handles the message
-//   // results.
-//   MyMessageObservable my_message_observable();
+//   // via the callbacks. The callbacks is a user-defined callback class that
+//   // handles the message results.
 //   EXPECT_OK(conversation->SendMessageStream(
 //       JsonMessage{{"role", "user"}, {"content", "Hello world!"}},
-//       &my_message_observable));
+//       std::make_unique<MyMessageCallbacks>()));
 //
 class Conversation {
  public:
-  // Creates a Conversation instance.
+  // Creates a Conversation instance from the the Engine and ConversationConfig.
   // Args:
-  // - `session`: The Session instance to be used for the conversation.
-  // - `preface`: Optional Preface for the conversation. The Preface provides
-  //     the initial background for the conversation, tool uses and extra
-  //     context for the conversation. If not provided, the conversation will
-  //     start with an empty Preface.
-  // - `prompt_template`: Optional PromptTemplate instance to be used for the
-  //     conversation. If not provided, the conversation will use the default
-  //     template for the model.
-  // - `processor_config`: Optional configuration for the model data processor,
-  //    if not provided, the default model config for data processing will be
-  //    used. Most of the time, the users don't need to provide the config.
+  // - `engine`: The Engine instance to be used for creating the Conversation.
+  // - `config`: The ConversationConfig instance to be used for creating the
+  // Conversation.
   static absl::StatusOr<std::unique_ptr<Conversation>> Create(
-      std::unique_ptr<Engine::Session> session,
-      std::optional<Preface> preface = std::nullopt,
-      std::optional<PromptTemplate> prompt_template = std::nullopt,
-      std::optional<DataProcessorConfig> processor_config = std::nullopt);
+      const Engine& engine, const ConversationConfig& config);
 
   // Sends a message to the LLM and returns the complete message.
   // Args:
@@ -123,6 +190,9 @@ class Conversation {
     return history_;
   }
 
+  // Returns the configuration used for creating the Conversation.
+  const ConversationConfig& GetConfig() const { return config_; }
+
   // Returns the benchmark info for the conversation. Underlying this method
   // triggers the benchmark info collection from the Session.
   // Returns:
@@ -138,11 +208,12 @@ class Conversation {
   explicit Conversation(
       std::unique_ptr<Engine::Session> session,
       std::unique_ptr<ModelDataProcessor> model_data_processor, Preface preface,
-      PromptTemplate prompt_template)
+      PromptTemplate prompt_template, ConversationConfig config)
       : session_(std::move(session)),
         model_data_processor_(std::move(model_data_processor)),
         preface_(preface),
-        prompt_template_(std::move(prompt_template)) {}
+        prompt_template_(std::move(prompt_template)),
+        config_(config) {}
 
   absl::StatusOr<std::string> GetSingleTurnText(const Message& message) const;
 
@@ -150,6 +221,7 @@ class Conversation {
   std::unique_ptr<ModelDataProcessor> model_data_processor_;
   Preface preface_;
   PromptTemplate prompt_template_;
+  const ConversationConfig config_;
   mutable absl::Mutex history_mutex_;
   std::vector<Message> history_ ABSL_GUARDED_BY(history_mutex_);
 };

@@ -406,22 +406,25 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
                    litert::lm::Engine::CreateEngine(std::move(engine_settings),
                                                     settings.input_prompt));
 
-  // Clear the prompt templates to prevent Session applying the prompt
-  // templates twice.
-  session_config.GetMutablePromptTemplates().mutable_user()->set_prefix("");
-
-  ABSL_LOG(INFO) << "Creating session";
-  ASSIGN_OR_RETURN(auto session, engine->CreateSession(session_config));
-
+  // Session and Conversation are mutually exclusive. Only when
+  // settings.score_target_text is set, we will create a Session to run the
+  // scoring. Otherwise, we will create a Conversation.
+  std::unique_ptr<Engine::Session> session;
   std::unique_ptr<Conversation> conversation;
   if (settings.score_target_text.has_value() &&
       !settings.score_target_text->empty()) {
+    ABSL_LOG(INFO) << "Creating session";
+    ASSIGN_OR_RETURN(auto session, engine->CreateSession(session_config));
     std::string input_prompt = settings.input_prompt;
     std::string score_target_text = settings.score_target_text.value();
     RunScoreText(engine.get(), session.get(), input_prompt, score_target_text);
   } else {
     ABSL_LOG(INFO) << "Creating conversation";
-    ASSIGN_OR_RETURN(conversation, Conversation::Create(std::move(session)));
+    ASSIGN_OR_RETURN(
+        auto conversation_config,
+        ConversationConfig::CreateFromSessionConfig(*engine, session_config));
+    ASSIGN_OR_RETURN(conversation,
+                     Conversation::Create(*engine, conversation_config));
     if (settings.multi_turns) {
       ABSL_LOG(INFO) << "Running multi-turns conversation";
       RETURN_IF_ERROR(
