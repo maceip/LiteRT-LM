@@ -95,6 +95,7 @@ cc_library(
 
 cc_test(
     name = "conversation_test",
+    size = "medium",
     srcs = ["conversation_test.cc"],
     data = [
         "//runtime/components/testdata",
@@ -106,6 +107,7 @@ cc_test(
         ":io_types",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/synchronization",

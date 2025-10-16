@@ -19,10 +19,12 @@
 #include <string>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
+#include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
@@ -44,14 +46,66 @@ namespace {
 absl::string_view kTestLlmPath =
     "litert_lm/runtime/testdata/test_lm.litertlm";
 
+constexpr absl::string_view kTestJinjaPromptTemplate = R"jinja(
+{%- for message in messages -%}
+  {{ '<start_of_turn>' + message.role }}
+  {{ message.content + '<end_of_turn>\n' }}
+{%- endfor -%}
+)jinja";
+
 std::string GetTestdataPath(absl::string_view file_path) {
   return absl::StrCat(::testing::SrcDir(), "/", file_path);
 }
 
+class MockSession : public Engine::Session {
+ public:
+  MOCK_METHOD(absl::StatusOr<Responses>, GenerateContent,
+              (const std::vector<InputData>& contents), (override));
+  MOCK_METHOD(absl::Status, GenerateContentStream,
+              (const std::vector<InputData>& contents,
+               std::unique_ptr<InferenceCallbacks> callbacks),
+              (override));
+  MOCK_METHOD(absl::Status, GenerateContentStream,
+              (const std::vector<InputData>& contents,
+               std::unique_ptr<InferenceCallbacks> callbacks,
+               const DecodeConfig& decode_config),
+              (override));
+  MOCK_METHOD(absl::StatusOr<Responses>, RunTextScoring,
+              (const std::vector<absl::string_view>& target_text), (override));
+  MOCK_METHOD(absl::Status, RunPrefill,
+              (const std::vector<InputData>& contents), (override));
+  MOCK_METHOD(absl::Status, RunPrefillAsync,
+              (const std::vector<InputData>& contents,
+               std::unique_ptr<InferenceCallbacks> callbacks),
+              (override));
+  MOCK_METHOD(absl::StatusOr<Responses>, RunDecode, (), (override));
+  MOCK_METHOD(absl::StatusOr<Responses>, RunDecode,
+              (const DecodeConfig& decode_config), (override));
+  MOCK_METHOD(absl::Status, RunDecodeAsync,
+              (std::unique_ptr<InferenceCallbacks> callbacks), (override));
+  MOCK_METHOD(absl::Status, RunDecodeAsync,
+              (std::unique_ptr<InferenceCallbacks> callbacks,
+               const DecodeConfig& decode_config),
+              (override));
+  MOCK_METHOD(absl::StatusOr<BenchmarkInfo>, GetBenchmarkInfo, (), (override));
+  MOCK_METHOD(void, CancelProcess, (), (override));
+  MOCK_METHOD(const SessionConfig&, GetSessionConfig, (), (const, override));
+};
+
+class MockEngine : public Engine {
+ public:
+  MOCK_METHOD(const EngineSettings&, GetEngineSettings, (), (const, override));
+  MOCK_METHOD(absl::StatusOr<std::unique_ptr<Session>>, CreateSession,
+              (const SessionConfig& session_config), (const, override));
+  MOCK_METHOD(absl::Status, WaitUntilDone, (absl::Duration timeout),
+              (override));
+};
+
 class TestMessageCallbacks : public MessageCallbacks {
  public:
-  explicit TestMessageCallbacks(const Message& expected_message)
-      : expected_message_(expected_message) {}
+  explicit TestMessageCallbacks(const Message& expected_message,
+                                absl::Notification& done)
+      : expected_message_(expected_message), done_(done) {}
 
   void OnError(const absl::Status& status) override {
     FAIL() << "OnError: " << status.message();
@@ -85,7 +139,7 @@ class TestMessageCallbacks : public MessageCallbacks {
 
  private:
   Message expected_message_;
-  absl::Notification done_;
+  absl::Notification& done_;
 };
 
 TEST(ConversationConfigTest, CreateDefault) {
@@ -178,6 +232,146 @@ TEST(ConversationTest, SendMessage) {
               testing::ElementsAre(user_message, expected_message));
 }
 
+TEST(ConversationTest, SendSingleMessage) {
+  // Set up mock Session.
+  auto mock_session = std::make_unique<MockSession>();
+  MockSession* mock_session_ptr = mock_session.get();
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.SetStartTokenId(0);
+  session_config.GetMutableStopTokenIds().push_back({1});
+  *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
+  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
+  EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
+      .WillRepeatedly(testing::ReturnRef(session_config));
+
+  // Set up mock Engine.
+  auto mock_engine = std::make_unique<MockEngine>();
+  EXPECT_CALL(*mock_engine, CreateSession(testing::_))
+      .WillOnce(testing::Return(std::move(mock_session)));
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
+  ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
+                                                 model_assets, Backend::CPU));
+  EXPECT_CALL(*mock_engine, GetEngineSettings())
+      .WillRepeatedly(testing::ReturnRef(engine_settings));
+
+  // Create Conversation.
+  ASSERT_OK_AND_ASSIGN(auto conversation_config,
+                       ConversationConfig::CreateFromSessionConfig(
+                           *mock_engine, session_config));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  // We will send a single message.
+  JsonMessage user_message = {{"role", "user"}, {"content", "How are you?"}};
+
+  Responses responses(1);
+  responses.GetMutableResponseTexts()[0] = "I am good.";
+  absl::string_view expected_input_text =
+      "<start_of_turn>user\n"
+      "How are you?<end_of_turn>\n";
+  EXPECT_CALL(*mock_session_ptr,
+              RunPrefill(testing::ElementsAre(
+                  testing::VariantWith<InputText>(testing::Property(
+                      &InputText::GetRawTextString, expected_input_text)))))
+      .WillOnce(testing::Return(absl::OkStatus()));
+  EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+      .WillOnce(testing::Return(responses));
+
+  ASSERT_OK_AND_ASSIGN(const Message response,
+                       conversation->SendMessage(user_message));
+
+  JsonMessage assistant_message = nlohmann::ordered_json::parse(R"({
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "I am good."
+      }
+    ]
+  })");
+  EXPECT_EQ(std::get<JsonMessage>(response), assistant_message);
+  EXPECT_THAT(conversation->GetHistory(),
+              testing::ElementsAre(user_message, assistant_message));
+}
+
+TEST(ConversationTest, SendMultipleMessages) {
+  // Set up mock Session.
+  auto mock_session = std::make_unique<MockSession>();
+  MockSession* mock_session_ptr = mock_session.get();
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.SetStartTokenId(0);
+  session_config.GetMutableStopTokenIds().push_back({1});
+  *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
+  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
+  EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
+      .WillRepeatedly(testing::ReturnRef(session_config));
+
+  // Set up mock Engine.
+  auto mock_engine = std::make_unique<MockEngine>();
+  EXPECT_CALL(*mock_engine, CreateSession(testing::_))
+      .WillOnce(testing::Return(std::move(mock_session)));
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
+  ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
+                                                 model_assets, Backend::CPU));
+  EXPECT_CALL(*mock_engine, GetEngineSettings())
+      .WillRepeatedly(testing::ReturnRef(engine_settings));
+
+  // Create Conversation.
+  ASSERT_OK_AND_ASSIGN(auto conversation_config,
+                       ConversationConfig::CreateFromSessionConfig(
+                           *mock_engine, session_config));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  // We will send two consecutive messages.
+  JsonMessage user_messages = nlohmann::ordered_json::parse(R"json(
+    [
+      {
+        "role": "user",
+        "content": "Hello world!"
+      },
+      {
+        "role": "user",
+        "content": "How are you?"
+      }
+    ]
+  )json");
+
+  Responses responses(1);
+  responses.GetMutableResponseTexts()[0] = "I am good.";
+  absl::string_view expected_input_text =
+      "<start_of_turn>user\n"
+      "Hello world!<end_of_turn>\n"
+      "<start_of_turn>user\n"
+      "How are you?<end_of_turn>\n";
+  EXPECT_CALL(*mock_session_ptr,
+              RunPrefill(testing::ElementsAre(
+                  testing::VariantWith<InputText>(testing::Property(
+                      &InputText::GetRawTextString, expected_input_text)))))
+      .WillOnce(testing::Return(absl::OkStatus()));
+  EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+      .WillOnce(testing::Return(responses));
+
+  ASSERT_OK_AND_ASSIGN(const Message response,
+                       conversation->SendMessage(user_messages));
+
+  JsonMessage assistant_message = nlohmann::ordered_json::parse(R"({
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "I am good."
+      }
+    ]
+  })");
+  EXPECT_EQ(std::get<JsonMessage>(response), assistant_message);
+  EXPECT_THAT(conversation->GetHistory(),
+              testing::ElementsAre(user_messages[0], user_messages[1],
+                                   assistant_message));
+}
+
 TEST(ConversationTest, SendMessageStream) {
   ASSERT_OK_AND_ASSIGN(auto model_assets,
                        ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
@@ -199,12 +393,173 @@ TEST(ConversationTest, SendMessageStream) {
        {{{"type", "text"},
          {"text", "TarefaByte دارایेत्र investigaciónప్రదేశসাইন"}}}}};
 
+  absl::Notification done;
   EXPECT_OK(conversation->SendMessageStream(
-      user_message, std::make_unique<TestMessageCallbacks>(expected_message)));
+      user_message,
+      std::make_unique<TestMessageCallbacks>(expected_message, done)));
   // Wait for the async message to be processed.
   EXPECT_OK(engine->WaitUntilDone(absl::Seconds(100)));
+  done.WaitForNotification();
   EXPECT_THAT(conversation->GetHistory(),
               testing::ElementsAre(user_message, expected_message));
+}
+
+TEST(ConversationTest, SendSingleMessageStream) {
+  // Set up mock Session.
+  auto mock_session = std::make_unique<MockSession>();
+  MockSession* mock_session_ptr = mock_session.get();
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.SetStartTokenId(0);
+  session_config.GetMutableStopTokenIds().push_back({1});
+  *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
+  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
+  EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
+      .WillRepeatedly(testing::ReturnRef(session_config));
+
+  // Set up mock Engine.
+  auto mock_engine = std::make_unique<MockEngine>();
+  EXPECT_CALL(*mock_engine, CreateSession(testing::_))
+      .WillOnce(testing::Return(std::move(mock_session)));
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
+  ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
+                                                 model_assets, Backend::CPU));
+  EXPECT_CALL(*mock_engine, GetEngineSettings())
+      .WillRepeatedly(testing::ReturnRef(engine_settings));
+
+  // Create Conversation.
+  ASSERT_OK_AND_ASSIGN(auto conversation_config,
+                       ConversationConfig::CreateFromSessionConfig(
+                           *mock_engine, session_config));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  // We will send a single message.
+  JsonMessage user_message = {{"role", "user"}, {"content", "How are you?"}};
+
+  absl::string_view expected_input_text =
+      "<start_of_turn>user\n"
+      "How are you?<end_of_turn>\n";
+  EXPECT_CALL(*mock_session_ptr,
+              GenerateContentStream(
+                  testing::ElementsAre(
+                      testing::VariantWith<InputText>(testing::Property(
+                          &InputText::GetRawTextString, expected_input_text))),
+                  testing::_, testing::_))
+      .WillOnce([](const std::vector<InputData>& contents,
+                   std::unique_ptr<InferenceCallbacks> callbacks,
+                   const DecodeConfig& decode_config) {
+        Responses responses(1);
+        responses.GetMutableResponseTexts()[0] = "I am good.";
+        callbacks->OnNext(responses);
+        callbacks->OnDone();
+        return absl::OkStatus();
+      });
+
+  JsonMessage assistant_message = nlohmann::ordered_json::parse(R"({
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "I am good."
+      }
+    ]
+  })");
+  absl::Notification done;
+  auto message_callbacks =
+      std::make_unique<TestMessageCallbacks>(assistant_message, done);
+  EXPECT_OK(conversation->SendMessageStream(user_message,
+                                            std::move(message_callbacks)));
+  done.WaitForNotification();
+
+  EXPECT_THAT(conversation->GetHistory(),
+              testing::ElementsAre(user_message, assistant_message));
+}
+
+TEST(ConversationTest, SendMultipleMessagesStream) {
+  // Set up mock Session.
+  auto mock_session = std::make_unique<MockSession>();
+  MockSession* mock_session_ptr = mock_session.get();
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.SetStartTokenId(0);
+  session_config.GetMutableStopTokenIds().push_back({1});
+  *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
+  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
+  EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
+      .WillRepeatedly(testing::ReturnRef(session_config));
+
+  // Set up mock Engine.
+  auto mock_engine = std::make_unique<MockEngine>();
+  EXPECT_CALL(*mock_engine, CreateSession(testing::_))
+      .WillOnce(testing::Return(std::move(mock_session)));
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
+  ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
+                                                 model_assets, Backend::CPU));
+  EXPECT_CALL(*mock_engine, GetEngineSettings())
+      .WillRepeatedly(testing::ReturnRef(engine_settings));
+
+  // Create Conversation.
+  ASSERT_OK_AND_ASSIGN(auto conversation_config,
+                       ConversationConfig::CreateFromSessionConfig(
+                           *mock_engine, session_config));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  // We will send two consecutive messages.
+  JsonMessage user_messages = nlohmann::ordered_json::parse(R"json(
+    [
+      {
+        "role": "user",
+        "content": "Hello world!"
+      },
+      {
+        "role": "user",
+        "content": "How are you?"
+      }
+    ]
+  )json");
+
+  absl::string_view expected_input_text =
+      "<start_of_turn>user\n"
+      "Hello world!<end_of_turn>\n"
+      "<start_of_turn>user\n"
+      "How are you?<end_of_turn>\n";
+  EXPECT_CALL(*mock_session_ptr,
+              GenerateContentStream(
+                  testing::ElementsAre(
+                      testing::VariantWith<InputText>(testing::Property(
+                          &InputText::GetRawTextString, expected_input_text))),
+                  testing::_, testing::_))
+      .WillOnce([](const std::vector<InputData>& contents,
+                   std::unique_ptr<InferenceCallbacks> callbacks,
+                   const DecodeConfig& decode_config) {
+        Responses responses(1);
+        responses.GetMutableResponseTexts()[0] = "I am good.";
+        callbacks->OnNext(responses);
+        callbacks->OnDone();
+        return absl::OkStatus();
+      });
+
+  JsonMessage assistant_message = nlohmann::ordered_json::parse(R"json({
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "I am good."
+      }
+    ]
+  })json");
+  absl::Notification done;
+  auto message_callbacks =
+      std::make_unique<TestMessageCallbacks>(assistant_message, done);
+  EXPECT_OK(conversation->SendMessageStream(user_messages,
+                                            std::move(message_callbacks)));
+  done.WaitForNotification();
+
+  EXPECT_THAT(conversation->GetHistory(),
+              testing::ElementsAre(user_messages[0], user_messages[1],
+                                   assistant_message));
 }
 
 TEST(ConversationTest, SendMessageWithPreface) {

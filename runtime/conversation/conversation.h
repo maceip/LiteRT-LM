@@ -159,7 +159,9 @@ class Conversation {
 
   // Sends a message to the LLM and returns the complete message.
   // Args:
-  // - `message`: The message to be sent to the LLM.
+  // - `message`: The message to be sent to the LLM. If `message` is an array,
+  //    each element will be treated as a separate message and be prefilled
+  //    before generating the response.
   // - `args`: The optional arguments for the corresponding model data
   //    processor. Most of the time, the users don't need to provide this
   //    argument.
@@ -172,7 +174,9 @@ class Conversation {
   // Sends a message to the LLM and process the asynchronous message results via
   // the callbacks.
   // Args:
-  // - `message`: The message to be sent to the LLM.
+  // - `message`: The message to be sent to the LLM. If `message` is an array,
+  //    each element will be treated as a separate message and be prefilled
+  //    before generating the response.
   // - `callbacks`: The callbacks to receive the message events.
   // - `args`: The optional arguments for the corresponding model data
   //    processor. Most of the time, the users don't need to provide this

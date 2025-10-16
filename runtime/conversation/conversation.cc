@@ -93,10 +93,13 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
   if (std::holds_alternative<JsonPreface>(preface_)) {
     auto json_preface = std::get<JsonPreface>(preface_);
 
-    for (auto& message : json_preface.messages) {
-      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
-                       model_data_processor_->MessageToTemplateInput(message));
-      old_tmpl_input.messages.push_back(message_tmpl_input);
+    if (json_preface.messages.is_array()) {
+      for (auto& message : json_preface.messages) {
+        ASSIGN_OR_RETURN(
+            nlohmann::ordered_json message_tmpl_input,
+            model_data_processor_->MessageToTemplateInput(message));
+        old_tmpl_input.messages.push_back(message_tmpl_input);
+      }
     }
 
     if (json_preface.tools.is_null()) {
@@ -121,15 +124,20 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
     }
   }
 
+  if (!std::holds_alternative<nlohmann::ordered_json>(message)) {
+    return absl::InvalidArgumentError("Json message is required for now.");
+  }
+  nlohmann::ordered_json json_message =
+      std::get<nlohmann::ordered_json>(message);
+  nlohmann::ordered_json messages =
+      json_message.is_array() ? json_message
+                              : nlohmann::ordered_json::array({json_message});
   if (history_.empty()) {
     PromptTemplateInput new_tmpl_input = std::move(old_tmpl_input);
-    if (std::holds_alternative<nlohmann::ordered_json>(message)) {
+    for (const auto& message : messages) {
       ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
-                       model_data_processor_->MessageToTemplateInput(
-                           std::get<nlohmann::ordered_json>(message)));
+                       model_data_processor_->MessageToTemplateInput(message));
       new_tmpl_input.messages.push_back(message_tmpl_input);
-    } else {
-      return absl::UnimplementedError("Message type is not supported yet");
     }
     new_tmpl_input.add_generation_prompt = true;
     return prompt_template_.Apply(new_tmpl_input);
@@ -188,8 +196,14 @@ absl::StatusOr<Message> Conversation::SendMessage(
   auto json_message = std::get<nlohmann::ordered_json>(message);
   ASSIGN_OR_RETURN(const std::string& single_turn_text,
                    GetSingleTurnText(message));
-  absl::MutexLock lock(history_mutex_);  // NOLINT
-  history_.push_back(json_message);
+  absl::MutexLock lock(&history_mutex_);  // NOLINT
+  if (json_message.is_array()) {
+    for (const auto& message : json_message) {
+      history_.push_back(message);
+    }
+  } else {
+    history_.push_back(json_message);
+  }
   ASSIGN_OR_RETURN(
       const auto session_inputs,
       model_data_processor_->ToInputDataVector(
@@ -215,8 +229,14 @@ absl::Status Conversation::SendMessageStream(
   ASSIGN_OR_RETURN(const std::string& single_turn_text,
                    GetSingleTurnText(message));
   {
-    absl::MutexLock lock(history_mutex_);  // NOLINT
-    history_.push_back(message);
+    absl::MutexLock lock(&history_mutex_);  // NOLINT
+    if (json_message.is_array()) {
+      for (const auto& message : json_message) {
+        history_.push_back(message);
+      }
+    } else {
+      history_.push_back(json_message);
+    }
   }
 
   ASSIGN_OR_RETURN(
