@@ -47,7 +47,7 @@ ThreadPool::~ThreadPool() {
 
   std::vector<std::unique_ptr<WorkerThread>> threads_to_join;
   {
-    absl::MutexLock lock(&mutex_);
+    absl::MutexLock lock(mutex_);
     stopped_ = true;
     threads_to_join.swap(threads_);
   }
@@ -58,7 +58,7 @@ ThreadPool::~ThreadPool() {
   }
 
   {
-    absl::MutexLock lock(&mutex_);
+    absl::MutexLock lock(mutex_);
     ABSL_CHECK(threads_.empty());
     ABSL_CHECK_EQ(num_active_tasks_, 0);
   }
@@ -66,7 +66,7 @@ ThreadPool::~ThreadPool() {
 }
 
 absl::Status ThreadPool::Schedule(absl::AnyInvocable<void() &&> callback) {
-  absl::MutexLock lock(&mutex_);
+  absl::MutexLock lock(mutex_);
   if (stopped_) {
     ABSL_LOG(WARNING) << "ThreadPool '" << name_prefix_
                       << "': Schedule called on a stopped pool.";
@@ -110,7 +110,7 @@ absl::Status ThreadPool::Schedule(absl::AnyInvocable<void() &&> callback) {
 }
 
 absl::Status ThreadPool::WaitUntilIdle(absl::Duration timeout) {
-  absl::MutexLock lock(&mutex_);
+  absl::MutexLock lock(mutex_);
   absl::Time deadline = absl::Now() + timeout;
   // Wait until tasks_ is empty OR the deadline is reached.
   auto is_tasks_empty = [this]() {
@@ -126,7 +126,7 @@ absl::Status ThreadPool::WaitUntilIdle(absl::Duration timeout) {
 }
 
 absl::Status ThreadPool::WaitUntilDone(absl::Duration timeout) {
-  absl::MutexLock lock(&mutex_);
+  absl::MutexLock lock(mutex_);
   absl::Time deadline = absl::Now() + timeout;
   // Wait until tasks_ is empty OR the deadline is reached.
   auto is_done = [this]() {
@@ -143,7 +143,7 @@ absl::Status ThreadPool::WaitUntilDone(absl::Duration timeout) {
 }
 
 void ThreadPool::RunWorker() {
-  absl::MutexLock lock(&mutex_);
+  absl::MutexLock lock(mutex_);
   while (true) {
     // Wait until a task is available OR the pool is stopped.
     auto is_task_available_or_stopped = [this]() {
@@ -164,9 +164,9 @@ void ThreadPool::RunWorker() {
     ++num_active_tasks_;
 
     // Execute the task with mutex released.
-    mutex_.Unlock();
+    mutex_.unlock();
     std::move(task_to_run)();
-    mutex_.Lock();
+    mutex_.lock();
 
     --num_active_tasks_;
   }

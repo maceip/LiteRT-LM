@@ -124,7 +124,7 @@ TEST(ThreadPoolTest, WaitUntilIdle) {
     EXPECT_OK(thread_pool.Schedule([&v, &mu, i]() {
       // Simulate a task that takes some time to execute.
       absl::SleepFor(absl::Milliseconds(50));
-      absl::MutexLock l(&mu);
+      absl::MutexLock l(mu);
       v.push_back(i);
     }));
     EXPECT_EQ(thread_pool.num_threads(), 1);
@@ -134,7 +134,7 @@ TEST(ThreadPoolTest, WaitUntilIdle) {
   // the function returns, the last task is still being executed so the vector
   // will only have 9 elements instead of 10.
   {
-    absl::MutexLock l(&mu);
+    absl::MutexLock l(mu);
     EXPECT_THAT(v, testing::ElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8));
   }
   // Wait all tasks to be done before destroying v.
@@ -152,7 +152,7 @@ TEST(ThreadPoolTest, WaitUntilDone) {
     EXPECT_OK(thread_pool.Schedule([&v, &mu, i]() {
       // Simulate a task that takes some time to execute.
       absl::SleepFor(absl::Milliseconds(50));
-      absl::MutexLock l(&mu);
+      absl::MutexLock l(mu);
       v.push_back(i);
     }));
     EXPECT_EQ(thread_pool.num_threads(), 1);
