@@ -51,6 +51,10 @@ class Engine(val engineConfig: EngineConfig) : AutoCloseable {
   /**
    * Initializes the native LiteRT-LM engine.
    *
+   * **Note:** This operation can take a significant amount of time (e.g., 10 seconds) depending on
+   * the model size and device hardware. It is strongly recommended to call this method on a
+   * background thread to avoid blocking the main thread.
+   *
    * @throws IllegalStateException if the engine has already been initialized.
    */
   fun initialize() {
