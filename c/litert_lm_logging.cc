@@ -22,8 +22,6 @@
 #include "absl/log/globals.h"  // from @com_google_absl
 #include "litert/c/litert_logging.h"  // from @litert
 
-
-
 extern "C" {
 
 void litert_lm_log(int severity, const char* file, int line, const char* format,
@@ -39,9 +37,8 @@ void litert_lm_log(int severity, const char* file, int line, const char* format,
 
 void litert_lm_set_min_log_level(int level) {
   absl::SetMinLogLevel(static_cast<absl::LogSeverityAtLeast>(level));
-  LiteRtSetMinLoggerSeverity(
-      LiteRtGetDefaultLogger(),
-      static_cast<LiteRtLogSeverity>(level));
+  LiteRtSetMinLoggerSeverity(LiteRtGetDefaultLogger(),
+                             static_cast<LiteRtLogSeverity>(level));
 }
 
 }  // extern "C"
