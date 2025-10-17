@@ -184,17 +184,6 @@ TEST(EngineSettingsTest, AudioExecutorSettingsSetAndGetBackend) {
   EXPECT_EQ(settings.GetAudioExecutorSettings()->GetBackend(), Backend::CPU);
 }
 
-TEST(EngineSettingsTest, AudioExecutorSettingsSetGpuFails) {
-  auto model_assets = ModelAssets::Create("test_model_path_1");
-  ASSERT_OK(model_assets);
-  // Audio backend is not supported on GPU yet.
-  EXPECT_THAT(EngineSettings::CreateDefault(*model_assets,
-                                            /*backend=*/Backend::CPU,
-                                            /*vision_backend=*/std::nullopt,
-                                            /*audio_backend=*/Backend::GPU),
-              StatusIs(absl::StatusCode::kInvalidArgument));
-}
-
 TEST(EngineSettingsTest, AudioExecutorSettingsSetAndGetCacheDir) {
   auto model_assets = ModelAssets::Create("test_model_path_1");
   ASSERT_OK(model_assets);

@@ -33,11 +33,13 @@ cc_library(
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
+        "@litert//litert/cc:litert_macros",
         "//runtime/components:model_resources",
         "//runtime/components/preprocessor:audio_preprocessor",
         "//runtime/components/preprocessor:audio_preprocessor_miniaudio",
@@ -55,6 +57,7 @@ cc_library(
         "//runtime/executor:llm_executor_settings",
         "//runtime/executor:llm_litert_compiled_model_executor",
         "//runtime/executor:llm_litert_npu_compiled_model_executor",
+        "//runtime/executor:magic_number_configs_helper",
         "//runtime/executor:vision_executor",
         "//runtime/executor:vision_executor_settings",
         "//runtime/executor:vision_litert_compiled_model_executor",
@@ -63,7 +66,14 @@ cc_library(
         "//runtime/proto:sampler_params_cc_proto",
         "//runtime/util:file_format_util",
         "//runtime/util:litert_status_util",
-    ],
+    ] + select({
+        "@litert//litert:litert_link_capi_so": [
+            "@litert//litert/cc:litert_api_with_dynamic_runtime",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc:litert_environment",
+        ],
+    }),
 )
 
 cc_test(
@@ -247,7 +257,14 @@ cc_test(
         "//runtime/util:scoped_file",
         "//runtime/util:tensor_buffer_util",
         "//runtime/util:test_utils",
-    ],
+    ] + select({
+        "@litert//litert:litert_link_capi_so": [
+            "@litert//litert/cc:litert_api_with_dynamic_runtime",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc:litert_environment",
+        ],
+    }),
 )
 
 cc_library(

@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -27,6 +28,8 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "litert/cc/litert_environment.h"  // from @litert
+#include "litert/test/matchers.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/components/model_resources_task.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -71,8 +74,10 @@ TEST(LlmLiteRTCompiledModelExecutorTest, CreateExecutorTest_WithoutCache) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
   auto executor = LlmLiteRtCompiledModelExecutor::Create(*executor_settings,
-                                                         *model_resources);
+                                                         env, *model_resources);
   ASSERT_OK(executor);
   ASSERT_NE(*executor, nullptr);
 }
@@ -99,8 +104,10 @@ TEST(LlmLiteRTCompiledModelExecutorTest, CreateExecutorTest_WithCache) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
   auto executor = LlmLiteRtCompiledModelExecutor::Create(*executor_settings,
-                                                         *model_resources);
+                                                         env, *model_resources);
   ASSERT_OK(executor);
   ASSERT_NE(*executor, nullptr);
 }
@@ -136,8 +143,10 @@ TEST(LlmLiteRTCompiledModelExecutorTest,
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
   auto executor = LlmLiteRtCompiledModelExecutor::Create(*executor_settings,
-                                                         *model_resources);
+                                                         env, *model_resources);
   ASSERT_OK(executor);
   ASSERT_NE(*executor, nullptr);
 }

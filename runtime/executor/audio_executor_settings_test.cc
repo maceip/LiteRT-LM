@@ -57,9 +57,6 @@ TEST(AudioExecutorSettingsTest, GetAndSetBackend) {
 
 TEST(AudioExecutorSettingsTest, CreateDefaultWithInvalidBackend) {
   ASSERT_OK_AND_ASSIGN(ModelAssets model_assets, ModelAssets::Create(""));
-  EXPECT_THAT(
-      AudioExecutorSettings::CreateDefault(model_assets, 10, Backend::GPU),
-      StatusIs(absl::StatusCode::kInvalidArgument));
   EXPECT_THAT(AudioExecutorSettings::CreateDefault(model_assets, 10,
                                                    Backend::CPU_ARTISAN),
               StatusIs(absl::StatusCode::kInvalidArgument));

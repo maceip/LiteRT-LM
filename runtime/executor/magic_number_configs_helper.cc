@@ -31,6 +31,7 @@
 #include "litert/cc/litert_expected.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
+#include "runtime/components/model_resources.h"
 #include "runtime/executor/llm_executor_settings.h"
 
 namespace litert::lm {
@@ -272,8 +273,10 @@ int64_t GetTargetNumber(int64_t magic_number, int64_t target_number_hint) {
 }  // namespace
 
 std::vector<Environment::Option> MagicNumberConfigsHelper::GetLiteRtEnvOptions(
-    const Model& litert_model, const LlmExecutorSettings& executor_settings) {
-  auto magic_numbers = GetMagicNumbersFromModel(litert_model);
+    ModelResources& resources, const LlmExecutorSettings& executor_settings) {
+  auto litert_model = resources.GetTFLiteModel(ModelType::kTfLitePrefillDecode);
+  if (!litert_model.ok() || !*litert_model) return {};
+  auto magic_numbers = GetMagicNumbersFromModel(**litert_model);
   if (!magic_numbers || (magic_numbers->context_length == 0 &&
                          magic_numbers->prefill_lengths.empty() &&
                          magic_numbers->num_output_candidates == 0)) {
@@ -385,7 +388,7 @@ std::vector<Environment::Option> MagicNumberConfigsHelper::GetLiteRtEnvOptions(
 
   if (advanced_settings.verify_magic_numbers) {
     auto verify_pairs =
-        GetVerificationPairs(litert_model, *magic_numbers, target_numbers);
+        GetVerificationPairs(**litert_model, *magic_numbers, target_numbers);
     if (verify_pairs && !verify_pairs->empty()) {
       magic_number_verifications_ = UniqueCPtr<LiteRtMagicNumberVerifications>(
           reinterpret_cast<LiteRtMagicNumberVerifications*>(malloc(

@@ -44,8 +44,12 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   // LiteRT TensorBuffer into audio embeddings LiteRT TensorBuffer.
   // Args:
   //   - executor_settings: The audio executor settings.
+  //   - env: The LiteRT environment.
+  // Returns:
+  //   A unique pointer to the AudioLiteRtCompiledModelExecutor if successful,
+  //   or an error status if failed.
   static absl::StatusOr<std::unique_ptr<AudioLiteRtCompiledModelExecutor>>
-  Create(AudioExecutorSettings executor_settings);
+  Create(AudioExecutorSettings executor_settings, Environment& env);
 
   // Run the audio encoder and audio adapter models to encode the spectrogram
   // tensor into audio embeddings. It is caller's responsibility to ensure the
@@ -87,13 +91,14 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
    public:
     // Create an AudioEncoder to run audio encoder LiteRT CompiledModel.
     // Args:
-    //   - model: The audio encoder model.
     //   - env: The LiteRT environment.
+    //   - model: The audio encoder model.
     // Returns:
     //   A unique pointer to the AudioEncoder if successful, or an error status
     //   if failed.
     static absl::StatusOr<std::unique_ptr<AudioEncoder>> Create(
-        const Model* absl_nonnull model, Environment* env);
+        const AudioExecutorSettings& executor_settings, Environment& env,
+        const Model* absl_nonnull model);
 
     // Initialize the AudioEncoder, which will create the input and output
     // buffers for the audio encoder model.
@@ -141,10 +146,12 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
     absl::Status ClearInputBuffers();
 
    private:
-    AudioEncoder(Environment* env, const Model* absl_nonnull model)
-        : env_(env), model_(*model) {}
+    AudioEncoder(const AudioExecutorSettings& executor_settings,
+                 Environment& env, const Model* absl_nonnull model)
+        : executor_settings_(executor_settings), env_(env), model_(*model) {}
 
-    Environment* env_;
+    const AudioExecutorSettings& executor_settings_;
+    Environment& env_;
     const Model& model_;
     CompiledModel compiled_model_;
     // The input buffers for the audio encoder model.
@@ -168,13 +175,14 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
    public:
     // Create an AudioAdapter to run audio adapter LiteRT CompiledModel.
     // Args:
-    //   - model: The audio adapter model.
     //   - env: The LiteRT environment.
+    //   - model: The audio adapter model.
     // Returns:
     //   A unique pointer to the AudioAdapter if successful, or an error status
     //   if failed.
     static absl::StatusOr<std::unique_ptr<AudioAdapter>> Create(
-        const Model* absl_nonnull model, Environment* env);
+        const AudioExecutorSettings& executor_settings, Environment& env,
+        const Model* absl_nonnull model);
 
     // Initialize the AudioAdapter, which will create the input and output
     // buffers for the audio adapter model.
@@ -208,10 +216,12 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
     }
 
    private:
-    AudioAdapter(const Model* absl_nonnull model, Environment* env)
-        : env_(env), model_(*model) {}
+    AudioAdapter(const AudioExecutorSettings& executor_settings,
+                 Environment& env, const Model* absl_nonnull model)
+        : executor_settings_(executor_settings), env_(env), model_(*model) {}
 
-    Environment* env_;
+    const AudioExecutorSettings& executor_settings_;
+    Environment& env_;
     const Model& model_;
     CompiledModel compiled_model_;
     // The input buffers for the audio adapter model.
@@ -225,18 +235,18 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   };
 
   explicit AudioLiteRtCompiledModelExecutor(
-      AudioExecutorSettings executor_settings,
+      AudioExecutorSettings executor_settings, Environment& env,
       std::unique_ptr<ModelResources> resources,
       std::unique_ptr<AudioEncoder> audio_encoder,
-      std::unique_ptr<AudioAdapter> audio_adapter, Environment env,
-      int sequence_length, int spectrogram_feature_dimensions,
-      int audio_embedding_dimensions, int encoder_shrinking_factor)
+      std::unique_ptr<AudioAdapter> audio_adapter, int sequence_length,
+      int spectrogram_feature_dimensions, int audio_embedding_dimensions,
+      int encoder_shrinking_factor)
       : sequence_length_(sequence_length),
         spectrogram_feature_dimensions_(spectrogram_feature_dimensions),
         audio_embedding_dimensions_(audio_embedding_dimensions),
         encoder_shrinking_factor_(encoder_shrinking_factor),
-        env_(std::move(env)),
         executor_settings_(std::move(executor_settings)),
+        env_(env),
         resources_(std::move(resources)),
         audio_encoder_(std::move(audio_encoder)),
         audio_adapter_(std::move(audio_adapter)) {}
@@ -258,8 +268,9 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   int spectrogram_feature_dimensions_;
   int audio_embedding_dimensions_;
   int encoder_shrinking_factor_;
-  Environment env_;
   AudioExecutorSettings executor_settings_;
+  /// The LiteRT environment.
+  Environment& env_;
   std::unique_ptr<ModelResources> resources_;
   std::unique_ptr<AudioEncoder> audio_encoder_;
   std::unique_ptr<AudioAdapter> audio_adapter_;

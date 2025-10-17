@@ -42,7 +42,7 @@ class VisionLiteRtCompiledModelExecutor : public VisionExecutor {
   // Creates a VisionLiteRtCompiledModelExecutor from the given
   // VisionExecutorSettings.
   static absl::StatusOr<std::unique_ptr<VisionLiteRtCompiledModelExecutor>>
-  Create(VisionExecutorSettings& vision_executor_settings);
+  Create(VisionExecutorSettings& vision_executor_settings, Environment& env);
 
   // Encodes the input image tensor into vision embeddings.
   // Args:
@@ -72,7 +72,7 @@ class VisionLiteRtCompiledModelExecutor : public VisionExecutor {
     //   A unique pointer to the VisionEncoder if successful, or an error status
     //   if failed.
     static absl::StatusOr<std::unique_ptr<VisionEncoder>> Create(
-        const Model* absl_nonnull model, Environment* env, Backend backend);
+        Environment& env, const Model* absl_nonnull model, Backend backend);
 
     // Initialize the VisionEncoder, which will create the input and output
     // buffers for the vision encoder model.
@@ -108,12 +108,12 @@ class VisionLiteRtCompiledModelExecutor : public VisionExecutor {
     absl::Status ClearInputBuffers();
 
    private:
-    VisionEncoder(Environment* env, const Model* absl_nonnull model,
+    VisionEncoder(Environment& env, const Model* absl_nonnull model,
                   Backend backend)
         : env_(env), backend_(backend), model_(*model) {}
 
     // The LiteRT environment.
-    Environment* env_;
+    Environment& env_;
 
     // The backend to use for the vision encoder model.
     Backend backend_;
@@ -146,7 +146,7 @@ class VisionLiteRtCompiledModelExecutor : public VisionExecutor {
     //   A unique pointer to the VisionAdapter if successful, or an error status
     //   if failed.
     static absl::StatusOr<std::unique_ptr<VisionAdapter>> Create(
-        const Model* absl_nonnull model, Environment* env, Backend backend);
+        Environment& env, const Model* absl_nonnull model, Backend backend);
 
     // Initialize the VisionAdapter.
     absl::Status Initialize();
@@ -158,12 +158,12 @@ class VisionLiteRtCompiledModelExecutor : public VisionExecutor {
     CompiledModel& GetMutableCompiledModel() { return compiled_model_; }
 
    private:
-    VisionAdapter(const Model* absl_nonnull model, Environment* env,
+    VisionAdapter(Environment& env, const Model* absl_nonnull model,
                   Backend backend)
         : env_(env), backend_(backend), model_(*model) {}
 
     // The LiteRT environment.
-    Environment* env_;
+    Environment& env_;
 
     // The backend to use for the vision adapter model.
     Backend backend_;
@@ -176,22 +176,27 @@ class VisionLiteRtCompiledModelExecutor : public VisionExecutor {
   };
 
   explicit VisionLiteRtCompiledModelExecutor(
-      VisionExecutorSettings& vision_executor_settings,
+      VisionExecutorSettings& vision_executor_settings, Environment& env,
       std::unique_ptr<ModelResources> resources,
       std::unique_ptr<VisionEncoder> vision_encoder,
-      std::unique_ptr<VisionAdapter> vision_adapter, Environment env,
+      std::unique_ptr<VisionAdapter> vision_adapter,
       std::vector<int> expected_input_dimension)
-      : resources_(std::move(resources)),
-        env_(std::move(env)),
+      : vision_executor_settings_(vision_executor_settings),
+        env_(env),
+        resources_(std::move(resources)),
         vision_encoder_(std::move(vision_encoder)),
         vision_adapter_(std::move(vision_adapter)),
         expected_input_dimension_(expected_input_dimension) {}
 
-  // The model resources for the vision encoder and vision adapter models.
-  std::unique_ptr<ModelResources> resources_;
+  // The VisionExecutorSettings for the vision encoder and vision adapter
+  // models.
+  VisionExecutorSettings vision_executor_settings_;
 
   // The LiteRT environment.
-  ::litert::Environment env_;
+  Environment& env_;
+
+  // The model resources for the vision encoder and vision adapter models.
+  std::unique_ptr<ModelResources> resources_;
 
   // The vision encoder and vision adapter models.
   std::unique_ptr<VisionEncoder> vision_encoder_;

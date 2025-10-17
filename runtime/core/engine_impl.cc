@@ -22,12 +22,15 @@
 #include <vector>
 
 #include "absl/log/absl_check.h"  // from @com_google_absl
+#include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/log/check.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "litert/cc/litert_environment.h"  // from @litert
+#include "litert/cc/litert_macros.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/components/preprocessor/audio_preprocessor.h"
 #include "runtime/components/preprocessor/audio_preprocessor_miniaudio.h"
@@ -45,6 +48,7 @@
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/executor/llm_litert_compiled_model_executor.h"
+#include "runtime/executor/magic_number_configs_helper.h"
 #include "runtime/executor/vision_executor.h"
 #include "runtime/executor/vision_executor_settings.h"
 #include "runtime/executor/vision_litert_compiled_model_executor.h"
@@ -59,26 +63,6 @@
 #endif  // !defined(LITERT_DISABLE_NPU)
 
 namespace litert::lm {
-namespace {
-
-// Builds the LiteRT compiled model executor.
-absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildLitertCompiledModelExecutor(
-    LlmExecutorSettings executor_settings, ModelResources& model_resources) {
-  // Create executor that creates and owns the interpreter and kv cache.
-  return LlmLiteRtCompiledModelExecutor::Create(std::move(executor_settings),
-                                                model_resources);
-}
-
-// Builds the Audio Executor.
-absl::StatusOr<std::unique_ptr<AudioExecutor>> BuildAudioExecutor(
-    AudioExecutorSettings executor_settings) {
-  if (executor_settings.GetModelAssets().HasScopedFile()) {
-    return absl::InvalidArgumentError("Model must be passed as a single path.");
-  }
-  return AudioLiteRtCompiledModelExecutor::Create(std::move(executor_settings));
-}
-
-}  // namespace
 
 class EngineImpl : public Engine {
  public:
@@ -87,6 +71,7 @@ class EngineImpl : public Engine {
   }
   explicit EngineImpl(EngineSettings engine_settings,
                       std::unique_ptr<ModelResources> litert_model_resources,
+                      std::unique_ptr<Environment> lrt_env,
                       std::unique_ptr<ImagePreprocessor> image_preprocessor,
                       std::unique_ptr<LlmExecutor> executor,
                       std::unique_ptr<VisionExecutor> vision_executor,
@@ -96,6 +81,7 @@ class EngineImpl : public Engine {
                       std::unique_ptr<ThreadPool> worker_thread_pool)
       : engine_settings_(std::move(engine_settings)),
         litert_model_resources_(std::move(litert_model_resources)),
+        lrt_env_(std::move(lrt_env)),
         image_preprocessor_(std::move(image_preprocessor)),
         executor_(std::move(executor)),
         vision_executor_(std::move(vision_executor)),
@@ -136,6 +122,8 @@ class EngineImpl : public Engine {
   EngineSettings engine_settings_;
   // Model resources, which must outlive `executor_`.
   std::unique_ptr<ModelResources> litert_model_resources_;
+  // LiteRT environment.
+  std::unique_ptr<Environment> lrt_env_;
   // Image preprocessor for the vision model.
   std::unique_ptr<ImagePreprocessor> image_preprocessor_;
   // Shared executor for all sessions.
@@ -201,13 +189,26 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
       *tokenizer, llm_metadata, input_prompt_as_hint));
 
   std::unique_ptr<LlmExecutor> executor;
+  std::unique_ptr<Environment> lrt_env;
   if ((engine_settings.GetMainExecutorSettings().GetBackend() ==
        Backend::CPU) ||
       (engine_settings.GetMainExecutorSettings().GetBackend() ==
        Backend::GPU)) {
-    ASSIGN_OR_RETURN(executor, BuildLitertCompiledModelExecutor(
-                                   engine_settings.GetMainExecutorSettings(),
-                                   *model_resources));
+    // Create the LiteRT environment.
+    std::vector<Environment::Option> env_options;
+    MagicNumberConfigsHelper helper;
+    const auto& main_executor_settings =
+        engine_settings.GetMainExecutorSettings();
+    if (!main_executor_settings.GetAdvancedSettings() ||  // Default is true.
+        main_executor_settings.GetAdvancedSettings()->configure_magic_numbers) {
+      env_options =
+          helper.GetLiteRtEnvOptions(*model_resources, main_executor_settings);
+    }
+    LITERT_ASSIGN_OR_RETURN(auto env, Environment::Create(env_options));
+    lrt_env = std::make_unique<Environment>(std::move(env));
+    ASSIGN_OR_RETURN(executor,
+                     LlmLiteRtCompiledModelExecutor::Create(
+                         main_executor_settings, *lrt_env, *model_resources));
   } else {
 #if defined(LITERT_DISABLE_NPU)
     return absl::InvalidArgumentError(
@@ -222,11 +223,24 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
       return absl::InvalidArgumentError(
           absl::StrCat("Model file not found: ", path.parent_path().string()));
     }
-    ASSIGN_OR_RETURN(
-        executor,
-        LlmLiteRtNpuCompiledModelExecutor::Create(
-            engine_settings.GetMainExecutorSettings(), *model_resources,
-            path.parent_path().string(), benchmark_info.has_value()));
+    std::vector<Environment::Option> environment_options = {};
+    std::string dispatch_library_path = path.parent_path().string();
+    if (!dispatch_library_path.empty()) {
+      ABSL_LOG(INFO) << "Setting dispatch library path: "
+                     << dispatch_library_path;
+      environment_options.push_back(::litert::Environment::Option{
+          ::litert::Environment::OptionTag::DispatchLibraryDir,
+          absl::string_view(dispatch_library_path)});
+    } else {
+      ABSL_LOG(INFO) << "No dispatch library path provided.";
+    }
+    LITERT_ASSIGN_OR_RETURN(auto env,
+                            ::litert::Environment::Create(environment_options));
+    lrt_env = std::make_unique<Environment>(std::move(env));
+    ASSIGN_OR_RETURN(executor, LlmLiteRtNpuCompiledModelExecutor::Create(
+                                   engine_settings.GetMainExecutorSettings(),
+                                   *model_resources, *lrt_env.get(),
+                                   benchmark_info.has_value()));
 #endif  // defined(LITERT_DISABLE_NPU)
   }
 
@@ -243,7 +257,7 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
             engine_settings.GetVisionExecutorSettings()->GetBackend(),
             /*adapter_backend=*/Backend::CPU));
     ASSIGN_OR_RETURN(vision_executor, VisionLiteRtCompiledModelExecutor::Create(
-                                          vision_executor_settings));
+                                          vision_executor_settings, *lrt_env));
     // Create the image preprocessor for processing the image input only if
     // vision executor is enabled.
     image_preprocessor = std::make_unique<StbImagePreprocessor>();
@@ -258,8 +272,8 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
             engine_settings.GetMainExecutorSettings().GetModelAssets(),
             engine_settings.GetMainExecutorSettings().GetMaxNumTokens(),
             engine_settings.GetAudioExecutorSettings()->GetBackend()));
-    ASSIGN_OR_RETURN(audio_executor,
-                     BuildAudioExecutor(audio_executor_settings));
+    ASSIGN_OR_RETURN(audio_executor, AudioLiteRtCompiledModelExecutor::Create(
+                                         audio_executor_settings, *lrt_env));
     ASSIGN_OR_RETURN(audio_preprocessor,
                      AudioPreprocessorMiniAudio::Create(
                          AudioPreprocessorConfig::CreateDefaultUsmConfig()));
@@ -274,13 +288,13 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
   auto worker_thread_pool =
       std::make_unique<ThreadPool>(/*name_prefix=*/"engine",
                                    /*max_num_threads=*/1);
-
   auto llm_impl = std::make_unique<EngineImpl>(
       std::move(engine_settings), std::move(model_resources),
-      std::move(image_preprocessor), std::move(executor),
+      std::move(lrt_env), std::move(image_preprocessor), std::move(executor),
       std::move(vision_executor), std::move(audio_preprocessor),
       std::move(audio_executor), std::move(benchmark_info),
       std::move(worker_thread_pool));
+
   return llm_impl;
 };
 

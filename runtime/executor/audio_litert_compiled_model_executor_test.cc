@@ -28,6 +28,7 @@
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/c/litert_tensor_buffer_types.h"  // from @litert
 #include "litert/cc/litert_element_type.h"  // from @litert
+#include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_layout.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
@@ -72,8 +73,8 @@ absl::StatusOr<TensorBuffer> CreateTensorBuffer(
 }
 
 absl::StatusOr<std::unique_ptr<AudioLiteRtCompiledModelExecutor>>
-CreateAudioExecutor(const std::string& model_path, int max_sequence_length,
-                    Backend backend) {
+CreateAudioExecutor(Environment& env, const std::string& model_path,
+                    int max_sequence_length, Backend backend) {
   ASSIGN_OR_RETURN(auto model_file, litert::lm::ScopedFile::Open(model_path));
   auto model_file_ptr =
       std::make_shared<litert::lm::ScopedFile>(std::move(model_file));
@@ -85,23 +86,34 @@ CreateAudioExecutor(const std::string& model_path, int max_sequence_length,
                        model_assets, max_sequence_length, backend));
   // Create the audio executor.
   return litert::lm::AudioLiteRtCompiledModelExecutor::Create(
-      audio_executor_settings);
+      audio_executor_settings, env);
 }
 // TODO: b/441514829 - Enable the tests on Windows once the bug is fixed.
 #if !defined(WIN32) && !defined(_WIN32) && !defined(__WIN32__) && \
     !defined(__NT__) && !defined(_WIN64)
-TEST(AudioLiteRtCompiledModelExecutorTest, CreateExecutorTest) {
-  EXPECT_OK(CreateAudioExecutor((std::filesystem::path(::testing::SrcDir()) /
+class AudioLiteRtCompiledModelExecutorTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    auto env = Environment::Create(std::vector<Environment::Option>());
+    env_ = std::make_unique<Environment>(std::move(*env));
+  }
+  std::unique_ptr<Environment> env_;
+};
+
+TEST_F(AudioLiteRtCompiledModelExecutorTest, CreateExecutorTest) {
+  EXPECT_OK(CreateAudioExecutor(*env_,
+                                (std::filesystem::path(::testing::SrcDir()) /
                                  std::string(kTestAudioModelPath))
                                     .string(),
                                 /*max_sequence_length=*/0, Backend::CPU));
 }
 
-TEST(AudioLiteRtCompiledModelExecutorTest,
-     EncodeTest_WithoutMaskFitSequenceLength) {
+TEST_F(AudioLiteRtCompiledModelExecutorTest,
+       EncodeTest_WithoutMaskFitSequenceLength) {
   ASSERT_OK_AND_ASSIGN(
       auto audio_executor,
-      CreateAudioExecutor((std::filesystem::path(::testing::SrcDir()) /
+      CreateAudioExecutor(*env_,
+                          (std::filesystem::path(::testing::SrcDir()) /
                            std::string(kTestAudioModelPath))
                               .string(),
                           /*max_sequence_length=*/0, Backend::CPU));
@@ -143,11 +155,12 @@ TEST(AudioLiteRtCompiledModelExecutorTest,
   EXPECT_EQ(executor_audio_data.GetValidTokens(), kEmbeddingSequenceLength);
 }
 
-TEST(AudioLiteRtCompiledModelExecutorTest,
-     EncodeTest_WithMaskFitSequenceLength) {
+TEST_F(AudioLiteRtCompiledModelExecutorTest,
+       EncodeTest_WithMaskFitSequenceLength) {
   ASSERT_OK_AND_ASSIGN(
       auto audio_executor,
-      CreateAudioExecutor((std::filesystem::path(::testing::SrcDir()) /
+      CreateAudioExecutor(*env_,
+                          (std::filesystem::path(::testing::SrcDir()) /
                            std::string(kTestAudioModelPath))
                               .string(),
                           /*max_sequence_length=*/0, Backend::CPU));
@@ -201,11 +214,12 @@ TEST(AudioLiteRtCompiledModelExecutorTest,
   EXPECT_EQ(executor_audio_data.GetValidTokens(), 3);
 }
 
-TEST(AudioLiteRtCompiledModelExecutorTest,
-     EncodeTest_WithoutMaskLongerThanSequenceLength) {
+TEST_F(AudioLiteRtCompiledModelExecutorTest,
+       EncodeTest_WithoutMaskLongerThanSequenceLength) {
   ASSERT_OK_AND_ASSIGN(
       auto audio_executor,
-      CreateAudioExecutor((std::filesystem::path(::testing::SrcDir()) /
+      CreateAudioExecutor(*env_,
+                          (std::filesystem::path(::testing::SrcDir()) /
                            std::string(kTestAudioModelPath))
                               .string(),
                           /*max_sequence_length=*/0, Backend::CPU));
@@ -247,11 +261,12 @@ TEST(AudioLiteRtCompiledModelExecutorTest,
   EXPECT_EQ(executor_audio_data.GetValidTokens(), 7);
 }
 
-TEST(AudioLiteRtCompiledModelExecutorTest,
-     EncodeTest_WithMaskLongerThanSequenceLength) {
+TEST_F(AudioLiteRtCompiledModelExecutorTest,
+       EncodeTest_WithMaskLongerThanSequenceLength) {
   ASSERT_OK_AND_ASSIGN(
       auto audio_executor,
-      CreateAudioExecutor((std::filesystem::path(::testing::SrcDir()) /
+      CreateAudioExecutor(*env_,
+                          (std::filesystem::path(::testing::SrcDir()) /
                            std::string(kTestAudioModelPath))
                               .string(),
                           /*max_sequence_length=*/0, Backend::CPU));

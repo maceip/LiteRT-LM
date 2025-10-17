@@ -17,11 +17,13 @@
 #include <filesystem>  // NOLINT: Required for path manipulation.
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
-#include "absl/strings/match.h"  // from @com_google_absl
+#include "litert/cc/litert_environment.h"  // from @litert
+#include "litert/test/matchers.h"  // from @litert
 #include "runtime/components/model_resources_litert_lm.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/vision_executor_settings.h"
@@ -57,8 +59,11 @@ TEST(VisionLiteRtCompiledModelExecutorTest, CreateExecutorTest) {
                            model_assets,
                            /*encoder_backend=*/Backend::GPU,
                            /*adapter_backend=*/Backend::GPU));
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
 
-  auto vision_executor = VisionLiteRtCompiledModelExecutor::Create(settings);
+  auto vision_executor =
+      VisionLiteRtCompiledModelExecutor::Create(settings, env);
   EXPECT_THAT(vision_executor,
               StatusIs(absl::StatusCode::kNotFound,
                        "TF_LITE_VISION_ENCODER not found in the model."));

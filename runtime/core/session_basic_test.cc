@@ -34,6 +34,7 @@
 #include "absl/synchronization/notification.h"  // from @com_google_absl
 #include "absl/time/clock.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/test/matchers.h"  // from @litert
 #include "runtime/components/constrained_decoding/fake_constraint.h"
@@ -190,8 +191,8 @@ class SessionBasicTest : public testing::Test {
 };
 
 absl::StatusOr<std::unique_ptr<AudioLiteRtCompiledModelExecutor>>
-CreateAudioExecutor(const std::string& model_path, int max_sequence_length,
-                    Backend backend) {
+CreateAudioExecutor(Environment& env, const std::string& model_path,
+                    int max_sequence_length, Backend backend) {
   ASSIGN_OR_RETURN(auto model_file, ScopedFile::Open(model_path));
   auto model_file_ptr = std::make_shared<ScopedFile>(std::move(model_file));
   ASSIGN_OR_RETURN(auto model_assets, ModelAssets::Create(model_file_ptr));
@@ -201,7 +202,7 @@ CreateAudioExecutor(const std::string& model_path, int max_sequence_length,
                        model_assets, max_sequence_length, backend));
   // Create the audio executor.
   return litert::lm::AudioLiteRtCompiledModelExecutor::Create(
-      audio_executor_settings);
+      audio_executor_settings, env);
 }
 
 class StreamingTestCallbacks : public InferenceCallbacks {
@@ -1423,11 +1424,13 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsAudioSuccess) {
   session_config.SetStartTokenId(2);
   session_config.SetSamplerBackend(Backend::CPU);
   session_config.GetMutableLlmModelType().mutable_gemma3n();
-
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
   ByPassAudioPreprocessor bypass_audio_preprocessor;
   ASSERT_OK_AND_ASSIGN(
       auto audio_executor,
-      CreateAudioExecutor((std::filesystem::path(::testing::SrcDir()) /
+      CreateAudioExecutor(env,
+                          (std::filesystem::path(::testing::SrcDir()) /
                            std::string(kTestAudioModelPath))
                               .string(),
                           /*max_sequence_length=*/0, Backend::CPU));
@@ -1494,10 +1497,13 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsTextAndAudioSuccess) {
       "Model:");
   session_config.GetMutableLlmModelType().mutable_gemma3n();
 
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
   ByPassAudioPreprocessor bypass_audio_preprocessor;
   ASSERT_OK_AND_ASSIGN(
       auto audio_executor,
-      CreateAudioExecutor((std::filesystem::path(::testing::SrcDir()) /
+      CreateAudioExecutor(env,
+                          (std::filesystem::path(::testing::SrcDir()) /
                            std::string(kTestAudioModelPath))
                               .string(),
                           /*max_sequence_length=*/0, Backend::CPU));
@@ -1551,10 +1557,13 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsTextAudioTextSuccess) {
       "Model:");
   session_config.GetMutableLlmModelType().mutable_gemma3n();
 
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
   ByPassAudioPreprocessor bypass_audio_preprocessor;
   ASSERT_OK_AND_ASSIGN(
       auto audio_executor,
-      CreateAudioExecutor((std::filesystem::path(::testing::SrcDir()) /
+      CreateAudioExecutor(env,
+                          (std::filesystem::path(::testing::SrcDir()) /
                            std::string(kTestAudioModelPath))
                               .string(),
                           /*max_sequence_length=*/0, Backend::CPU));

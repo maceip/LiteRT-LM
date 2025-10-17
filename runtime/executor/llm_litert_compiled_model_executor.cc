@@ -771,6 +771,7 @@ absl::StatusOr<int> LlmLiteRtCompiledModelExecutor::GetVocabSize() {
 // Creates a LlmLiteRtCompiledModelExecutor from a LiteRt model.
 absl::StatusOr<std::unique_ptr<LlmLiteRtCompiledModelExecutor>>
 LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
+                                       Environment& lrt_env,
                                        ModelResources& resources) {
   ASSIGN_OR_RETURN(auto litert_model,
                    resources.GetTFLiteModel(ModelType::kTfLitePrefillDecode));
@@ -885,14 +886,6 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
     return absl::InternalError("Failed to build LiteRt model");
   }
 
-  std::vector<Environment::Option> env_options;
-  MagicNumberConfigsHelper helper;
-  if (!executor_settings.GetAdvancedSettings() ||  // Default is true.
-      executor_settings.GetAdvancedSettings()->configure_magic_numbers) {
-    env_options = helper.GetLiteRtEnvOptions(*litert_model, executor_settings);
-  }
-
-  LITERT_ASSIGN_OR_RETURN(auto lrt_env, Environment::Create(env_options));
   LITERT_ASSIGN_OR_RETURN(
       auto compiled_model,
       CompiledModel::Create(lrt_env, *litert_model,
@@ -1014,9 +1007,8 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
   std::unique_ptr<EmbeddingLookupManager> per_layer_embedding_lookup;
   RETURN_IF_ERROR(InitializeEmbeddingLookups(resources, embedding_lookup,
                                              per_layer_embedding_lookup));
-
   return absl::WrapUnique(new LlmLiteRtCompiledModelExecutor(
-      std::move(executor_settings), std::move(lrt_env), litert_model,
+      std::move(executor_settings), lrt_env, litert_model,
       std::move(compiled_model), std::move(decode_input_buffers),
       std::move(decode_output_buffers), std::move(input_kv_cache_buffers),
       std::move(output_kv_cache_buffers), std::move(prefill_runner_set),

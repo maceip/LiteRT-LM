@@ -51,7 +51,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
  public:
   // Creates a LlmLiteRtCompiledModelExecutor from a LiteRt model.
   static absl::StatusOr<std::unique_ptr<LlmLiteRtCompiledModelExecutor>> Create(
-      LlmExecutorSettings executor_settings, ModelResources& resources);
+      LlmExecutorSettings executor_settings, Environment& lrt_env,
+      ModelResources& resources);
 
   // Input APIs:
   // Basic API to trigger the "prefill" or "prefix" process.
@@ -117,7 +118,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
 
  protected:
   LlmLiteRtCompiledModelExecutor(
-      LlmExecutorSettings executor_settings, ::litert::Environment env,
+      LlmExecutorSettings executor_settings, ::litert::Environment& env,
       const ::litert::Model* absl_nonnull model,
       ::litert::CompiledModel compiled_model,
       absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
@@ -135,7 +136,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
           nullptr,
       LogitsDataType logits_data_type = LogitsDataType::FLOAT32)
       : executor_settings_(std::move(executor_settings)),
-        env_(std::move(env)),
+        env_(env),
         model_(*model),
         compiled_model_(std::move(compiled_model)),
         decode_input_buffers_(std::move(decode_input_buffers)),
@@ -190,7 +191,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
       std::shared_ptr<TokenData> token);
 
   LlmExecutorSettings executor_settings_;
-  ::litert::Environment env_;
+  ::litert::Environment& env_;
   const ::litert::Model& model_;
   ::litert::CompiledModel compiled_model_;
   // The prefill input buffers for each signature.

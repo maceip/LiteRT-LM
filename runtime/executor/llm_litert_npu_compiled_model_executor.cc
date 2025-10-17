@@ -1397,21 +1397,7 @@ absl::Status LlmLiteRtNpuCompiledModelExecutor::Reset() {
 absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
 LlmLiteRtNpuCompiledModelExecutor::Create(
     const LlmExecutorSettings& executor_settings, ModelResources& resources,
-    const std::optional<std::string>& dispatch_library_path,
-    bool is_benchmark_enabled) {
-  std::vector<::litert::Environment::Option> environment_options = {};
-  if (dispatch_library_path.has_value()) {
-    ABSL_LOG(INFO) << "Setting dispatch library path: "
-                   << dispatch_library_path.value();
-    environment_options.push_back(::litert::Environment::Option{
-        ::litert::Environment::OptionTag::DispatchLibraryDir,
-        absl::string_view(dispatch_library_path.value())});
-  } else {
-    ABSL_LOG(INFO) << "No dispatch library path provided.";
-  }
-  LITERT_ASSIGN_OR_RETURN(
-      Environment env,
-      ::litert::Environment::Create(absl::MakeConstSpan(environment_options)));
+    Environment& env, bool is_benchmark_enabled) {
   ASSIGN_OR_RETURN(const litert::Model* llm_model,
                    resources.GetTFLiteModel(ModelType::kTfLitePrefillDecode));
 
@@ -1576,9 +1562,9 @@ LlmLiteRtNpuCompiledModelExecutor::CreateForGemma3n(
           gemma_prefill_input_buffers, gemma_decode_input_buffers));
 
   auto executor = absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
-      executor_settings, std::move(embedder_context),
+      executor_settings, env, std::move(embedder_context),
       std::move(npu_auxiliary_context), std::move(mask_context),
-      std::move(rope_context), std::move(env), std::move(llm_compiled_model),
+      std::move(rope_context), std::move(llm_compiled_model),
       std::move(llm_inference_context),
       std::move(cache_update_inference_context), std::move(prefill_runner_set),
       std::move(embedding_lookup_manager),
@@ -1729,9 +1715,9 @@ LlmLiteRtNpuCompiledModelExecutor::CreateForGemma3(
   }
 
   auto executor = absl::WrapUnique(new LlmLiteRtNpuCompiledModelExecutor(
-      executor_settings, std::move(embedder_context),
+      executor_settings, env, std::move(embedder_context),
       std::move(npu_auxiliary_context), std::move(mask_context),
-      std::move(rope_context), std::move(env), std::move(llm_compiled_model),
+      std::move(rope_context), std::move(llm_compiled_model),
       std::move(llm_inference_context),
       std::move(cache_update_inference_context), std::move(prefill_runner_set),
       std::move(maybe_embedding_lookup_manager),

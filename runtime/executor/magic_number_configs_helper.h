@@ -21,7 +21,7 @@
 
 #include "litert/c/litert_environment_options.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
-#include "litert/cc/litert_model.h"  // from @litert
+#include "runtime/components/model_resources.h"
 #include "runtime/executor/llm_executor_settings.h"
 
 namespace litert::lm {
@@ -39,8 +39,7 @@ class MagicNumberConfigsHelper {
   // this class, and the caller should make sure the helper outlives the usage
   // of the returned options.
   std::vector<Environment::Option> GetLiteRtEnvOptions(
-      const Model& litert_model,
-      const LlmExecutorSettings& executor_settings);
+      ModelResources& resources, const LlmExecutorSettings& executor_settings);
 
   const LiteRtMagicNumberConfigs* magic_number_configs() const {
     return magic_number_configs_.get();

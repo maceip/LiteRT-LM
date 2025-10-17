@@ -14,14 +14,9 @@
 
 #include "runtime/executor/vision_litert_compiled_model_executor.h"
 
-#include <algorithm>
-#include <cstring>
-#include <filesystem> // NOLINT: Required for path manipulation.
 #include <memory>
 #include <optional>
-#include <string>
 #include <utility>
-#include <vector>
 
 #include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
@@ -31,7 +26,6 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/c/litert_common.h"  // from @litert
-#include "litert/c/litert_tensor_buffer_types.h"  // from @litert
 #include "litert/c/options/litert_qualcomm_options.h"  // from @litert
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
@@ -57,7 +51,7 @@ namespace litert::lm {
 absl::StatusOr<
     std::unique_ptr<VisionLiteRtCompiledModelExecutor::VisionEncoder>>
 VisionLiteRtCompiledModelExecutor::VisionEncoder::Create(
-    const Model* absl_nonnull model, Environment* env, Backend backend) {
+    Environment& env, const Model* absl_nonnull model, Backend backend) {
   auto handler =
       std::unique_ptr<VisionEncoder>(new VisionEncoder(env, model, backend));
   RETURN_IF_ERROR(handler->Initialize());
@@ -114,7 +108,7 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionEncoder::Initialize() {
   }
 
   LITERT_ASSIGN_OR_RETURN(compiled_model_,
-                          CompiledModel::Create(*env_, model_, options));
+                          CompiledModel::Create(env_, model_, options));
   LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
   if (signatures.size() != 1) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -138,9 +132,9 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionEncoder::Initialize() {
 absl::StatusOr<
     std::unique_ptr<VisionLiteRtCompiledModelExecutor::VisionAdapter>>
 VisionLiteRtCompiledModelExecutor::VisionAdapter::Create(
-    const Model* absl_nonnull model, Environment* env, Backend backend) {
+    Environment& env, const Model* absl_nonnull model, Backend backend) {
   auto handler =
-      std::unique_ptr<VisionAdapter>(new VisionAdapter(model, env, backend));
+      std::unique_ptr<VisionAdapter>(new VisionAdapter(env, model, backend));
   RETURN_IF_ERROR(handler->Initialize());
   return handler;
 }
@@ -185,7 +179,7 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionAdapter::Initialize() {
   }
 
   LITERT_ASSIGN_OR_RETURN(compiled_model_,
-                          CompiledModel::Create(*env_, model_, options));
+                          CompiledModel::Create(env_, model_, options));
   LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
   if (signatures.size() != 1) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -198,28 +192,10 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionAdapter::Initialize() {
 
 absl::StatusOr<std::unique_ptr<VisionLiteRtCompiledModelExecutor>>
 litert::lm::VisionLiteRtCompiledModelExecutor::Create(
-    VisionExecutorSettings& vision_executor_settings) {
+    VisionExecutorSettings& vision_executor_settings, Environment& env) {
   LITERT_ASSIGN_OR_RETURN(auto resources,
                           BuildLiteRtCompiledModelResources(
                               vision_executor_settings.GetModelAssets()));
-
-  std::vector<::litert::Environment::Option> environment_options = {};
-  if (vision_executor_settings.GetEncoderBackend() == Backend::NPU) {
-    std::string model_path(
-        vision_executor_settings.GetModelAssets().GetPath().value_or(""));
-    std::filesystem::path path(model_path);
-    if (!std::filesystem::exists(path)) {
-      return absl::InvalidArgumentError(
-          absl::StrCat("Model file not found: ", path.parent_path().string()));
-    }
-
-    environment_options.push_back(::litert::Environment::Option{
-        ::litert::Environment::OptionTag::DispatchLibraryDir,
-        absl::string_view(path.parent_path().string())});
-  }
-  LITERT_ASSIGN_OR_RETURN(
-      auto litert_env,
-      ::litert::Environment::Create(absl::MakeConstSpan(environment_options)));
 
   ASSIGN_OR_RETURN(auto vision_encoder_model,
                    resources->GetTFLiteModel(ModelType::kTfLiteVisionEncoder));
@@ -234,11 +210,11 @@ litert::lm::VisionLiteRtCompiledModelExecutor::Create(
 
   ASSIGN_OR_RETURN(
       auto vision_encoder,
-      VisionEncoder::Create(vision_encoder_model, &litert_env,
+      VisionEncoder::Create(env, vision_encoder_model,
                             vision_executor_settings.GetEncoderBackend()));
   ASSIGN_OR_RETURN(
       auto vision_adapter,
-      VisionAdapter::Create(vision_adapter_model, &litert_env,
+      VisionAdapter::Create(env, vision_adapter_model,
                             vision_executor_settings.GetAdapterBackend()));
 
   LITERT_ASSIGN_OR_RETURN_ABSL(auto tensor_type,
@@ -259,8 +235,8 @@ litert::lm::VisionLiteRtCompiledModelExecutor::Create(
       std::vector<int>(dimensions.begin(), dimensions.end());
 
   return absl::WrapUnique(new VisionLiteRtCompiledModelExecutor(
-      vision_executor_settings, std::move(resources), std::move(vision_encoder),
-      std::move(vision_adapter), std::move(litert_env),
+      vision_executor_settings, env, std::move(resources),
+      std::move(vision_encoder), std::move(vision_adapter),
       expected_input_dimension));
 }
 
@@ -284,9 +260,11 @@ absl::StatusOr<ExecutorVisionData> VisionLiteRtCompiledModelExecutor::Encode(
   LITERT_RETURN_IF_ERROR(
       vision_encoder_->GetMutableInputBuffers()[0].Write<float>(
           input_image_data));
+
   LITERT_RETURN_IF_ERROR(vision_encoder_->GetCompiledModel().Run(
       /*input_buffers=*/absl::MakeSpan(vision_encoder_->GetInputBuffers()),
       /*output_buffers=*/absl::MakeSpan(vision_encoder_->GetOutputBuffers())));
+
   LITERT_RETURN_IF_ERROR(vision_adapter_->GetCompiledModel().Run(
       /*input_buffers=*/absl::MakeSpan(vision_encoder_->GetOutputBuffers()),
       /*output_buffers=*/absl::MakeSpan(output_tensor_buffers)));

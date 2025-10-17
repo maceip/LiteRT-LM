@@ -76,8 +76,7 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
   // Creates an executor from the resources.
   static absl::StatusOr<std::unique_ptr<LlmLiteRtNpuCompiledModelExecutor>>
   Create(const LlmExecutorSettings& executor_settings,
-         ModelResources& resources,
-         const std::optional<std::string>& dispatch_library_path = std::nullopt,
+         ModelResources& resources, Environment& env,
          bool is_benchmark_enabled = false);
 
   // Input APIs:
@@ -190,10 +189,10 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
 
  protected:
   LlmLiteRtNpuCompiledModelExecutor(
-      LlmExecutorSettings executor_settings, EmbedderContext embedder_context,
+      LlmExecutorSettings executor_settings, Environment& llm_env,
+      EmbedderContext embedder_context,
       NpuAuxiliaryContext npu_auxiliary_context, InferenceContext mask_context,
-      InferenceContext rope_context, ::litert::Environment llm_env,
-      ::litert::CompiledModel llm_compiled_model,
+      InferenceContext rope_context, ::litert::CompiledModel llm_compiled_model,
       InferenceContext llm_inference_context,
       InferenceContext cache_update_inference_context,
       SortedPrefillSignatureMap prefill_signature_map,
@@ -202,11 +201,11 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
       std::optional<EmbedderPerLayerContext> embedder_per_layer_context,
       bool is_benchmark_enabled)
       : executor_settings_(std::move(executor_settings)),
+        env_(llm_env),
         embedder_context_(std::move(embedder_context)),
         npu_auxiliary_context_(std::move(npu_auxiliary_context)),
         mask_context_(std::move(mask_context)),
         rope_context_(std::move(rope_context)),
-        env_(std::move(llm_env)),
         llm_compiled_model_(std::move(llm_compiled_model)),
         embedding_lookup_manager_(std::move(embedding_lookup_manager)),
         embedder_per_layer_context_(std::move(embedder_per_layer_context)),
@@ -362,13 +361,13 @@ class LlmLiteRtNpuCompiledModelExecutor : public LlmExecutor {
                   bool is_benchmark_enabled);
 
   LlmExecutorSettings executor_settings_;
+  ::litert::Environment& env_;
   std::unique_ptr<ModelResources> resources_;
   LatencyStats latency_stats_;
   EmbedderContext embedder_context_;
   NpuAuxiliaryContext npu_auxiliary_context_;
   InferenceContext mask_context_;
   InferenceContext rope_context_;
-  ::litert::Environment env_;
   ::litert::CompiledModel llm_compiled_model_;
   std::optional<std::unique_ptr<EmbeddingLookupManager>>
       embedding_lookup_manager_;

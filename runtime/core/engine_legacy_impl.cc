@@ -28,13 +28,15 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "third_party/odml/infra/genai/inference/executor/litert_executor_utils.h"
+#include "third_party/odml/infra/genai/inference/executor/llm_gpu_artisan_executor.h"
 #include "third_party/odml/infra/genai/inference/executor/llm_litert_opencl_executor.h"
 #include "third_party/odml/infra/genai/inference/executor/llm_litert_xnnpack_executor.h"
+#include "litert/cc/litert_environment.h"  // from @litert
+#include "litert/cc/litert_macros.h"  // from @litert
 #include "runtime/components/preprocessor/audio_preprocessor.h"
 #include "runtime/components/preprocessor/audio_preprocessor_miniaudio.h"
 #include "runtime/components/preprocessor/image_preprocessor.h"
 #include "runtime/components/preprocessor/stb_image_preprocessor.h"
-#include "third_party/odml/infra/genai/inference/executor/llm_gpu_artisan_executor.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/core/session_factory.h"
@@ -66,7 +68,8 @@ absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildExecutor(
     const oi::ExecutorModelResources& model_resources,
     const EngineSettings& engine_settings) {
   if ((engine_settings.GetMainExecutorSettings().GetBackend() !=
-      Backend::GPU_ARTISAN) && (!model_resources.model)) {
+       Backend::GPU_ARTISAN) &&
+      (!model_resources.model)) {
     return absl::InternalError(
         "TF_LITE_PREFILL_DECODE model is expected to exist when not using "
         "GPU_ARTISAN backend. But it is null.");
@@ -114,7 +117,7 @@ class EngineImpl : public Engine {
   }
 
   explicit EngineImpl(
-      EngineSettings engine_settings,
+      EngineSettings engine_settings, std::unique_ptr<Environment> env,
       std::unique_ptr<oi::ExecutorModelResources> model_resources,
       std::unique_ptr<LlmExecutor> executor,
       std::unique_ptr<Tokenizer> task_tokenizer, Tokenizer* tokenizer,
@@ -125,6 +128,7 @@ class EngineImpl : public Engine {
       std::optional<BenchmarkInfo> benchmark_info,
       std::unique_ptr<ThreadPool> worker_thread_pool)
       : engine_settings_(std::move(engine_settings)),
+        env_(std::move(env)),
         model_resources_(std::move(model_resources)),
         executor_(std::move(executor)),
         task_tokenizer_(std::move(task_tokenizer)),
@@ -165,6 +169,9 @@ class EngineImpl : public Engine {
  private:
   // Stored engine settings.
   EngineSettings engine_settings_;
+
+  // Environment for the engine.
+  std::unique_ptr<Environment> env_;
 
   // Model resources, which must outlive `executor_`.
   std::unique_ptr<oi::ExecutorModelResources> model_resources_;
@@ -261,6 +268,9 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
   ASSIGN_OR_RETURN(auto executor,
                    BuildExecutor(*model_resources, engine_settings));
 
+  LITERT_ASSIGN_OR_RETURN(
+      auto lrt_env, Environment::Create(std::vector<Environment::Option>()));
+
   std::unique_ptr<VisionExecutor> vision_executor;
   std::unique_ptr<ImagePreprocessor> image_preprocessor;
   if (engine_settings.GetVisionExecutorSettings().has_value()) {
@@ -272,7 +282,7 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
             engine_settings.GetVisionExecutorSettings()->GetBackend(),
             /*adapter_backend=*/Backend::CPU));
     ASSIGN_OR_RETURN(vision_executor, VisionLiteRtCompiledModelExecutor::Create(
-                                          vision_executor_settings));
+                                          vision_executor_settings, lrt_env));
     // Create the image preprocessor for processing the image input.
     image_preprocessor = std::make_unique<StbImagePreprocessor>();
   }
@@ -288,7 +298,7 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
             engine_settings.GetAudioExecutorSettings()->GetBackend()));
 
     ASSIGN_OR_RETURN(audio_executor, AudioLiteRtCompiledModelExecutor::Create(
-                                         audio_executor_settings));
+                                         audio_executor_settings, lrt_env));
     ASSIGN_OR_RETURN(audio_preprocessor,
                      AudioPreprocessorMiniAudio::Create(
                          AudioPreprocessorConfig::CreateDefaultUsmConfig()));
@@ -314,11 +324,13 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
       std::make_unique<ThreadPool>(/*name_prefix=*/"engine",
                                    /*max_num_threads=*/1);
   auto llm_impl = std::make_unique<EngineImpl>(
-      std::move(engine_settings), std::move(model_resources),
-      std::move(executor), std::move(task_tokenizer), tokenizer,
-      std::move(image_preprocessor), std::move(vision_executor),
-      std::move(audio_preprocessor), std::move(audio_executor),
-      std::move(benchmark_info), std::move(worker_thread_pool));
+      std::move(engine_settings),
+      std::make_unique<Environment>(std::move(lrt_env)),
+      std::move(model_resources), std::move(executor),
+      std::move(task_tokenizer), tokenizer, std::move(image_preprocessor),
+      std::move(vision_executor), std::move(audio_preprocessor),
+      std::move(audio_executor), std::move(benchmark_info),
+      std::move(worker_thread_pool));
   return llm_impl;
 };
 

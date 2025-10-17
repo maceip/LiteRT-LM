@@ -24,6 +24,8 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
+#include "runtime/components/model_resources.h"
+#include "runtime/components/tokenizer.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
@@ -82,6 +84,24 @@ absl::StatusOr<Model> LoadModelFromFile(absl::string_view model_path) {
   return model;
 }
 
+class ModelResourcesMock : public ModelResources {
+ public:
+  MOCK_METHOD(absl::StatusOr<const proto::LlmMetadata*>, GetLlmMetadata, (),
+              (override));
+  MOCK_METHOD(absl::StatusOr<Tokenizer*>, GetTokenizer, (), (override));
+  MOCK_METHOD(absl::StatusOr<absl::string_view>, GetTFLiteModelBuffer,
+              (ModelType model_type), (override));
+  absl::StatusOr<const litert::Model*> GetTFLiteModel(
+      ModelType model_type) override {
+    return &model_;
+  }
+
+  explicit ModelResourcesMock(const Model& model) : model_(model) {}
+
+ private:
+  const Model& model_;
+};
+
 absl::StatusOr<LlmExecutorSettings> GetLlmExecutorSettings() {
   ASSIGN_OR_RETURN(auto model_assets, ModelAssets::Create("dont_care_path"));
   return LlmExecutorSettings::CreateDefault(std::move(model_assets));
@@ -93,8 +113,10 @@ TEST(MagicNumberConfigsHelperTest, None_DefaultSettings) {
   auto executor_settings = GetLlmExecutorSettings();
   EXPECT_OK(executor_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   // No magic number configs and verifications.
   EXPECT_TRUE(env_options.empty());
   EXPECT_EQ(helper.magic_number_configs(), nullptr);
@@ -110,8 +132,10 @@ TEST(MagicNumberConfigsHelperTest, None_ExplictSettings) {
   AdvancedSettings advanced_settings{.prefill_batch_sizes = {1024}};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   // No magic number configs and verifications.
   EXPECT_TRUE(env_options.empty());
   EXPECT_EQ(helper.magic_number_configs(), nullptr);
@@ -124,8 +148,10 @@ TEST(MagicNumberConfigsHelperTest, ContextLength_DefaultSettings) {
   auto executor_settings = GetLlmExecutorSettings();
   EXPECT_OK(executor_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 1);
@@ -146,8 +172,10 @@ TEST(MagicNumberConfigsHelperTest, ContextLength_ExplictSettings) {
   EXPECT_OK(executor_settings);
   executor_settings->SetMaxNumTokens(1280);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 1);
@@ -169,8 +197,10 @@ TEST(MagicNumberConfigsHelperTest,
   EXPECT_OK(executor_settings);
   executor_settings->SetMaxNumTokens(9000);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 1);
@@ -194,8 +224,10 @@ TEST(MagicNumberConfigsHelperTest,
   AdvancedSettings advanced_settings{.verify_magic_numbers = true};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 2);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 1);
@@ -227,8 +259,10 @@ TEST(MagicNumberConfigsHelperTest, Both_DefaultSettings) {
   auto executor_settings = GetLlmExecutorSettings();
   EXPECT_OK(executor_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 2);
@@ -256,8 +290,10 @@ TEST(MagicNumberConfigsHelperTest, Both_ExplictSettings) {
   AdvancedSettings advanced_settings{.prefill_batch_sizes = {1024}};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 2);
@@ -285,8 +321,10 @@ TEST(MagicNumberConfigsHelperTest, Both_ExplictSettingsLargerThanMagicNumbers) {
   AdvancedSettings advanced_settings{.prefill_batch_sizes = {5000}};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 2);
@@ -315,8 +353,10 @@ TEST(MagicNumberConfigsHelperTest, Both_ExplictSettingsWithVerifications) {
                                      .verify_magic_numbers = true};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 2);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 2);
@@ -359,8 +399,10 @@ TEST(MagicNumberConfigsHelperTest,
                                      .verify_magic_numbers = true};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 2);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 2);
@@ -394,8 +436,10 @@ TEST(MagicNumberConfigsHelperTest, DecodeBatch_DefaultSettings) {
   auto executor_settings = GetLlmExecutorSettings();
   EXPECT_OK(executor_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 3);
@@ -429,8 +473,10 @@ TEST(MagicNumberConfigsHelperTest, DecodeBatch_ExplictSettings) {
                                      .num_output_candidates = 3};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 3);
@@ -465,8 +511,10 @@ TEST(MagicNumberConfigsHelperTest,
                                      .num_output_candidates = 20};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 3);
@@ -502,8 +550,10 @@ TEST(MagicNumberConfigsHelperTest,
                                      .verify_magic_numbers = true};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 2);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 3);
@@ -552,8 +602,10 @@ TEST(MagicNumberConfigsHelperTest,
                                      .verify_magic_numbers = true};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 2);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 3);
@@ -592,8 +644,10 @@ TEST(MagicNumberConfigsHelperTest, Multi_DefaultSettings) {
   auto executor_settings = GetLlmExecutorSettings();
   EXPECT_OK(executor_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 5);
@@ -636,8 +690,10 @@ TEST(MagicNumberConfigsHelperTest, Multi_LessExplictSettings) {
   AdvancedSettings advanced_settings{.prefill_batch_sizes = {1024, 128}};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 5);
@@ -682,8 +738,10 @@ TEST(MagicNumberConfigsHelperTest,
   AdvancedSettings advanced_settings{.prefill_batch_sizes = {512, 6144}};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 5);
@@ -727,8 +785,10 @@ TEST(MagicNumberConfigsHelperTest, Multi_MoreExplictSettings) {
       .prefill_batch_sizes = {1024, 128, 2048, 32, 8}};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 5);
@@ -774,8 +834,10 @@ TEST(MagicNumberConfigsHelperTest, Multi_MoreExplictSettings_SkipLast) {
       .prefill_batch_sizes = {1024, 128, 256, 512, 2048, 32}};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 5);
@@ -824,8 +886,10 @@ TEST(MagicNumberConfigsHelperTest,
       .prefill_batch_sizes = {1024, 64, 256, 512, 128}};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 1);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 5);
@@ -873,8 +937,10 @@ TEST(MagicNumberConfigsHelperTest, Multi_LessExplictSettingsWithVerifications) {
                                      .verify_magic_numbers = true};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 2);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 5);
@@ -938,8 +1004,10 @@ TEST(MagicNumberConfigsHelperTest,
                                      .verify_magic_numbers = true};
   executor_settings->SetAdvancedSettings(advanced_settings);
 
+  ModelResourcesMock model_resources(*model);
   MagicNumberConfigsHelper helper;
-  auto env_options = helper.GetLiteRtEnvOptions(*model, *executor_settings);
+  auto env_options =
+      helper.GetLiteRtEnvOptions(model_resources, *executor_settings);
   EXPECT_EQ(env_options.size(), 2);
   EXPECT_NE(helper.magic_number_configs(), nullptr);
   EXPECT_EQ(helper.magic_number_configs()->num_configs, 5);

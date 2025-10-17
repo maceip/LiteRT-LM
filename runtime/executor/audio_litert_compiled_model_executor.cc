@@ -42,6 +42,7 @@
 #include "litert/cc/litert_options.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/cc/options/litert_cpu_options.h"  // from @litert
+#include "litert/cc/options/litert_gpu_options.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -94,8 +95,10 @@ inline int CeilIntDiv(int a, int b) { return (a + b - 1) / b; }
 
 absl::StatusOr<std::unique_ptr<AudioLiteRtCompiledModelExecutor::AudioEncoder>>
 AudioLiteRtCompiledModelExecutor::AudioEncoder::Create(
-    const Model* absl_nonnull model, Environment* env) {
-  auto handler = std::unique_ptr<AudioEncoder>(new AudioEncoder(env, model));
+    const AudioExecutorSettings& executor_settings, Environment& env,
+    const Model* absl_nonnull model) {
+  auto handler = std::unique_ptr<AudioEncoder>(
+      new AudioEncoder(executor_settings, env, model));
   RETURN_IF_ERROR(handler->Initialize());
   return handler;
 }
@@ -103,13 +106,28 @@ AudioLiteRtCompiledModelExecutor::AudioEncoder::Create(
 absl::Status AudioLiteRtCompiledModelExecutor::AudioEncoder::Initialize() {
   LITERT_ASSIGN_OR_RETURN(auto options, Options::Create());
   // TODO(b/437363890): Allow configuring the LiteRT settings via options.
-  options.SetHardwareAccelerators(kLiteRtHwAcceleratorCpu);
-  CpuOptions cpu_options;
-  cpu_options.SetNumThreads(4);
-  options.AddOpaqueOptions(std::move(cpu_options));
+  if (executor_settings_.GetBackend() == Backend::GPU) {
+    LITERT_ASSIGN_OR_RETURN(GpuOptions gpu_compilation_options,
+                            GpuOptions::Create());
+    gpu_compilation_options.EnableConstantTensorSharing(true);
+    gpu_compilation_options.SetDelegatePrecision(
+        LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp32);
+    gpu_compilation_options.SetPreferTextureWeights(true);
+    options.AddOpaqueOptions(std::move(gpu_compilation_options));
+    options.SetHardwareAccelerators(kLiteRtHwAcceleratorGpu);
+  } else if (executor_settings_.GetBackend() == Backend::CPU) {
+    CpuOptions cpu_options;
+    cpu_options.SetNumThreads(4);
+    options.AddOpaqueOptions(std::move(cpu_options));
+    options.SetHardwareAccelerators(kLiteRtHwAcceleratorCpu);
+  } else {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unsupported backend for AudioEncoder: ",
+                     executor_settings_.GetBackend()));
+  }
 
   LITERT_ASSIGN_OR_RETURN(compiled_model_,
-                          CompiledModel::Create(*env_, model_, options));
+                          CompiledModel::Create(env_, model_, options));
   LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
   if (signatures.size() != 1) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -172,18 +190,40 @@ AudioLiteRtCompiledModelExecutor::AudioEncoder::ClearInputBuffers() {
 
 absl::StatusOr<std::unique_ptr<AudioLiteRtCompiledModelExecutor::AudioAdapter>>
 AudioLiteRtCompiledModelExecutor::AudioAdapter::Create(
-    const Model* absl_nonnull model, Environment* env) {
-  auto handler = std::unique_ptr<AudioAdapter>(new AudioAdapter(model, env));
+    const AudioExecutorSettings& executor_settings, Environment& env,
+    const Model* absl_nonnull model) {
+  auto handler = std::unique_ptr<AudioAdapter>(
+      new AudioAdapter(executor_settings, env, model));
   RETURN_IF_ERROR(handler->Initialize());
   return handler;
 }
 
 absl::Status AudioLiteRtCompiledModelExecutor::AudioAdapter::Initialize() {
   LITERT_ASSIGN_OR_RETURN(auto options, Options::Create());
-  options.SetHardwareAccelerators(kLiteRtHwAcceleratorCpu);
+  // TODO(b/437363890): Allow configuring the LiteRT settings via
+  // AudioExecutorSettings.
+  if (executor_settings_.GetBackend() == Backend::GPU) {
+    LITERT_ASSIGN_OR_RETURN(GpuOptions gpu_compilation_options,
+                            GpuOptions::Create());
+    gpu_compilation_options.EnableConstantTensorSharing(true);
+    gpu_compilation_options.SetDelegatePrecision(
+        LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp32);
+    gpu_compilation_options.SetPreferTextureWeights(true);
+    options.AddOpaqueOptions(std::move(gpu_compilation_options));
+    options.SetHardwareAccelerators(kLiteRtHwAcceleratorGpu);
+  } else if (executor_settings_.GetBackend() == Backend::CPU) {
+    CpuOptions cpu_options;
+    cpu_options.SetNumThreads(4);
+    options.AddOpaqueOptions(std::move(cpu_options));
+    options.SetHardwareAccelerators(kLiteRtHwAcceleratorCpu);
+  } else {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unsupported backend for AudioAdapter: ",
+                     executor_settings_.GetBackend()));
+  }
 
   LITERT_ASSIGN_OR_RETURN(compiled_model_,
-                          CompiledModel::Create(*env_, model_, options));
+                          CompiledModel::Create(env_, model_, options));
   LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
   if (signatures.size() != 1) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -229,21 +269,12 @@ absl::Status AudioLiteRtCompiledModelExecutor::AudioAdapter::Initialize() {
 
 absl::StatusOr<std::unique_ptr<AudioLiteRtCompiledModelExecutor>>
 AudioLiteRtCompiledModelExecutor::Create(
-    AudioExecutorSettings executor_settings) {
-  switch (executor_settings.GetBackend()) {
-    case Backend::CPU: {
-      break;
-    }
-    default:
-      return absl::InvalidArgumentError(absl::StrCat(
-          "Unsupported backend: ", executor_settings.GetBackend()));
-  }
+    AudioExecutorSettings executor_settings, Environment& env) {
   if (executor_settings.GetMaxSequenceLength() > 0) {
     ABSL_LOG(INFO) << "Max sequence length is not used for "
                       "AudioLiteRtCompiledModelExecutor, "
                       "which can handle variable length input.";
   }
-  LITERT_ASSIGN_OR_RETURN(auto litert_env, Environment::Create({}));
   LITERT_ASSIGN_OR_RETURN(
       auto resources,
       BuildLiteRtCompiledModelResources(executor_settings.GetModelAssets()));
@@ -251,10 +282,12 @@ AudioLiteRtCompiledModelExecutor::Create(
                    resources->GetTFLiteModel(ModelType::kTfLiteAudioEncoderHw));
   ASSIGN_OR_RETURN(auto audio_adapter_model,
                    resources->GetTFLiteModel(ModelType::kTfLiteAudioAdapter));
-  ASSIGN_OR_RETURN(auto audio_encoder,
-                   AudioEncoder::Create(audio_encoder_model, &litert_env));
-  ASSIGN_OR_RETURN(auto audio_adapter,
-                   AudioAdapter::Create(audio_adapter_model, &litert_env));
+  ASSIGN_OR_RETURN(
+      auto audio_encoder,
+      AudioEncoder::Create(executor_settings, env, audio_encoder_model));
+  ASSIGN_OR_RETURN(
+      auto audio_adapter,
+      AudioAdapter::Create(executor_settings, env, audio_adapter_model));
 
   LITERT_ASSIGN_OR_RETURN(auto mask_tensor_type,
                           audio_encoder->GetInputMaskBuffer().TensorType());
@@ -302,10 +335,10 @@ AudioLiteRtCompiledModelExecutor::Create(
   }
 
   return absl::WrapUnique(new AudioLiteRtCompiledModelExecutor(
-      std::move(executor_settings), std::move(resources),
-      std::move(audio_encoder), std::move(audio_adapter), std::move(litert_env),
-      sequence_length, spectrogram_feature_dimensions,
-      audio_embedding_dimensions, encoder_shrinking_factor));
+      std::move(executor_settings), env, std::move(resources),
+      std::move(audio_encoder), std::move(audio_adapter), sequence_length,
+      spectrogram_feature_dimensions, audio_embedding_dimensions,
+      encoder_shrinking_factor));
 }
 
 absl::StatusOr<int> AudioLiteRtCompiledModelExecutor::EncodeInternal(
