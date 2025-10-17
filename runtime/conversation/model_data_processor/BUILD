@@ -91,6 +91,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@nlohmann_json//:json",
+        "//runtime/components/constrained_decoding:constraint",
         "//runtime/conversation:io_types",
         "//runtime/engine:io_types",
     ],
@@ -112,6 +113,7 @@ cc_library(
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "//runtime/components:tokenizer",
         "//runtime/conversation:io_types",
         "//runtime/proto:llm_model_type_cc_proto",
     ],
@@ -120,6 +122,7 @@ cc_library(
 cc_test(
     name = "model_data_processor_factory_test",
     srcs = ["model_data_processor_factory_test.cc"],
+    data = ["//runtime/components/testdata"],
     deps = [
         ":config_registry",
         ":gemma3_data_processor_config",
@@ -129,6 +132,8 @@ cc_test(
         ":qwen3_data_processor_config",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
+        "//runtime/components:sentencepiece_tokenizer",
+        "//runtime/components:tokenizer",
         "//runtime/conversation:io_types",
         "//runtime/engine:io_types",
         "//runtime/proto:llm_model_type_cc_proto",

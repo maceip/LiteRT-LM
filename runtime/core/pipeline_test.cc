@@ -58,6 +58,7 @@ class BytePairEncodingTokenizer : public Tokenizer {
               (const std::vector<int>& token_ids), (override));
   MOCK_METHOD(absl::StatusOr<int>, TokenToId, (absl::string_view token),
               (override));
+  MOCK_METHOD(TokenizerType, GetTokenizerType, (), (const, override));
 };
 
 // Test callbacks to collect the streaming results, also ensure that no more

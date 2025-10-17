@@ -30,6 +30,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "runtime/components/tokenizer.h"
 #include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
@@ -98,6 +99,14 @@ TEST(SentencePieceTokenizerTtest, CreateFromBuffer) {
 TEST(SentencePieceTokenizerTtest, Create) {
   auto tokenizer_or =
       SentencePieceTokenizer::CreateFromFile(GetSentencePieceModelPath());
+  EXPECT_TRUE(tokenizer_or.ok());
+}
+
+TEST(SentencePieceTokenizerTtest, GetTokenizerType) {
+  auto tokenizer_or =
+      SentencePieceTokenizer::CreateFromFile(GetSentencePieceModelPath());
+  EXPECT_EQ(tokenizer_or.value()->GetTokenizerType(),
+            TokenizerType::kSentencePiece);
   EXPECT_TRUE(tokenizer_or.ok());
 }
 

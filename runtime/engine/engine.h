@@ -23,6 +23,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "runtime/components/tokenizer.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 
@@ -167,6 +168,9 @@ class Engine {
 
     // Get the reference to the session config for the session.
     virtual const SessionConfig& GetSessionConfig() const = 0;
+
+    // Get the reference to the tokenizer for the session.
+    virtual const Tokenizer& GetTokenizer() const = 0;
   };
 
   // Method to create Engine. An input prompt can be given as a hint to adjust

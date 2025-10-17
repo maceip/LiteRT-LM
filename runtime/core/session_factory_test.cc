@@ -49,6 +49,10 @@ class FakeTokenizer : public Tokenizer {
       const std::vector<int>& token_ids) override {
     return "fake_text";
   }
+
+  TokenizerType GetTokenizerType() const override {
+    return TokenizerType::kUnspecified;
+  }
 };
 
 TEST(SessionFactoryTest, InitializeSession) {

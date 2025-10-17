@@ -14,11 +14,16 @@
 
 #include "runtime/conversation/model_data_processor/model_data_processor_factory.h"
 
+#include <filesystem>  // NOLINT
+#include <memory>
+#include <utility>
 #include <variant>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
+#include "runtime/components/sentencepiece_tokenizer.h"
+#include "runtime/components/tokenizer.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/config_registry.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
@@ -35,11 +40,28 @@ namespace {
 
 using ::testing::status::StatusIs;
 
-TEST(ModelDataProcessorFactoryTest, CreateGenericModelDataProcessor) {
+constexpr char kTestdataDir[] =
+    "litert_lm/runtime/components/testdata/";
+
+class ModelDataProcessorFactoryTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    auto tokenizer = SentencePieceTokenizer::CreateFromFile(
+        (std::filesystem::path(::testing::SrcDir()) / kTestdataDir /
+         "sentencepiece.model")
+            .string());
+    ASSERT_OK(tokenizer);
+    tokenizer_ = std::move(*tokenizer);
+  }
+
+  std::unique_ptr<Tokenizer> tokenizer_;
+};
+
+TEST_F(ModelDataProcessorFactoryTest, CreateGenericModelDataProcessor) {
   proto::LlmModelType llm_model_type;
   llm_model_type.mutable_generic_model();
   ASSERT_OK_AND_ASSIGN(auto processor,
-                       CreateModelDataProcessor(llm_model_type));
+                       CreateModelDataProcessor(llm_model_type, *tokenizer_));
   EXPECT_OK(processor->ToInputDataVector("test prompt", {},
                                          GenericDataProcessorArguments()));
   EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
@@ -55,13 +77,13 @@ TEST(ModelDataProcessorFactoryTest, CreateGenericModelDataProcessor) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
-TEST(ModelDataProcessorFactoryTest, CreateGemma3DataProcessor) {
+TEST_F(ModelDataProcessorFactoryTest, CreateGemma3DataProcessor) {
   proto::LlmModelType llm_model_type;
   llm_model_type.mutable_gemma3n();
   ASSERT_OK_AND_ASSIGN(
       auto processor,
       CreateModelDataProcessor(
-          llm_model_type, std::monostate(),
+          llm_model_type, *tokenizer_, std::monostate(),
           JsonPreface{
               .messages = {{{"role", "system"},
                             {"content", "You are a helpful assistant."}}}}));
@@ -78,16 +100,17 @@ TEST(ModelDataProcessorFactoryTest, CreateGemma3DataProcessor) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 
   llm_model_type.mutable_gemma3();
-  ASSERT_OK_AND_ASSIGN(processor, CreateModelDataProcessor(llm_model_type));
+  ASSERT_OK_AND_ASSIGN(processor,
+                       CreateModelDataProcessor(llm_model_type, *tokenizer_));
   EXPECT_OK(processor->ToInputDataVector("test prompt", {},
                                          Gemma3DataProcessorArguments()));
 }
 
-TEST(ModelDataProcessorFactoryTest, CreateQwen3ModelDataProcessor) {
+TEST_F(ModelDataProcessorFactoryTest, CreateQwen3ModelDataProcessor) {
   proto::LlmModelType llm_model_type;
   llm_model_type.mutable_qwen3();
   ASSERT_OK_AND_ASSIGN(auto processor,
-                       CreateModelDataProcessor(llm_model_type));
+                       CreateModelDataProcessor(llm_model_type, *tokenizer_));
   EXPECT_OK(processor->ToInputDataVector("test prompt", {},
                                          Qwen3DataProcessorArguments()));
   EXPECT_THAT(processor->ToInputDataVector("test prompt", {},

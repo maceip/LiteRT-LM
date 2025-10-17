@@ -30,9 +30,19 @@ namespace litert::lm {
 
 typedef std::vector<int> TokenIds;
 
+// Enum representing the type of tokenizer.
+enum class TokenizerType {
+  kUnspecified,
+  kSentencePiece,
+  kHuggingFace,
+};
+
 class Tokenizer {
  public:
   virtual ~Tokenizer() = default;
+
+  // Returns the type of the tokenizer.
+  virtual TokenizerType GetTokenizerType() const = 0;
 
   // Encodes the given input text to token ids. Includes tokenizer pre/post
   // processing.

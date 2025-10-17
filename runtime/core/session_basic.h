@@ -120,6 +120,8 @@ class SessionBasic : public Engine::Session {
     return session_config_;
   }
 
+  const Tokenizer& GetTokenizer() const override { return tokenizer_; }
+
   // Util function for applying the prompt templates.
   // input: The input text to apply the prompt templates.
   // is_first_chunk: Whether the input is the first chunk of the turn.

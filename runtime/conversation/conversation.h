@@ -25,6 +25,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
+#include "runtime/components/constrained_decoding/constraint.h"
 #include "runtime/components/prompt_template.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/config_registry.h"
@@ -221,10 +222,15 @@ class Conversation {
 
   absl::StatusOr<std::string> GetSingleTurnText(const Message& message) const;
 
+  absl::StatusOr<DecodeConfig> CreateDecodeConfig();
+
   std::unique_ptr<Engine::Session> session_;
   std::unique_ptr<ModelDataProcessor> model_data_processor_;
   Preface preface_;
   PromptTemplate prompt_template_;
+  // The constraint is currently created from the tools defined in the preface,
+  // if any.
+  std::unique_ptr<Constraint> constraint_;
   const ConversationConfig config_;
   mutable absl::Mutex history_mutex_;
   std::vector<Message> history_ ABSL_GUARDED_BY(history_mutex_);

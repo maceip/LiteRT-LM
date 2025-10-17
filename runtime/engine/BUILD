@@ -36,13 +36,12 @@ cc_library(
     deps = [
         ":engine_settings",
         ":io_types",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/time",
-        "//runtime/proto:llm_model_type_cc_proto",
+        "//runtime/components:tokenizer",
     ],
 )
 

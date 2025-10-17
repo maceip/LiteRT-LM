@@ -39,6 +39,10 @@ class SentencePieceTokenizer : public Tokenizer {
   static absl::StatusOr<std::unique_ptr<SentencePieceTokenizer>>
   CreateFromBuffer(absl::string_view model_buffer);
 
+  TokenizerType GetTokenizerType() const override {
+    return TokenizerType::kSentencePiece;
+  }
+
   // Encodes the given text into a sequence of token ids.
   absl::StatusOr<std::vector<int>> TextToTokenIds(
       absl::string_view text) override;
@@ -50,6 +54,10 @@ class SentencePieceTokenizer : public Tokenizer {
   // Decodes the given sequence of token ids into a string.
   absl::StatusOr<std::string> TokenIdsToText(
       const std::vector<int>& token_ids) override;
+
+  const sentencepiece::SentencePieceProcessor& GetProcessor() const {
+    return *processor_;
+  }
 
  private:
   // Constructor.

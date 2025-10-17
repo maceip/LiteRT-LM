@@ -186,6 +186,7 @@ cc_test(
     data = ["//runtime/components/testdata"],
     deps = [
         ":sentencepiece_tokenizer",
+        ":tokenizer",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/status",
@@ -219,6 +220,7 @@ cc_test(
     data = ["//runtime/components/testdata"],
     deps = [
         ":huggingface_tokenizer",
+        ":tokenizer",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

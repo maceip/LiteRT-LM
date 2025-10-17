@@ -38,6 +38,10 @@ class HuggingFaceTokenizer : public Tokenizer {
   static absl::StatusOr<std::unique_ptr<HuggingFaceTokenizer>> CreateFromJson(
       std::string json);
 
+  TokenizerType GetTokenizerType() const override {
+    return TokenizerType::kHuggingFace;
+  }
+
   // Encodes the given text into a sequence of token ids.
   absl::StatusOr<std::vector<int>> TextToTokenIds(
       absl::string_view text) override;

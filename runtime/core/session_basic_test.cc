@@ -160,6 +160,10 @@ class ExtendedTokenizer : public Tokenizer {
     return tokenizer_->TokenToId(token);
   }
 
+  TokenizerType GetTokenizerType() const override {
+    return tokenizer_->GetTokenizerType();
+  }
+
  private:
   explicit ExtendedTokenizer(std::unique_ptr<SentencePieceTokenizer> tokenizer)
       : tokenizer_(std::move(tokenizer)) {};

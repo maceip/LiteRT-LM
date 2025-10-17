@@ -15,6 +15,7 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_MODEL_DATA_PROCESSOR_MODEL_DATA_PROCESSOR_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_MODEL_DATA_PROCESSOR_MODEL_DATA_PROCESSOR_H_
 
+#include <memory>
 #include <string>
 #include <variant>
 #include <vector>
@@ -23,6 +24,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
+#include "runtime/components/constrained_decoding/constraint.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/config_registry.h"
 #include "runtime/engine/io_types.h"
@@ -63,6 +65,14 @@ class ModelDataProcessor {
   // instruction of the prompt.
   virtual absl::StatusOr<nlohmann::ordered_json> FormatTools(
       const nlohmann::ordered_json& tools) = 0;
+
+  // Creates a constraint from the given tools. The constraint is used for
+  // constrained decoding. It is created from the tools defined in the preface,
+  // if any.
+  virtual absl::StatusOr<std::unique_ptr<Constraint>> CreateConstraint(
+      const nlohmann::ordered_json& tools) const {
+    return absl::UnimplementedError("CreateConstraint is not implemented.");
+  };
 
   // Returns the start of tool call blocks.
   virtual absl::string_view CodeFenceStart() = 0;

@@ -29,6 +29,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "runtime/components/tokenizer.h"
 #include "runtime/util/status_macros.h"  // NOLINT
 #include "runtime/util/test_utils.h"     // NOLINT
 
@@ -73,6 +74,14 @@ TEST(HuggingFaceTokenizerTtest, CreateFromBuffer) {
 TEST(HuggingFaceTokenizerTtest, Create) {
   auto tokenizer_or =
       HuggingFaceTokenizer::CreateFromFile(GetHuggingFaceModelPath());
+  EXPECT_TRUE(tokenizer_or.ok());
+}
+
+TEST(HuggingFaceTokenizerTtest, GetTokenizerType) {
+  auto tokenizer_or =
+      HuggingFaceTokenizer::CreateFromFile(GetHuggingFaceModelPath());
+  EXPECT_EQ(tokenizer_or.value()->GetTokenizerType(),
+            TokenizerType::kHuggingFace);
   EXPECT_TRUE(tokenizer_or.ok());
 }
 

@@ -251,6 +251,7 @@ class MockTokenizer : public Tokenizer {
               (absl::string_view text), (override));
   MOCK_METHOD(absl::StatusOr<int>, TokenToId, (absl::string_view token),
               (override));
+  MOCK_METHOD(TokenizerType, GetTokenizerType, (), (const, override));
 };
 
 absl::Status IsExpectedLlmMetadata(const proto::LlmMetadata& llm_metadata) {

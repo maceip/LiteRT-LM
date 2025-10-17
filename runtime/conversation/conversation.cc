@@ -169,6 +169,25 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
   }
 }
 
+absl::StatusOr<DecodeConfig> Conversation::CreateDecodeConfig() {
+  auto decode_config = DecodeConfig::CreateDefault();
+  // Create a constraint from the tools defined in the preface, if any.
+  if (constraint_ == nullptr && std::holds_alternative<JsonPreface>(preface_)) {
+    auto json_preface = std::get<JsonPreface>(preface_);
+    if (!json_preface.tools.is_null()) {
+      auto constraint =
+          model_data_processor_->CreateConstraint(json_preface.tools);
+      if (constraint.ok()) {
+        constraint_ = std::move(constraint.value());
+      } else if (!absl::IsUnimplemented(constraint.status())) {
+        return constraint.status();
+      }
+    }
+  }
+  decode_config.SetConstraint(constraint_.get());
+  return decode_config;
+}
+
 absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
     const Engine& engine, const ConversationConfig& config) {
   if (!std::holds_alternative<JsonPreface>(config.GetPreface())) {
@@ -178,10 +197,11 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
                    engine.CreateSession(config.GetSessionConfig()));
   const proto::LlmModelType& llm_model_type =
       session->GetSessionConfig().GetLlmModelType();
-  ASSIGN_OR_RETURN(
-      std::unique_ptr<ModelDataProcessor> model_data_processor,
-      CreateModelDataProcessor(llm_model_type, config.GetProcessorConfig(),
-                               config.GetPreface()));
+  ASSIGN_OR_RETURN(std::unique_ptr<ModelDataProcessor> model_data_processor,
+                   CreateModelDataProcessor(
+                       llm_model_type, session->GetTokenizer(),
+                       config.GetProcessorConfig(), config.GetPreface()));
+
   auto conversation = absl::WrapUnique(new Conversation(
       std::move(session), std::move(model_data_processor), config.GetPreface(),
       config.GetPromptTemplate(), config));
@@ -210,8 +230,9 @@ absl::StatusOr<Message> Conversation::SendMessage(
           single_turn_text, nlohmann::ordered_json::array({json_message}),
           args.value_or(std::monostate())));
   RETURN_IF_ERROR(session_->RunPrefill(session_inputs));
+  ASSIGN_OR_RETURN(auto decode_config, CreateDecodeConfig());
   ASSIGN_OR_RETURN(const Responses& responses,
-                   session_->RunDecode(DecodeConfig::CreateDefault()));
+                   session_->RunDecode(decode_config));
   ASSIGN_OR_RETURN(const Message assistant_message,
                    model_data_processor_->ToMessage(
                        responses, args.value_or(std::monostate())));
@@ -263,9 +284,9 @@ absl::Status Conversation::SendMessageAsync(
   };
   internal_callbacks_adapter->SetCancelCallback(std::move(cancel_callback));
 
+  ASSIGN_OR_RETURN(auto decode_config, CreateDecodeConfig());
   RETURN_IF_ERROR(session_->GenerateContentStream(
-      session_inputs, std::move(internal_callbacks_adapter),
-      DecodeConfig::CreateDefault()));
+      session_inputs, std::move(internal_callbacks_adapter), decode_config));
   return absl::OkStatus();
 };
 

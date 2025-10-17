@@ -21,6 +21,7 @@
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "runtime/components/tokenizer.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/config_registry.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor.h"
@@ -35,8 +36,8 @@
 namespace litert::lm {
 
 absl::StatusOr<std::unique_ptr<ModelDataProcessor>> CreateModelDataProcessor(
-    const proto::LlmModelType& model_type, const DataProcessorConfig& config,
-    std::optional<Preface> preface) {
+    const proto::LlmModelType& model_type, const Tokenizer& tokenizer,
+    const DataProcessorConfig& config, std::optional<Preface> preface) {
   switch (model_type.model_type_case()) {
     case proto::LlmModelType::kGemma3N:
     case proto::LlmModelType::kGemma3:

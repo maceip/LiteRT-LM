@@ -20,6 +20,7 @@
 #include <variant>
 
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "runtime/components/tokenizer.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/config_registry.h"
 #include "runtime/conversation/model_data_processor/model_data_processor.h"
@@ -29,8 +30,12 @@ namespace litert::lm {
 
 // Creates a ModelDataProcessor instance based on the given model type and
 // config.
+// - llm_model_type: The type of the LLM model.
+// - tokenizer: The tokenizer used by the LLM model.
+// - config: The config for the model data processor.
+// - preface: The preface for the conversation.
 absl::StatusOr<std::unique_ptr<ModelDataProcessor>> CreateModelDataProcessor(
-    const proto::LlmModelType& llm_model_type,
+    const proto::LlmModelType& llm_model_type, const Tokenizer& tokenizer,
     const DataProcessorConfig& config = std::monostate(),
     std::optional<Preface> preface = std::nullopt);
 
