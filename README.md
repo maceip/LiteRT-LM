@@ -175,7 +175,13 @@ the MSVC toolchain for all users, usually under this directory C:\Program Files.
 install for all users.
 4.  **Bazel** - Install using Windows Package Manager (winget): `powershell
     winget install --id=Bazel.Bazelisk -e`.
-5.  Download the `.litertlm` model from the
+5. **Java** - Install from https://www.oracle.com/java/technologies/downloads/
+    and set JAVA_HOME to point at the jdk directory.
+6. **Enable long path** Make sure the LongPathsEnabled is true in the Registry.
+    If needed, use `bazelisk --output_base=C:\bzl` to shorten the output path
+    further. Otherwise, compilation errors related to file permission could
+    happen.
+7. Download the `.litertlm` model from the
     [Supported Models and Performance](#supported-models-and-performance)
     section.
 
