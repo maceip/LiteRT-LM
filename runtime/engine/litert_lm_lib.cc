@@ -451,13 +451,16 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
 
   if (settings.report_peak_memory_footprint) {
     float peak_mem_mb = 0.0f;
+    float peak_private_mb = 0.0f;
     if (mem_monitor != nullptr) {
       mem_monitor->Stop();
       peak_mem_mb = mem_monitor->GetPeakMemUsageInMB();
+      peak_private_mb = mem_monitor->GetPeakPrivateFootprintInMB();
     }
     ABSL_LOG(INFO) << "Peak system ram usage: " << peak_mem_mb << "MB.";
     ABSL_LOG(INFO) << "Memory usage: "
                    << tflite::profiling::memory::GetMemoryUsage();
+    ABSL_LOG(INFO) << "Peak private footprint: " << peak_private_mb << "MB.";
   }
 
   return absl::OkStatus();
