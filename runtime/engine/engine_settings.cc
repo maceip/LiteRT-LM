@@ -302,10 +302,10 @@ absl::Status SessionConfig::MaybeUpdateAndValidate(
       << (engine_settings.GetLlmMetadata().has_value()
               ? engine_settings.GetLlmMetadata().value().DebugString()
               : "Not set");
-  if ((start_token_id_ == -1 || stop_token_ids_.empty()) &&
+  if ((stop_token_ids_.empty()) &&
       !engine_settings.GetLlmMetadata().has_value()) {
     return absl::InvalidArgumentError(
-        "Required: set start and stop tokens, or provide LlmMetadata.");
+        "Required: set stop tokens, or provide LlmMetadata.");
   }
 
   // Update the parameters from the engine settings when the LlmMetadata is
@@ -366,11 +366,6 @@ absl::Status SessionConfig::MaybeUpdateAndValidate(
   }
 
   // Validating the required fields are set correctly.
-  if (start_token_id_ == -1) {
-    return absl::InvalidArgumentError(
-        "Start token is required. Either set the start token id or provide "
-        "a valid start token in the model file/engine settings.");
-  }
   if (stop_token_ids_.empty()) {
     return absl::InvalidArgumentError(
         "Stop tokens are required. Either set the stop token ids or "
