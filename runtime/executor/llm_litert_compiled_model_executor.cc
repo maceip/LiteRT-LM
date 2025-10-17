@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -55,7 +56,6 @@
 #include "runtime/executor/magic_number_configs_helper.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/file_util.h"
-#include "runtime/util/litert_status_util.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
 #include "tflite/delegates/xnnpack/xnnpack_delegate.h"  // from @litert
