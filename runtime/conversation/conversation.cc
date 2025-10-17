@@ -219,7 +219,7 @@ absl::StatusOr<Message> Conversation::SendMessage(
   return assistant_message;
 }
 
-absl::Status Conversation::SendMessageStream(
+absl::Status Conversation::SendMessageAsync(
     const Message& message, std::unique_ptr<MessageCallbacks> callbacks,
     std::optional<DataProcessorArguments> args) {
   if (!std::holds_alternative<nlohmann::ordered_json>(message)) {

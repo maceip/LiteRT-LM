@@ -143,7 +143,7 @@ class ConversationConfig {
 //   // Send a message to the LLM and process the asynchronous message results
 //   // via the callbacks. The callbacks is a user-defined callback class that
 //   // handles the message results.
-//   EXPECT_OK(conversation->SendMessageStream(
+//   EXPECT_OK(conversation->SendMessageAsync(
 //       JsonMessage{{"role", "user"}, {"content", "Hello world!"}},
 //       std::make_unique<MyMessageCallbacks>()));
 //
@@ -184,7 +184,7 @@ class Conversation {
   // Returns :
   // - absl::OkStatus if the message is sent and processing successfully,
   //   otherwise the error status.
-  absl::Status SendMessageStream(
+  absl::Status SendMessageAsync(
       const Message& message, std::unique_ptr<MessageCallbacks> callbacks,
       std::optional<DataProcessorArguments> args = std::nullopt);
 

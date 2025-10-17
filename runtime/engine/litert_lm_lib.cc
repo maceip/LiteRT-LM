@@ -209,7 +209,7 @@ absl::Status RunSingleTurnConversation(const std::string& input_prompt,
   RETURN_IF_ERROR(BuildContentList(input_prompt, content_list, settings));
   std::stringstream captured_output;
   if (settings.async) {
-    RETURN_IF_ERROR(conversation->SendMessageStream(
+    RETURN_IF_ERROR(conversation->SendMessageAsync(
         json::object({{"role", "user"}, {"content", content_list}}),
         std::make_unique<PrintMessageCallbacks>(captured_output)));
     RETURN_IF_ERROR(engine->WaitUntilDone(kWaitUntilDoneTimeout));
@@ -248,7 +248,7 @@ absl::Status RunMultiTurnConversation(const LiteRtLmSettings& settings,
       continue;
     }
     if (settings.async) {
-      RETURN_IF_ERROR(conversation->SendMessageStream(
+      RETURN_IF_ERROR(conversation->SendMessageAsync(
           json::object({{"role", "user"}, {"content", content_list}}),
           std::make_unique<PrintMessageCallbacks>(captured_output)));
       RETURN_IF_ERROR(engine->WaitUntilDone(kWaitUntilDoneTimeout));

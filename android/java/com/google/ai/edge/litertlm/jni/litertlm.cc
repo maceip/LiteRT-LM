@@ -800,7 +800,7 @@ JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
   auto jni_callbacks =
       std::make_unique<JniMessageCallbacks>(env, jvm, callbacks);
   auto status =
-      conversation->SendMessageStream(json_message, std::move(jni_callbacks));
+      conversation->SendMessageAsync(json_message, std::move(jni_callbacks));
 
   if (!status.ok()) {
     ThrowLiteRtLmJniException(

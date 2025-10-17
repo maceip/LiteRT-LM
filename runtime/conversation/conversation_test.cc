@@ -372,7 +372,7 @@ TEST(ConversationTest, SendMultipleMessages) {
                                    assistant_message));
 }
 
-TEST(ConversationTest, SendMessageStream) {
+TEST(ConversationTest, SendMessageAsync) {
   ASSERT_OK_AND_ASSIGN(auto model_assets,
                        ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
   ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
@@ -394,7 +394,7 @@ TEST(ConversationTest, SendMessageStream) {
          {"text", "TarefaByte دارایेत्र investigaciónప్రదేశসাইন"}}}}};
 
   absl::Notification done;
-  EXPECT_OK(conversation->SendMessageStream(
+  EXPECT_OK(conversation->SendMessageAsync(
       user_message,
       std::make_unique<TestMessageCallbacks>(expected_message, done)));
   // Wait for the async message to be processed.
@@ -404,7 +404,7 @@ TEST(ConversationTest, SendMessageStream) {
               testing::ElementsAre(user_message, expected_message));
 }
 
-TEST(ConversationTest, SendSingleMessageStream) {
+TEST(ConversationTest, SendSingleMessageAsync) {
   // Set up mock Session.
   auto mock_session = std::make_unique<MockSession>();
   MockSession* mock_session_ptr = mock_session.get();
@@ -468,15 +468,15 @@ TEST(ConversationTest, SendSingleMessageStream) {
   absl::Notification done;
   auto message_callbacks =
       std::make_unique<TestMessageCallbacks>(assistant_message, done);
-  EXPECT_OK(conversation->SendMessageStream(user_message,
-                                            std::move(message_callbacks)));
+  EXPECT_OK(conversation->SendMessageAsync(user_message,
+                                           std::move(message_callbacks)));
   done.WaitForNotification();
 
   EXPECT_THAT(conversation->GetHistory(),
               testing::ElementsAre(user_message, assistant_message));
 }
 
-TEST(ConversationTest, SendMultipleMessagesStream) {
+TEST(ConversationTest, SendMultipleMessagesAsync) {
   // Set up mock Session.
   auto mock_session = std::make_unique<MockSession>();
   MockSession* mock_session_ptr = mock_session.get();
@@ -553,8 +553,8 @@ TEST(ConversationTest, SendMultipleMessagesStream) {
   absl::Notification done;
   auto message_callbacks =
       std::make_unique<TestMessageCallbacks>(assistant_message, done);
-  EXPECT_OK(conversation->SendMessageStream(user_messages,
-                                            std::move(message_callbacks)));
+  EXPECT_OK(conversation->SendMessageAsync(user_messages,
+                                           std::move(message_callbacks)));
   done.WaitForNotification();
 
   EXPECT_THAT(conversation->GetHistory(),
@@ -684,7 +684,7 @@ TEST_P(ConversationCancellationTest, CancelProcessWithBenchmarkInfo) {
   absl::Status status;
   absl::Notification done_1;
   conversation
-      ->SendMessageStream(
+      ->SendMessageAsync(
           JsonMessage{{"role", "user"}, {"content", "Hello world!"}},
           std::make_unique<CancelledMessageCallbacks>(status, done_1))
       .IgnoreError();
@@ -702,7 +702,7 @@ TEST_P(ConversationCancellationTest, CancelProcessWithBenchmarkInfo) {
   status = absl::OkStatus();
   absl::Notification done_2;
   conversation
-      ->SendMessageStream(
+      ->SendMessageAsync(
           JsonMessage{{"role", "user"}, {"content", "Hello world!"}},
           std::make_unique<CancelledMessageCallbacks>(status, done_2))
       .IgnoreError();
