@@ -60,8 +60,11 @@ class ModelDataProcessorFactoryTest : public ::testing::Test {
 TEST_F(ModelDataProcessorFactoryTest, CreateGenericModelDataProcessor) {
   proto::LlmModelType llm_model_type;
   llm_model_type.mutable_generic_model();
+  ASSERT_OK_AND_ASSIGN(
+      auto config, CreateDataProcessorConfigFromLlmModelType(llm_model_type));
+  ASSERT_TRUE(std::holds_alternative<GenericDataProcessorConfig>(config));
   ASSERT_OK_AND_ASSIGN(auto processor,
-                       CreateModelDataProcessor(llm_model_type, *tokenizer_));
+                       CreateModelDataProcessor(config, *tokenizer_));
   EXPECT_OK(processor->ToInputDataVector("test prompt", {},
                                          GenericDataProcessorArguments()));
   EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
@@ -81,9 +84,12 @@ TEST_F(ModelDataProcessorFactoryTest, CreateGemma3DataProcessor) {
   proto::LlmModelType llm_model_type;
   llm_model_type.mutable_gemma3n();
   ASSERT_OK_AND_ASSIGN(
+      auto config, CreateDataProcessorConfigFromLlmModelType(llm_model_type));
+  ASSERT_TRUE(std::holds_alternative<Gemma3DataProcessorConfig>(config));
+  ASSERT_OK_AND_ASSIGN(
       auto processor,
       CreateModelDataProcessor(
-          llm_model_type, *tokenizer_, std::monostate(),
+          config, *tokenizer_,
           JsonPreface{
               .messages = {{{"role", "system"},
                             {"content", "You are a helpful assistant."}}}}));
@@ -100,8 +106,11 @@ TEST_F(ModelDataProcessorFactoryTest, CreateGemma3DataProcessor) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 
   llm_model_type.mutable_gemma3();
+  ASSERT_OK_AND_ASSIGN(
+      config, CreateDataProcessorConfigFromLlmModelType(llm_model_type));
+  ASSERT_TRUE(std::holds_alternative<Gemma3DataProcessorConfig>(config));
   ASSERT_OK_AND_ASSIGN(processor,
-                       CreateModelDataProcessor(llm_model_type, *tokenizer_));
+                       CreateModelDataProcessor(config, *tokenizer_));
   EXPECT_OK(processor->ToInputDataVector("test prompt", {},
                                          Gemma3DataProcessorArguments()));
 }
@@ -109,8 +118,11 @@ TEST_F(ModelDataProcessorFactoryTest, CreateGemma3DataProcessor) {
 TEST_F(ModelDataProcessorFactoryTest, CreateQwen3ModelDataProcessor) {
   proto::LlmModelType llm_model_type;
   llm_model_type.mutable_qwen3();
+  ASSERT_OK_AND_ASSIGN(
+      auto config, CreateDataProcessorConfigFromLlmModelType(llm_model_type));
+  ASSERT_TRUE(std::holds_alternative<Qwen3DataProcessorConfig>(config));
   ASSERT_OK_AND_ASSIGN(auto processor,
-                       CreateModelDataProcessor(llm_model_type, *tokenizer_));
+                       CreateModelDataProcessor(config, *tokenizer_));
   EXPECT_OK(processor->ToInputDataVector("test prompt", {},
                                          Qwen3DataProcessorArguments()));
   EXPECT_THAT(processor->ToInputDataVector("test prompt", {},

@@ -30,9 +30,9 @@ struct Gemma3DataProcessorConfig {
   int image_tensor_width = 768;
 
   // The string for beginning of audio token.
-  std::string bao_token = "<start_of_audio>";
+  std::string boa_token = "<start_of_audio>";
   // The string for end of audio token.
-  std::string eao_token = "<end_of_audio>";
+  std::string eoa_token = "<end_of_audio>";
 
   // Tool call parsing configuration.
   std::string code_fence_start = "```tool_code\n";

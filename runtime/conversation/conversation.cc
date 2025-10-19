@@ -80,11 +80,20 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
         "read from model metadata or the prompt template is not set in "
         "SessionConfig.");
   }
+  DataProcessorConfig processor_config;
+  if (overwrite_processor_config.has_value()) {
+    // Use the overwrite processor config if provided.
+    processor_config = *overwrite_processor_config;
+  } else {
+    // Build the processor config from the model metadata.
+    ASSIGN_OR_RETURN(processor_config,
+                     CreateDataProcessorConfigFromLlmModelType(
+                         session_config_copy.GetLlmModelType()));
+  }
   return ConversationConfig(
       session_config_copy, preface.value_or(JsonPreface()),
       PromptTemplate(session_config_copy.GetJinjaPromptTemplate()),
-      overwrite_processor_config.value_or(GetDefaultDataProcessorConfig(
-          session_config_copy.GetLlmModelType())));
+      processor_config);
 }
 
 absl::StatusOr<std::string> Conversation::GetSingleTurnText(
@@ -195,12 +204,10 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
   }
   ASSIGN_OR_RETURN(std::unique_ptr<Engine::Session> session,
                    engine.CreateSession(config.GetSessionConfig()));
-  const proto::LlmModelType& llm_model_type =
-      session->GetSessionConfig().GetLlmModelType();
-  ASSIGN_OR_RETURN(std::unique_ptr<ModelDataProcessor> model_data_processor,
-                   CreateModelDataProcessor(
-                       llm_model_type, session->GetTokenizer(),
-                       config.GetProcessorConfig(), config.GetPreface()));
+  ASSIGN_OR_RETURN(
+      std::unique_ptr<ModelDataProcessor> model_data_processor,
+      CreateModelDataProcessor(config.GetProcessorConfig(),
+                               session->GetTokenizer(), config.GetPreface()));
 
   auto conversation = absl::WrapUnique(new Conversation(
       std::move(session), std::move(model_data_processor), config.GetPreface(),

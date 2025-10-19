@@ -16,6 +16,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <variant>
 
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -32,59 +33,126 @@
 #include "runtime/conversation/model_data_processor/qwen3_data_processor.h"
 #include "runtime/conversation/model_data_processor/qwen3_data_processor_config.h"
 #include "runtime/proto/llm_model_type.pb.h"
+#include "runtime/proto/token.pb.h"
+#include "runtime/util/status_macros.h"
 
 namespace litert::lm {
 
-absl::StatusOr<std::unique_ptr<ModelDataProcessor>> CreateModelDataProcessor(
-    const proto::LlmModelType& model_type, const Tokenizer& tokenizer,
-    const DataProcessorConfig& config, std::optional<Preface> preface) {
-  switch (model_type.model_type_case()) {
-    case proto::LlmModelType::kGemma3N:
-    case proto::LlmModelType::kGemma3:
-      ABSL_LOG(INFO) << "Creating Gemma3DataProcessor for model type: "
-                     << model_type.model_type_case();
-      return Gemma3DataProcessor::Create(
-          std::holds_alternative<Gemma3DataProcessorConfig>(config)
-              ? std::get<Gemma3DataProcessorConfig>(config)
-              : Gemma3DataProcessorConfig(),
-          preface);
-    case proto::LlmModelType::kQwen3:
-      ABSL_LOG(INFO) << "Creating Qwen3DataProcessor for model type: "
-                     << model_type.model_type_case();
-      return Qwen3DataProcessor::Create(
-          std::holds_alternative<Qwen3DataProcessorConfig>(config)
-              ? std::get<Qwen3DataProcessorConfig>(config)
-              : Qwen3DataProcessorConfig());
-    case proto::LlmModelType::kGenericModel: {
-      ABSL_LOG(INFO) << "Creating GenericDataProcessor for model type: "
-                     << model_type.model_type_case();
-      if (std::holds_alternative<GenericDataProcessorConfig>(config)) {
-        return GenericDataProcessor::Create(
-            std::holds_alternative<GenericDataProcessorConfig>(config)
-                ? std::get<GenericDataProcessorConfig>(config)
-                : GenericDataProcessorConfig());
-      } else {
-        return GenericDataProcessor::Create();
-      }
+absl::StatusOr<std::string> GetTokenString(
+    const proto::TokenUnion& token_union) {
+  if (token_union.has_token_str()) {
+    return token_union.token_str();
+  } else {
+    return absl::InvalidArgumentError("TokenUnion does not have a token_str.");
+  }
+}
+
+absl::StatusOr<DataProcessorConfig> CreateGemma3DataProcessorConfig(
+    const proto::LlmModelType& model_type) {
+  Gemma3DataProcessorConfig config;
+  if (model_type.has_gemma3n()) {
+    proto::Gemma3N gemma3n = model_type.gemma3n();
+    if (gemma3n.has_start_of_image_token()) {
+      ASSIGN_OR_RETURN(config.boi_token,
+                       GetTokenString(gemma3n.start_of_image_token()));
     }
+    if (gemma3n.has_end_of_image_token()) {
+      ASSIGN_OR_RETURN(config.eoi_token,
+                       GetTokenString(gemma3n.end_of_image_token()));
+    }
+    if (gemma3n.has_start_of_audio_token()) {
+      ASSIGN_OR_RETURN(config.boa_token,
+                       GetTokenString(gemma3n.start_of_audio_token()));
+    }
+    if (gemma3n.has_end_of_audio_token()) {
+      ASSIGN_OR_RETURN(config.eoa_token,
+                       GetTokenString(gemma3n.end_of_audio_token()));
+    }
+    const auto& default_gemma3n = proto::Gemma3N::default_instance();
+    if (gemma3n.image_tensor_height() !=
+        default_gemma3n.image_tensor_height()) {
+      config.image_tensor_height = gemma3n.image_tensor_height();
+    }
+    if (gemma3n.image_tensor_width() != default_gemma3n.image_tensor_width()) {
+      config.image_tensor_width = gemma3n.image_tensor_width();
+    }
+  } else if (model_type.has_gemma3()) {
+    proto::Gemma3 gemma3 = model_type.gemma3();
+    if (gemma3.has_start_of_image_token()) {
+      ASSIGN_OR_RETURN(config.boi_token,
+                       GetTokenString(gemma3.start_of_image_token()));
+    }
+    if (gemma3.has_end_of_image_token()) {
+      ASSIGN_OR_RETURN(config.eoi_token,
+                       GetTokenString(gemma3.end_of_image_token()));
+    }
+    const auto& default_gemma3 = proto::Gemma3::default_instance();
+    if (gemma3.image_tensor_height() != default_gemma3.image_tensor_height()) {
+      config.image_tensor_height = gemma3.image_tensor_height();
+    }
+    if (gemma3.image_tensor_width() != default_gemma3.image_tensor_width()) {
+      config.image_tensor_width = gemma3.image_tensor_width();
+    }
+  } else {
+    return absl::InvalidArgumentError(
+        "Gemma3N or Gemma3 LlmModelType is required to create "
+        "Gemma3DataProcessorConfig.");
+  }
+  return config;
+}
+
+absl::StatusOr<DataProcessorConfig> CreateGenericDataProcessorConfig(
+    const proto::LlmModelType& model_type) {
+  if (!model_type.has_generic_model()) {
+    return absl::InvalidArgumentError(
+        "GenericModel LlmModelType is required to create "
+        "GenericDataProcessorConfig.");
+  }
+  return GenericDataProcessorConfig();
+}
+
+absl::StatusOr<DataProcessorConfig> CreateQwen3DataProcessorConfig(
+    const proto::LlmModelType& model_type) {
+  if (!model_type.has_qwen3()) {
+    return absl::InvalidArgumentError(
+        "Qwen3 LlmModelType is required to create "
+        "Qwen3DataProcessorConfig.");
+  }
+  return Qwen3DataProcessorConfig();
+}
+
+absl::StatusOr<DataProcessorConfig> CreateDataProcessorConfigFromLlmModelType(
+    const proto::LlmModelType& model_type) {
+  switch (model_type.model_type_case()) {
+    case proto::LlmModelType::kGemma3:
+    case proto::LlmModelType::kGemma3N:
+      return CreateGemma3DataProcessorConfig(model_type);
+    case proto::LlmModelType::kQwen3:
+      return CreateQwen3DataProcessorConfig(model_type);
+    case proto::LlmModelType::kGenericModel:
+      return CreateGenericDataProcessorConfig(model_type);
     default:
       return absl::InvalidArgumentError("Unsupported model type");
   }
-  return absl::InvalidArgumentError("Unsupported model type");
 }
 
-DataProcessorConfig GetDefaultDataProcessorConfig(
-    const proto::LlmModelType& llm_model_type) {
-  switch (llm_model_type.model_type_case()) {
-    case proto::LlmModelType::kGemma3N:
-    case proto::LlmModelType::kGemma3:
-      return Gemma3DataProcessorConfig();
-    case proto::LlmModelType::kQwen3:
-      return Qwen3DataProcessorConfig();
-    case proto::LlmModelType::kGenericModel:
-      return GenericDataProcessorConfig();
-    default:
-      return std::monostate();
+absl::StatusOr<std::unique_ptr<ModelDataProcessor>> CreateModelDataProcessor(
+    const DataProcessorConfig& config, const Tokenizer& tokenizer,
+    std::optional<Preface> preface) {
+  if (std::holds_alternative<Gemma3DataProcessorConfig>(config)) {
+    ABSL_LOG(INFO) << "Creating Gemma3DataProcessor";
+    return Gemma3DataProcessor::Create(
+        std::get<Gemma3DataProcessorConfig>(config), preface);
+  } else if (std::holds_alternative<Qwen3DataProcessorConfig>(config)) {
+    ABSL_LOG(INFO) << "Creating Qwen3DataProcessor";
+    return Qwen3DataProcessor::Create(
+        std::get<Qwen3DataProcessorConfig>(config));
+  } else if (std::holds_alternative<GenericDataProcessorConfig>(config)) {
+    ABSL_LOG(INFO) << "Creating GenericDataProcessor";
+    return GenericDataProcessor::Create(
+        std::get<GenericDataProcessorConfig>(config));
+  } else {
+    return absl::InvalidArgumentError("Unsupported data processor config type");
   }
 }
 

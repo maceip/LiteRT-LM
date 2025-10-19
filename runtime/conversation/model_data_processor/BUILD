@@ -94,6 +94,7 @@ cc_library(
         "//runtime/components/constrained_decoding:constraint",
         "//runtime/conversation:io_types",
         "//runtime/engine:io_types",
+        "//runtime/proto:llm_model_type_cc_proto",
     ],
 )
 
@@ -116,6 +117,8 @@ cc_library(
         "//runtime/components:tokenizer",
         "//runtime/conversation:io_types",
         "//runtime/proto:llm_model_type_cc_proto",
+        "//runtime/proto:token_cc_proto",
+        "//runtime/util:litert_status_util",
     ],
 )
 
@@ -157,6 +160,7 @@ cc_library(
         "@nlohmann_json//:json",
         "//runtime/conversation:io_types",
         "//runtime/engine:io_types",
+        "//runtime/proto:llm_model_type_cc_proto",
         "//runtime/util:litert_status_util",
     ],
 )

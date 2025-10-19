@@ -53,7 +53,17 @@ message Gemma3N {
 }
 
 // Google's Gemma3 model.
-message Gemma3 {}
+message Gemma3 {
+  // Vision modality.
+  // The start of image token indicates the start of image in the prompt.
+  TokenUnion start_of_image_token = 1;
+  // The end of image token indicates the end of image in the prompt.
+  TokenUnion end_of_image_token = 2;
+  // The height of the image tensor that image preprocessor should resize to.
+  int32 image_tensor_height = 3;
+  // The width of the image tensor that image preprocessor should resize to.
+  int32 image_tensor_width = 4;
+}
 
 // Qwen3 model.
 message Qwen3 {}
