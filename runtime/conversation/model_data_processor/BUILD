@@ -196,6 +196,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@nlohmann_json//:json",
+        "//runtime/components/tool_use:parser_utils",
         "//runtime/conversation:io_types",
         "//runtime/engine:io_types",
         "//runtime/util:litert_status_util",
@@ -207,6 +208,7 @@ cc_test(
     srcs = ["qwen3_data_processor_test.cc"],
     deps = [
         ":qwen3_data_processor",
+        ":qwen3_data_processor_config",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

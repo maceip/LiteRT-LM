@@ -15,7 +15,9 @@
 #include "runtime/conversation/model_data_processor/qwen3_data_processor.h"
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -23,6 +25,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json_fwd.hpp"  // from @nlohmann_json
+#include "runtime/components/tool_use/parser_utils.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/model_data_processor.h"
 #include "runtime/conversation/model_data_processor/qwen3_data_processor_config.h"
@@ -32,8 +35,9 @@
 namespace litert::lm {
 
 absl::StatusOr<std::unique_ptr<ModelDataProcessor>> Qwen3DataProcessor::Create(
-    Qwen3DataProcessorConfig config) {
-  return absl::WrapUnique(new Qwen3DataProcessor(config));
+    Qwen3DataProcessorConfig config, std::optional<Preface> preface) {
+  return absl::WrapUnique(
+      new Qwen3DataProcessor(std::move(config), std::move(preface)));
 }
 
 absl::StatusOr<nlohmann::ordered_json>
@@ -64,11 +68,34 @@ absl::StatusOr<Message> Qwen3DataProcessor::ToMessageImpl(
     const Responses& responses, const Qwen3DataProcessorArguments& args) {
   ASSIGN_OR_RETURN(absl::string_view response_text,
                    responses.GetResponseTextAt(0));
-  nlohmann::ordered_json content;
-  content = nlohmann::ordered_json::array(
-      {{{"type", "text"}, {"text", std::string(response_text)}}});
-  return nlohmann::ordered_json::object(
-      {{"role", "assistant"}, {"content", content}});
+  nlohmann::ordered_json message = {{"role", "assistant"}};
+  if (preface_.has_value() && std::holds_alternative<JsonPreface>(*preface_) &&
+      !std::get<JsonPreface>(*preface_).tools.empty()) {
+    ASSIGN_OR_RETURN(
+        nlohmann::ordered_json content_and_tool_calls,
+        ParseTextAndToolCalls(response_text, config_.code_fence_start,
+                              config_.code_fence_end, SyntaxType::kJson,
+                              config_.escape_fence_strings,
+                              config_.tool_code_regex));
+    if (content_and_tool_calls.contains("content")) {
+      message["content"] = content_and_tool_calls["content"];
+    }
+    if (content_and_tool_calls.contains("tool_calls")) {
+      message["tool_calls"] = content_and_tool_calls["tool_calls"];
+    }
+  } else {
+    message["content"] = nlohmann::ordered_json::array(
+        {{{"type", "text"}, {"text", std::string(response_text)}}});
+  }
+  return message;
+}
+
+absl::string_view Qwen3DataProcessor::CodeFenceStart() {
+  return config_.code_fence_start;
+}
+
+absl::string_view Qwen3DataProcessor::CodeFenceEnd() {
+  return config_.code_fence_end;
 }
 
 }  // namespace litert::lm

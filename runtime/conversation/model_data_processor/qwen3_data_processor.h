@@ -16,7 +16,9 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_MODEL_DATA_PROCESSOR_QWEN3_DATA_PROCESSOR_H_
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -38,7 +40,8 @@ class Qwen3DataProcessor
                                         Qwen3DataProcessorArguments> {
  public:
   static absl::StatusOr<std::unique_ptr<ModelDataProcessor>> Create(
-      Qwen3DataProcessorConfig config = Qwen3DataProcessorConfig());
+      Qwen3DataProcessorConfig config,
+      std::optional<Preface> preface = std::nullopt);
 
   // Return the same tools as the input for generic models.
   absl::StatusOr<nlohmann::ordered_json> FormatTools(
@@ -50,18 +53,17 @@ class Qwen3DataProcessor
   absl::StatusOr<nlohmann::ordered_json> MessageToTemplateInput(
       const nlohmann::ordered_json& message) const override;
 
-  // No-op for generic models.
-  absl::string_view CodeFenceStart() override { return ""; }
+  absl::string_view CodeFenceStart() override;
 
-  // No-op for generic models.
-  absl::string_view CodeFenceEnd() override { return ""; }
+  absl::string_view CodeFenceEnd() override;
 
   // Returns the config of the model data processor.
   const Qwen3DataProcessorConfig& GetConfig() override { return config_; }
 
  private:
-  explicit Qwen3DataProcessor(Qwen3DataProcessorConfig config)
-      : config_(config) {};
+  explicit Qwen3DataProcessor(Qwen3DataProcessorConfig config,
+                              std::optional<Preface> preface)
+      : config_(std::move(config)), preface_(std::move(preface)) {};
 
   absl::StatusOr<std::vector<InputData>> ToInputDataVectorImpl(
       const std::string& rendered_template_prompt,
@@ -73,6 +75,7 @@ class Qwen3DataProcessor
       const Qwen3DataProcessorArguments& args) override;
 
   Qwen3DataProcessorConfig config_;
+  std::optional<Preface> preface_;
 };
 
 }  // namespace litert::lm

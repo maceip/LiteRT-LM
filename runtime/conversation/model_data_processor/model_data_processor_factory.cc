@@ -118,7 +118,20 @@ absl::StatusOr<DataProcessorConfig> CreateQwen3DataProcessorConfig(
         "Qwen3 LlmModelType is required to create "
         "Qwen3DataProcessorConfig.");
   }
-  return Qwen3DataProcessorConfig();
+  Qwen3DataProcessorConfig config;
+  if (model_type.qwen3().has_code_fence_start()) {
+    config.code_fence_start = model_type.qwen3().code_fence_start();
+  }
+  if (model_type.qwen3().has_code_fence_end()) {
+    config.code_fence_end = model_type.qwen3().code_fence_end();
+  }
+  if (model_type.qwen3().has_escape_fence_strings()) {
+    config.escape_fence_strings = model_type.qwen3().escape_fence_strings();
+  }
+  if (model_type.qwen3().has_tool_code_regex()) {
+    config.tool_code_regex = model_type.qwen3().tool_code_regex();
+  }
+  return config;
 }
 
 absl::StatusOr<DataProcessorConfig> CreateDataProcessorConfigFromLlmModelType(
@@ -146,7 +159,7 @@ absl::StatusOr<std::unique_ptr<ModelDataProcessor>> CreateModelDataProcessor(
   } else if (std::holds_alternative<Qwen3DataProcessorConfig>(config)) {
     ABSL_LOG(INFO) << "Creating Qwen3DataProcessor";
     return Qwen3DataProcessor::Create(
-        std::get<Qwen3DataProcessorConfig>(config));
+        std::get<Qwen3DataProcessorConfig>(config), preface);
   } else if (std::holds_alternative<GenericDataProcessorConfig>(config)) {
     ABSL_LOG(INFO) << "Creating GenericDataProcessor";
     return GenericDataProcessor::Create(

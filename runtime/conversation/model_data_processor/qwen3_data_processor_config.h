@@ -15,9 +15,15 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_MODEL_DATA_PROCESSOR_QWEN3_DATA_PROCESSOR_CONFIG_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_MODEL_DATA_PROCESSOR_QWEN3_DATA_PROCESSOR_CONFIG_H_
 
+#include <string>
 namespace litert::lm {
 
-struct Qwen3DataProcessorConfig {};
+struct Qwen3DataProcessorConfig {
+  std::string code_fence_start = "<tool_call>";
+  std::string code_fence_end = "</tool_call>";
+  bool escape_fence_strings = true;
+  std::string tool_code_regex = "";
+};
 
 struct Qwen3DataProcessorArguments {};
 
