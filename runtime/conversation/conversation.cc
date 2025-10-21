@@ -156,26 +156,23 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
   ASSIGN_OR_RETURN(const std::string old_string,
                    prompt_template_.Apply(old_tmpl_input));
 
-  if (std::holds_alternative<nlohmann::ordered_json>(message)) {
-    PromptTemplateInput new_tmpl_input = std::move(old_tmpl_input);
+  PromptTemplateInput new_tmpl_input = std::move(old_tmpl_input);
+  for (const auto& message : messages) {
     ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
-                     model_data_processor_->MessageToTemplateInput(
-                         std::get<nlohmann::ordered_json>(message)));
+                     model_data_processor_->MessageToTemplateInput(message));
     new_tmpl_input.messages.push_back(message_tmpl_input);
-    new_tmpl_input.add_generation_prompt = true;
-    ASSIGN_OR_RETURN(const std::string& new_string,
-                     prompt_template_.Apply(new_tmpl_input));
-    if (new_string.substr(0, old_string.size()) != old_string) {
-      return absl::InternalError(absl::StrCat(
-          "The new rendered template string does not start with the previous "
-          "rendered template string. \nold_string: ",
-          old_string, "\nnew_string: ", new_string));
-    }
-    return {new_string.substr(old_string.size(),
-                              new_string.size() - old_string.size())};
-  } else {
-    return absl::InvalidArgumentError("Json message is required for now.");
   }
+  new_tmpl_input.add_generation_prompt = true;
+  ASSIGN_OR_RETURN(const std::string& new_string,
+                   prompt_template_.Apply(new_tmpl_input));
+  if (new_string.substr(0, old_string.size()) != old_string) {
+    return absl::InternalError(absl::StrCat(
+        "The new rendered template string does not start with the previous "
+        "rendered template string. \nold_string: ",
+        old_string, "\nnew_string: ", new_string));
+  }
+  return {new_string.substr(old_string.size(),
+                            new_string.size() - old_string.size())};
 }
 
 absl::StatusOr<DecodeConfig> Conversation::CreateDecodeConfig() {
