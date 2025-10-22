@@ -45,7 +45,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/strings:string_view",
-        "@litert//litert/c:litert_logging",
+        "@litert//litert/c/internal:litert_logging",
         "//runtime/core:engine_impl",  # buildcleaner: keep
         "//runtime/engine:engine_interface",
         "//runtime/engine:engine_settings",

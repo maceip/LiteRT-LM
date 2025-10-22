@@ -180,7 +180,7 @@ cc_binary(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@nlohmann_json//:json",
-        "@litert//litert/c:litert_logging",
+        "@litert//litert/c/internal:litert_logging",
         "//runtime/conversation",
         "//runtime/conversation:io_types",
         "//runtime/core:engine_impl",
@@ -226,7 +226,7 @@ cc_binary(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@litert//litert/c:litert_logging",
+        "@litert//litert/c/internal:litert_logging",
         "//runtime/util:litert_status_util",
     ],
 )

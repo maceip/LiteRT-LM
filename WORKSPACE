@@ -2,14 +2,14 @@
 
 workspace(name = "litert_lm")
 
-# UPDATED = 2025-10-17
-LITERT_REF = "4199154854e7205e2c77f9b1bd43f099ba8b1c66"
+# UPDATED = 2025-10-21
+LITERT_REF = "64eb17c31885d98dd1393e7092814d9352405697"
 
-LITERT_SHA256 = "773a0ec614070ab0a314a6d1719f1edd180b21ed90776a55bfb3e8997e3d95fd"
+LITERT_SHA256 = "eba4174db5ff10bac0b645f4967caefc56259feb9eebba1dcb6d23b11d0d8603"
 
-TENSORFLOW_REF = "8614a97d9807cfd819ee13949eb9a89dec91413b"
+TENSORFLOW_REF = "16064a6c080c323610e7cd4cd267fb5f9a9ef82a"
 
-TENSORFLOW_SHA256 = "f74fc2ae19fcf0c33a7d199230db3fce694ab2335026d8d78428f3b5fed97305"
+TENSORFLOW_SHA256 = "7ccb7ec7de6ebb7f8b9771908420cddc0a8bd0f384ea463427ee2ab21c1fcfca"
 
 # buildifier: disable=load-on-top
 
@@ -27,6 +27,12 @@ load("@rules_shell//shell:repositories.bzl", "rules_shell_dependencies", "rules_
 rules_shell_dependencies()
 
 rules_shell_toolchains()
+
+http_archive(
+    name = "rules_platform",
+    sha256 = "0aadd1bd350091aa1f9b6f2fbcac8cd98201476289454e475b28801ecf85d3fd",
+    url = "https://github.com/bazelbuild/rules_platform/releases/download/0.1.0/rules_platform-0.1.0.tar.gz",
+)
 
 # Rust (for HuggingFace Tokenizers)
 http_archive(
@@ -379,6 +385,7 @@ http_archive(
 load("@rules_android_ndk//:rules.bzl", "android_ndk_repository")
 
 android_ndk_repository(name = "androidndk")
+
 android_sdk_repository(name = "androidsdk")
 
 # Configure Android NDK only when ANDROID_NDK_HOME is set.

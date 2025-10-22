@@ -20,7 +20,7 @@
 #include "absl/base/log_severity.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/log/globals.h"  // from @com_google_absl
-#include "litert/c/litert_logging.h"  // from @litert
+#include "litert/c/internal/litert_logging.h"  // from @litert
 
 extern "C" {
 
