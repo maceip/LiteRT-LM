@@ -275,6 +275,125 @@ tool_name(x=1)
   })json"));
 }
 
+TEST(Gemma3DataProcessorTest, ToMessageWithToolCallUsingToolCodeRegex) {
+  Gemma3DataProcessorConfig config;
+  JsonPreface preface{.tools = nlohmann::ordered_json::parse(
+                          R"json([{
+                            "name": "tool_name",
+                            "parameters": {
+                              "properties": {
+                                "x": {
+                                  "type": "integer"
+                                }
+                              }
+                            }
+                          }])json")};
+
+  ASSERT_OK_AND_ASSIGN(auto processor,
+                       Gemma3DataProcessor::Create(config, preface));
+  Responses responses(1);
+
+  // Test case 1: Tool call inside print statement.
+  responses.GetMutableResponseTexts()[0] = R"(This is some text.
+```tool_code
+print(tool_name(x=1))
+```)";
+  ASSERT_OK_AND_ASSIGN(Message message1,
+                       processor->ToMessage(responses, std::monostate{}));
+  ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message1));
+  EXPECT_EQ(std::get<nlohmann::ordered_json>(message1),
+            nlohmann::ordered_json::parse(R"json({
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "This is some text.\n"
+                }
+              ],
+              "tool_calls": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "tool_name",
+                    "arguments": {
+                      "x": 1
+                    }
+                  }
+                }
+              ]
+            })json"));
+
+  // Test case 2: Tool call with default_api prefix inside print statement.
+  responses.GetMutableResponseTexts()[0] = R"(Another response.
+```tool_code
+print(default_api.tool_name(x=2, y="hello"))
+```)";
+  ASSERT_OK_AND_ASSIGN(Message message2,
+                       processor->ToMessage(responses, std::monostate{}));
+  ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message2));
+  EXPECT_EQ(std::get<nlohmann::ordered_json>(message2),
+            nlohmann::ordered_json::parse(R"json({
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Another response.\n"
+                }
+              ],
+              "tool_calls": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "tool_name",
+                    "arguments": {
+                      "x": 2,
+                      "y": "hello"
+                    }
+                  }
+                }
+              ]
+            })json"));
+
+  // Test case 3: Multiple tool calls.
+  responses.GetMutableResponseTexts()[0] = R"(Multiple tools.
+```tool_code
+print(tool_name(x=3, y="world", z=True))
+print(default_api.another_tool())
+```)";
+  ASSERT_OK_AND_ASSIGN(Message message3,
+                       processor->ToMessage(responses, std::monostate{}));
+  ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message3));
+  EXPECT_EQ(std::get<nlohmann::ordered_json>(message3),
+            nlohmann::ordered_json::parse(R"json({
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Multiple tools.\n"
+                }
+              ],
+              "tool_calls": [
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "tool_name",
+                    "arguments": {
+                      "x": 3,
+                      "y": "world",
+                      "z": true
+                    }
+                  }
+                },
+                {
+                  "type": "function",
+                  "function": {
+                    "name": "another_tool"
+                  }
+                }
+              ]
+            })json"));
+}
+
 TEST(Gemma3DataProcessorTest, PromptTemplateToInputDataVectorTextOnly) {
   const std::string test_file_path =
       GetTestdataPath("google-gemma-3-1b-it.jinja");

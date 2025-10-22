@@ -39,7 +39,8 @@ struct Gemma3DataProcessorConfig {
   std::string code_fence_end = "\n```";
   std::string syntax_type = "python";
   bool escape_fence_strings = true;
-  std::string tool_code_regex = "";
+  std::string tool_code_regex =
+      R"regex(print\((?:default_api\.)?(.+\(.*\))\))regex";
 };
 
 // Arguments for Gemma3DataProcessor.
