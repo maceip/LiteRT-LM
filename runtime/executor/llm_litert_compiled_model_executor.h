@@ -243,10 +243,6 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   // track of the pending input token, if any.
   ProcessedTokens processed_tokens_;
 
-  // A vector to store the logits decoded before sampling the final tokens.
-  // It's to avoid creating a new vector for each Decode() call.
-  std::vector<float> decoded_logits_vector_;
-
   // The path to the weight cache directory. Executor will take the ownership of
   // this path to maintain the path lifecycle.
   std::string weight_cache_path_;

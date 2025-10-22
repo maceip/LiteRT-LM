@@ -638,10 +638,6 @@ absl::Status LlmLiteRtCompiledModelExecutor::Decode(
 
   ASSIGN_OR_RETURN(auto decoded_logits,
                    DecodeLogits(ExecutorInputs(), decode_params));
-  LITERT_ASSIGN_OR_RETURN(auto size, decoded_logits.PackedSize());
-  if (decoded_logits_vector_.empty()) {
-    decoded_logits_vector_ = std::vector<float>(size / sizeof(float));
-  }
   RETURN_IF_ERROR(SampleLogits(decoded_logits, output_tokens));
 
   // Read the first output token for the next input token id.
