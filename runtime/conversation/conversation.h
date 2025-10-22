@@ -62,7 +62,8 @@ class ConversationConfig {
       std::optional<PromptTemplate> overwrite_prompt_template = std::nullopt,
       std::optional<Preface> preface = std::nullopt,
       std::optional<DataProcessorConfig> overwrite_processor_config =
-          std::nullopt);
+          std::nullopt
+  );
 
   // Creates a ConversationConfig from the given SessionConfig.
   // Args:
@@ -81,7 +82,8 @@ class ConversationConfig {
       const Engine& engine, const SessionConfig& session_config,
       std::optional<Preface> preface = std::nullopt,
       std::optional<DataProcessorConfig> overwrite_processor_config =
-          std::nullopt);
+          std::nullopt
+  );
 
   // Returns the SessionConfig used for creating the ConversationConfig.
   const SessionConfig& GetSessionConfig() const { return session_config_; }
@@ -100,11 +102,13 @@ class ConversationConfig {
  private:
   explicit ConversationConfig(SessionConfig session_config, Preface preface,
                               PromptTemplate prompt_template,
-                              DataProcessorConfig processor_config)
+                              DataProcessorConfig processor_config
+                              )
       : session_config_(std::move(session_config)),
         preface_(std::move(preface)),
         prompt_template_(std::move(prompt_template)),
-        processor_config_(std::move(processor_config)) {}
+        processor_config_(std::move(processor_config))
+  {}
 
   SessionConfig session_config_;
   Preface preface_;
