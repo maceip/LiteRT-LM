@@ -211,11 +211,10 @@ TEST(Gemma3DataProcessorTest, ToInputDataVectorNonArrayContent) {
 
 TEST(Gemma3DataProcessorTest, ToMessage) {
   ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
-  responses.GetMutableTexts()[0] = "test response";
-  ASSERT_OK_AND_ASSIGN(const Message message,
-                       processor->ToMessage(responses, std::monostate{}));
+
+  ASSERT_OK_AND_ASSIGN(
+      const Message message,
+      processor->ToMessage(Responses({"test response"}), std::monostate{}));
 
   ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message));
   const nlohmann::ordered_json& json_message =
@@ -242,15 +241,12 @@ TEST(Gemma3DataProcessorTest, ToMessageWithToolCall) {
 
   ASSERT_OK_AND_ASSIGN(auto processor,
                        Gemma3DataProcessor::Create(config, preface));
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
-  responses.GetMutableTexts()[0] = R"(This is some text.
-```tool_code
-tool_name(x=1)
-```)";
 
-  ASSERT_OK_AND_ASSIGN(const Message message,
-                       processor->ToMessage(responses, std::monostate{}));
+  ASSERT_OK_AND_ASSIGN(
+      const Message message,
+      processor->ToMessage(
+          Responses({"This is some text.\n```tool_code\ntool_name(x=1)\n```"}),
+          std::monostate{}));
 
   ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message));
   const nlohmann::ordered_json& json_message =
@@ -293,16 +289,13 @@ TEST(Gemma3DataProcessorTest, ToMessageWithToolCallUsingToolCodeRegex) {
 
   ASSERT_OK_AND_ASSIGN(auto processor,
                        Gemma3DataProcessor::Create(config, preface));
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
 
   // Test case 1: Tool call inside print statement.
-  responses.GetMutableTexts()[0] = R"(This is some text.
+  ASSERT_OK_AND_ASSIGN(Message message1,
+                       processor->ToMessage(Responses({R"(This is some text.
 ```tool_code
 print(tool_name(x=1))
-```)";
-  ASSERT_OK_AND_ASSIGN(Message message1,
-                       processor->ToMessage(responses, std::monostate{}));
+```)"}), std::monostate{}));
   ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message1));
   EXPECT_EQ(std::get<nlohmann::ordered_json>(message1),
             nlohmann::ordered_json::parse(R"json({
@@ -327,12 +320,11 @@ print(tool_name(x=1))
             })json"));
 
   // Test case 2: Tool call with default_api prefix inside print statement.
-  responses.GetMutableTexts()[0] = R"(Another response.
+  ASSERT_OK_AND_ASSIGN(Message message2,
+                       processor->ToMessage(Responses({R"(Another response.
 ```tool_code
 print(default_api.tool_name(x=2, y="hello"))
-```)";
-  ASSERT_OK_AND_ASSIGN(Message message2,
-                       processor->ToMessage(responses, std::monostate{}));
+```)"}), std::monostate{}));
   ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message2));
   EXPECT_EQ(std::get<nlohmann::ordered_json>(message2),
             nlohmann::ordered_json::parse(R"json({
@@ -358,13 +350,12 @@ print(default_api.tool_name(x=2, y="hello"))
             })json"));
 
   // Test case 3: Multiple tool calls.
-  responses.GetMutableTexts()[0] = R"(Multiple tools.
+  ASSERT_OK_AND_ASSIGN(Message message3,
+                       processor->ToMessage(Responses({R"(Multiple tools.
 ```tool_code
 print(tool_name(x=3, y="world", z=True))
 print(default_api.another_tool())
-```)";
-  ASSERT_OK_AND_ASSIGN(Message message3,
-                       processor->ToMessage(responses, std::monostate{}));
+```)"}), std::monostate{}));
   ASSERT_TRUE(std::holds_alternative<nlohmann::ordered_json>(message3));
   EXPECT_EQ(std::get<nlohmann::ordered_json>(message3),
             nlohmann::ordered_json::parse(R"json({

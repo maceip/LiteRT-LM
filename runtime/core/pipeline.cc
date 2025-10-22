@@ -348,11 +348,14 @@ absl::StatusOr<Responses> DecodeLoop(
     RETURN_IF_ERROR(benchmark_info->TimeDecodeTurnStart());
   }
 
-  Responses final_responses;
-  final_responses.GetMutableTexts().resize(num_output_candidates, "");
-  final_responses.GetMutableScores().resize(num_output_candidates, 0.0f);
-  std::vector<float> accumulated_scores(num_output_candidates, 0.0f);
-  std::vector<int> num_decoded_tokens(num_output_candidates, 0);
+  // The final decoded texts for each candidate.
+  std::vector<std::string> final_texts(num_output_candidates);
+  // The final scores for each candidate.
+  std::vector<float> final_scores(num_output_candidates);
+  // The accumulated scores for each candidate (for custom sampling).
+  std::vector<float> accumulated_scores(num_output_candidates);
+  // The number of decoded tokens for each candidate (for custom sampling).
+  std::vector<int> num_decoded_tokens(num_output_candidates);
 
   int num_decode_steps = 0;
   const int max_num_tokens = TryGetMaxNumTokens(executor);
@@ -379,9 +382,12 @@ absl::StatusOr<Responses> DecodeLoop(
       return all_done.status();
     }
     num_decode_steps++;
-    Responses step_responses;
-    step_responses.GetMutableTexts().resize(num_output_candidates, "");
-    step_responses.GetMutableScores().resize(num_output_candidates, 0.0f);
+    std::vector<std::string> step_texts;
+    std::vector<float> step_scores;
+    if (is_streaming) {
+      step_texts.resize(num_output_candidates);
+      step_scores.resize(num_output_candidates);
+    }
     bool any_updates = false;
     for (int j = 0; j < num_output_candidates; ++j) {
       std::string output_text = run_one_step.GetResultText()[j];
@@ -397,12 +403,12 @@ absl::StatusOr<Responses> DecodeLoop(
       // should be replaced with a space.
       std::string result_text = absl::StrReplaceAll(output_text, {{"▁", " "}});
       if (is_streaming) {
-        step_responses.GetMutableTexts()[j] = result_text;
+        step_texts[j] = result_text;
         if (is_custom_sampling) {
-          step_responses.GetMutableScores()[j] = run_one_step.GetScores()[j];
+          step_scores[j] = run_one_step.GetScores()[j];
         }
       } else {
-        final_responses.GetMutableTexts()[j] += result_text;
+        final_texts[j] += result_text;
         if (is_custom_sampling) {
           accumulated_scores[j] += run_one_step.GetScores()[j];
           num_decoded_tokens[j]++;
@@ -411,7 +417,8 @@ absl::StatusOr<Responses> DecodeLoop(
     }
 
     if (is_streaming && any_updates && !*all_done) {
-      callback.value()(std::move(step_responses));
+      callback.value()(
+          Responses(std::move(step_texts), std::move(step_scores)));
     }
 
     if (ShouldStop(*all_done, benchmark_decode_token_count, num_decode_steps,
@@ -453,7 +460,6 @@ absl::StatusOr<Responses> DecodeLoop(
 
   // Finalize scores for non-streaming custom sampling.
   if (is_custom_sampling) {
-    std::vector<float>& final_scores = final_responses.GetMutableScores();
     for (int j = 0; j < num_output_candidates; ++j) {
       if (num_decoded_tokens[j] > 0) {
         final_scores[j] = accumulated_scores[j] / num_decoded_tokens[j];
@@ -462,7 +468,7 @@ absl::StatusOr<Responses> DecodeLoop(
       }
     }
   }
-  return final_responses;
+  return Responses(std::move(final_texts), std::move(final_scores));
 }
 
 }  // namespace
@@ -496,13 +502,10 @@ absl::StatusOr<Responses> ScoreCustomSampling(
                      "Exceeding the maximum number of tokens allowed: ",
                      max_num_tokens_of_target_texts, " >= ", max_num_tokens));
   }
-  Responses responses;
-  // `responses.GetMutableScores()` returns a vector of size
-  // `num_output_candidates`. Reset the scores_ field to 0.0f.
-  std::vector<float>& scores = responses.GetMutableScores();
-  // Fill this vector scores of size num_output_candidates with 0.0f.
-  scores.resize(num_output_candidates, 0.0f);
 
+  // The scores for each candidate. The scores are accumulated over the course
+  // of the decoding process.
+  std::vector<float> scores(num_output_candidates);
   // We support multiple targets by padding the targets with a null token which
   // does not exist in the vocabulary and thus does not contribute to the
   // perplexity.
@@ -527,11 +530,11 @@ absl::StatusOr<Responses> ScoreCustomSampling(
       const int size_of_jth_target = ids_for_each_target_in_batch[j].size();
       // Only add the log likelihood of the non-padded tokens to the score.
       if (i < size_of_jth_target) {
-        responses.GetMutableScores()[j] += step_log_likelihoods[j];
+        scores[j] += step_log_likelihoods[j];
       }
     }
   }
-  return responses;
+  return Responses(/*response_texts=*/{}, std::move(scores));
 }
 
 absl::StatusOr<int> Prefill(LlmExecutor& executor, ExecutorInputs& inputs,

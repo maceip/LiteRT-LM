@@ -405,29 +405,22 @@ TEST(CreateInputDataCopyTest, InputAudio) {
 }
 
 TEST(ResponsesTest, GetTexts) {
-  Responses responses;
-  responses.GetMutableTexts().resize(2);
-  responses.GetMutableTexts()[0] = "Hello World!";
-  responses.GetMutableTexts()[1] = "How's it going?";
+  Responses responses({"Hello World!", "How's it going?"});
 
   EXPECT_THAT(responses.GetTexts(),
               ElementsAre("Hello World!", "How's it going?"));
 }
 
 TEST(ResponsesTest, GetScores) {
-  Responses responses;
-  responses.GetMutableScores().resize(2);
-  responses.GetMutableScores()[0] = 0.1;
-  responses.GetMutableScores()[1] = 0.2;
+  Responses responses =
+      Responses(/*response_texts=*/{}, /*scores=*/{0.1f, 0.2f});
 
   EXPECT_THAT(responses.GetScores(), ElementsAre(0.1, 0.2));
 }
 
 TEST(ResponsesTest, GetMutableScores) {
-  Responses responses;
-  responses.GetMutableScores().resize(2);
-  responses.GetMutableScores()[0] = 0.1;
-  responses.GetMutableScores()[1] = 0.2;
+  Responses responses =
+      Responses(/*response_texts=*/{}, /*scores=*/{0.1f, 0.2f});
 
   EXPECT_EQ(responses.GetMutableScores().size(), 2);
   EXPECT_FLOAT_EQ(responses.GetMutableScores()[0], 0.1f);
@@ -442,10 +435,7 @@ TEST(ResponsesTest, HasScores) {
 }
 
 TEST(ResponsesTest, GetMutableTexts) {
-  Responses responses;
-  responses.GetMutableTexts().resize(2);
-  responses.GetMutableTexts()[0] = "Hello World!";
-  responses.GetMutableTexts()[1] = "How's it going?";
+  Responses responses = Responses({"Hello World!", "How's it going?"});
 
   EXPECT_EQ(responses.GetMutableTexts().size(), 2);
   EXPECT_THAT(responses.GetMutableTexts()[0], "Hello World!");
@@ -453,13 +443,8 @@ TEST(ResponsesTest, GetMutableTexts) {
 }
 
 TEST(ResponsesTest, HandlesMultipleCandidatesWithTextAndScores) {
-  litert::lm::Responses responses;
-  responses.GetMutableTexts().resize(2);
-  responses.GetMutableScores().resize(2);
-  responses.GetMutableTexts()[0] = "Hello";
-  responses.GetMutableTexts()[1] = "World";
-  responses.GetMutableScores()[0] = 0.9f;
-  responses.GetMutableScores()[1] = -0.5f;  // Test with a negative score
+  litert::lm::Responses responses =
+      Responses({"Hello", "World"}, {0.9f, -0.5f});
 
   std::stringstream ss;
   ss << responses;
@@ -478,10 +463,7 @@ TEST(ResponsesTest, HandlesMultipleCandidatesWithTextAndScores) {
 }
 
 TEST(ResponsesTest, HandlesMultipleCandidatesWithTextAndNoScores) {
-  litert::lm::Responses responses;
-  responses.GetMutableTexts().resize(2);
-  responses.GetMutableTexts()[0] = "Hello";
-  responses.GetMutableTexts()[1] = "World";
+  litert::lm::Responses responses = Responses({"Hello", "World"});
 
   std::stringstream ss;
   ss << responses;

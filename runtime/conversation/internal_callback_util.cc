@@ -58,10 +58,8 @@ void SendMessage(
   if (text.empty()) {
     return;
   }
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
-  responses.GetMutableTexts()[0] = text;
-  auto message = model_data_processor.ToMessage(responses, processor_args);
+  auto message = model_data_processor.ToMessage(Responses({std::string(text)}),
+                                                processor_args);
   if (!message.ok()) {
     user_callback(message.status());
     return;
@@ -79,11 +77,8 @@ void SendCompleteMessage(
     SendMessage(user_callback, accumulated_response_text.substr(cursor),
                 model_data_processor, processor_args);
   }
-  auto remaining_responses = Responses();
-  remaining_responses.GetMutableTexts().resize(1);
-  remaining_responses.GetMutableTexts()[0] = accumulated_response_text;
-  const auto& complete_message =
-      model_data_processor.ToMessage(remaining_responses, processor_args);
+  const auto& complete_message = model_data_processor.ToMessage(
+      Responses({std::string(accumulated_response_text)}), processor_args);
   if (!complete_message.ok()) {
     user_callback(complete_message.status());
     return;

@@ -71,10 +71,8 @@ TEST_F(ModelDataProcessorFactoryTest, CreateGenericModelDataProcessor) {
                                            Gemma3DataProcessorArguments()),
               StatusIs(absl::StatusCode::kInvalidArgument));
 
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
-  responses.GetMutableTexts()[0] = "test response";
-  EXPECT_OK(processor->ToMessage(responses, GenericDataProcessorArguments()));
+  EXPECT_OK(processor->ToMessage(Responses({"test response"}),
+                                 GenericDataProcessorArguments()));
 
   EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
                                            Gemma3DataProcessorArguments()),
@@ -99,10 +97,9 @@ TEST_F(ModelDataProcessorFactoryTest, CreateGemma3DataProcessor) {
   EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
                                            GenericDataProcessorArguments()),
               StatusIs(absl::StatusCode::kInvalidArgument));
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
-  responses.GetMutableTexts()[0] = "test response";
-  EXPECT_OK(processor->ToMessage(responses, Gemma3DataProcessorArguments()));
+
+  EXPECT_OK(processor->ToMessage(Responses({"test response"}),
+                                 Gemma3DataProcessorArguments()));
   EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
                                            GenericDataProcessorArguments()),
               StatusIs(absl::StatusCode::kInvalidArgument));
@@ -131,10 +128,8 @@ TEST_F(ModelDataProcessorFactoryTest, CreateQwen3ModelDataProcessor) {
                                            Gemma3DataProcessorArguments()),
               StatusIs(absl::StatusCode::kInvalidArgument));
 
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
-  responses.GetMutableTexts()[0] = "test response";
-  EXPECT_OK(processor->ToMessage(responses, Qwen3DataProcessorArguments()));
+  EXPECT_OK(processor->ToMessage(Responses({"test response"}),
+                                 Qwen3DataProcessorArguments()));
 
   EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
                                            Gemma3DataProcessorArguments()),

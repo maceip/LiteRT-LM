@@ -285,9 +285,6 @@ TEST(ConversationTest, SendSingleMessage) {
   // We will send a single message.
   JsonMessage user_message = {{"role", "user"}, {"content", "How are you?"}};
 
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
-  responses.GetMutableTexts()[0] = "I am good.";
   absl::string_view expected_input_text =
       "<start_of_turn>user\n"
       "How are you?<end_of_turn>\n";
@@ -297,7 +294,7 @@ TEST(ConversationTest, SendSingleMessage) {
                       &InputText::GetRawTextString, expected_input_text)))))
       .WillOnce(testing::Return(absl::OkStatus()));
   EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
-      .WillOnce(testing::Return(responses));
+      .WillOnce(testing::Return(Responses({"I am good."})));
 
   ASSERT_OK_AND_ASSIGN(const Message response,
                        conversation->SendMessage(user_message));
@@ -363,9 +360,6 @@ TEST(ConversationTest, SendMultipleMessages) {
     ]
   )json");
 
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
-  responses.GetMutableTexts()[0] = "I am good.";
   absl::string_view expected_input_text =
       "<start_of_turn>user\n"
       "Hello world!<end_of_turn>\n"
@@ -377,7 +371,7 @@ TEST(ConversationTest, SendMultipleMessages) {
                       &InputText::GetRawTextString, expected_input_text)))))
       .WillOnce(testing::Return(absl::OkStatus()));
   EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
-      .WillOnce(testing::Return(responses));
+      .WillOnce(testing::Return(Responses({"I am good."})));
 
   ASSERT_OK_AND_ASSIGN(const Message response,
                        conversation->SendMessage(user_messages));
@@ -441,11 +435,8 @@ TEST(ConversationTest, SendMultipleMessagesWithHistory) {
       .WillOnce(testing::Return(absl::OkStatus()));
 
   // The first assistant response.
-  Responses responses_1;
-  responses_1.GetMutableTexts().resize(1);
-  responses_1.GetMutableTexts()[0] = "I am good.";
   EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
-      .WillOnce(testing::Return(responses_1));
+      .WillOnce(testing::Return(Responses({"I am good."})));
 
   // Send the first user message to fill the history.
   ASSERT_OK(conversation->SendMessage(user_message_1));
@@ -476,11 +467,8 @@ TEST(ConversationTest, SendMultipleMessagesWithHistory) {
       .WillOnce(testing::Return(absl::OkStatus()));
 
   // The second assistant response.
-  Responses responses_2;
-  responses_2.GetMutableTexts().resize(1);
-  responses_2.GetMutableTexts()[0] = "baz";
   EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
-      .WillOnce(testing::Return(responses_2));
+      .WillOnce(testing::Return(Responses({"baz"})));
 
   // Send the user messages.
   ASSERT_OK(conversation->SendMessage(user_messages));
@@ -591,10 +579,7 @@ TEST(ConversationTest, SendSingleMessageAsync) {
           [](const std::vector<InputData>& contents,
              absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
              const DecodeConfig& decode_config) {
-            Responses responses;
-            responses.GetMutableTexts().resize(1);
-            responses.GetMutableTexts()[0] = "I am good.";
-            user_callback(responses);
+            user_callback(Responses({"I am good."}));
             user_callback(Responses());
             return absl::OkStatus();
           });
@@ -682,10 +667,7 @@ TEST(ConversationTest, SendMultipleMessagesAsync) {
           [](const std::vector<InputData>& contents,
              absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
              const DecodeConfig& decode_config) {
-            Responses responses;
-            responses.GetMutableTexts().resize(1);
-            responses.GetMutableTexts()[0] = "I am good.";
-            user_callback(responses);
+            user_callback(Responses({"I am good."}));
             user_callback(Responses());
             return absl::OkStatus();
           });
@@ -757,10 +739,7 @@ TEST(ConversationTest, SendMultipleMessagesAsyncWithHistory) {
           [](const std::vector<InputData>& contents,
              absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
              const DecodeConfig& decode_config) {
-            Responses responses;
-            responses.GetMutableTexts().resize(1);
-            responses.GetMutableTexts()[0] = "I am good.";
-            user_callback(responses);
+            user_callback(Responses({"I am good."}));
             user_callback(Responses());
             return absl::OkStatus();
           });
@@ -812,10 +791,7 @@ TEST(ConversationTest, SendMultipleMessagesAsyncWithHistory) {
           [](const std::vector<InputData>& contents,
              absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
              const DecodeConfig& decode_config) {
-            Responses responses;
-            responses.GetMutableTexts().resize(1);
-            responses.GetMutableTexts()[0] = "baz";
-            user_callback(responses);
+            user_callback(Responses({"baz"}));
             user_callback(Responses());
             return absl::OkStatus();
           });

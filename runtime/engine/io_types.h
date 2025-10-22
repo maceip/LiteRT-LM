@@ -170,6 +170,10 @@ inline absl::StatusOr<InputData> CreateInputDataCopy(const InputData& data) {
 class Responses {
  public:
   explicit Responses() = default;
+  explicit Responses(std::vector<std::string> response_texts,
+                     std::vector<float> scores = {})
+      : response_texts_(std::move(response_texts)),
+        scores_(std::move(scores)) {};
 
   // Returns the const texts vector.
   const std::vector<std::string>& GetTexts() const { return response_texts_; }

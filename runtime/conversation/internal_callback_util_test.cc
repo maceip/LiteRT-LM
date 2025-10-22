@@ -40,13 +40,6 @@ using ::testing::ElementsAre;
 using ::testing::IsEmpty;
 using ::testing::status::StatusIs;
 
-Responses CreateResponses(absl::string_view response_text) {
-  Responses responses;
-  responses.GetMutableTexts().resize(1);
-  responses.GetMutableTexts()[0] = response_text;
-  return responses;
-}
-
 nlohmann::ordered_json TextMessage(absl::string_view text) {
   nlohmann::ordered_json message;
   message["role"] = "assistant";
@@ -126,10 +119,10 @@ TEST_F(InternalCallbackTest, Text) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("this "));
-  callback(CreateResponses("is "));
-  callback(CreateResponses("some "));
-  callback(CreateResponses("text"));
+  callback(Responses({"this "}));
+  callback(Responses({"is "}));
+  callback(Responses({"some "}));
+  callback(Responses({"text"}));
 
   EXPECT_THAT(output_, ElementsAre(TextMessage("this "), TextMessage("is "),
                                    TextMessage("some "), TextMessage("text")));
@@ -140,10 +133,10 @@ TEST_F(InternalCallbackTest, ToolCall) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_name"));
-  callback(CreateResponses("(x=1)"));
-  callback(CreateResponses("\n```"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_name"}));
+  callback(Responses({"(x=1)"}));
+  callback(Responses({"\n```"}));
 
   EXPECT_THAT(output_, ElementsAre(nlohmann::ordered_json::parse(R"json({
                 "role": "assistant",
@@ -166,14 +159,14 @@ TEST_F(InternalCallbackTest, TextAndToolCall) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("this "));
-  callback(CreateResponses("is "));
-  callback(CreateResponses("some "));
-  callback(CreateResponses("text\n"));
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_name"));
-  callback(CreateResponses("(x=1)"));
-  callback(CreateResponses("\n```"));
+  callback(Responses({"this "}));
+  callback(Responses({"is "}));
+  callback(Responses({"some "}));
+  callback(Responses({"text\n"}));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_name"}));
+  callback(Responses({"(x=1)"}));
+  callback(Responses({"\n```"}));
 
   EXPECT_THAT(output_, ElementsAre(TextMessage("this "), TextMessage("is "),
                                    TextMessage("some "), TextMessage("text\n"),
@@ -198,11 +191,11 @@ TEST_F(InternalCallbackTest, SplitCodeFenceStart) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_"));
-  callback(CreateResponses("code\n"));
-  callback(CreateResponses("tool_name"));
-  callback(CreateResponses("(x=1)"));
-  callback(CreateResponses("\n```"));
+  callback(Responses({"```tool_"}));
+  callback(Responses({"code\n"}));
+  callback(Responses({"tool_name"}));
+  callback(Responses({"(x=1)"}));
+  callback(Responses({"\n```"}));
 
   EXPECT_THAT(output_, ElementsAre(nlohmann::ordered_json::parse(R"json({
                 "role": "assistant",
@@ -225,11 +218,11 @@ TEST_F(InternalCallbackTest, TextBeforeSplitCodeFenceStart) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("text```tool_"));
-  callback(CreateResponses("code\n"));
-  callback(CreateResponses("tool_name"));
-  callback(CreateResponses("(x=1)"));
-  callback(CreateResponses("\n```"));
+  callback(Responses({"text```tool_"}));
+  callback(Responses({"code\n"}));
+  callback(Responses({"tool_name"}));
+  callback(Responses({"(x=1)"}));
+  callback(Responses({"\n```"}));
 
   EXPECT_THAT(output_, ElementsAre(TextMessage("text"),
                                    nlohmann::ordered_json::parse(R"json({
@@ -253,10 +246,10 @@ TEST_F(InternalCallbackTest, ToolCallAfterSplitCodeFenceStart) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```"));
-  callback(CreateResponses("tool_code\ntool_name"));
-  callback(CreateResponses("(x=1)"));
-  callback(CreateResponses("\n```"));
+  callback(Responses({"```"}));
+  callback(Responses({"tool_code\ntool_name"}));
+  callback(Responses({"(x=1)"}));
+  callback(Responses({"\n```"}));
 
   EXPECT_THAT(output_, ElementsAre(nlohmann::ordered_json::parse(R"json({
                 "role": "assistant",
@@ -279,9 +272,9 @@ TEST_F(InternalCallbackTest, TextOnBothSidesOfCodeFenceStart) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("text```tool_code\ntool_name"));
-  callback(CreateResponses("(x=1)"));
-  callback(CreateResponses("\n```"));
+  callback(Responses({"text```tool_code\ntool_name"}));
+  callback(Responses({"(x=1)"}));
+  callback(Responses({"\n```"}));
 
   EXPECT_THAT(output_, ElementsAre(TextMessage("text"),
                                    nlohmann::ordered_json::parse(R"json({
@@ -305,10 +298,10 @@ TEST_F(InternalCallbackTest, SplitCodeFenceEnd) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_name(x=1)"));
-  callback(CreateResponses("\n`"));
-  callback(CreateResponses("``"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_name(x=1)"}));
+  callback(Responses({"\n`"}));
+  callback(Responses({"``"}));
 
   EXPECT_THAT(output_, ElementsAre(nlohmann::ordered_json::parse(R"json({
                 "role": "assistant",
@@ -331,10 +324,10 @@ TEST_F(InternalCallbackTest, TextBeforeSplitCodeFenceEnd) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_name(x="));
-  callback(CreateResponses("1)\n``"));
-  callback(CreateResponses("`"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_name(x="}));
+  callback(Responses({"1)\n``"}));
+  callback(Responses({"`"}));
 
   EXPECT_THAT(output_, ElementsAre(nlohmann::ordered_json::parse(R"json({
                 "role": "assistant",
@@ -357,10 +350,10 @@ TEST_F(InternalCallbackTest, TextAfterSplitCodeFenceEnd) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_name(x=1)"));
-  callback(CreateResponses("\n`"));
-  callback(CreateResponses("``text"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_name(x=1)"}));
+  callback(Responses({"\n`"}));
+  callback(Responses({"``text"}));
 
   EXPECT_THAT(output_, ElementsAre(nlohmann::ordered_json::parse(R"json({
                             "role": "assistant",
@@ -384,10 +377,10 @@ TEST_F(InternalCallbackTest, OnNextTextOnBothSidesOfSplitCodeFenceEnd) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_name(x="));
-  callback(CreateResponses("1)\n`"));
-  callback(CreateResponses("``text"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_name(x="}));
+  callback(Responses({"1)\n`"}));
+  callback(Responses({"``text"}));
 
   EXPECT_THAT(output_, ElementsAre(nlohmann::ordered_json::parse(R"json({
                             "role": "assistant",
@@ -411,10 +404,10 @@ TEST_F(InternalCallbackTest, ParallelToolCalls) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_a(x=1)\n"));
-  callback(CreateResponses("tool_b(y='z')"));
-  callback(CreateResponses("\n```"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_a(x=1)\n"}));
+  callback(Responses({"tool_b(y='z')"}));
+  callback(Responses({"\n```"}));
 
   EXPECT_THAT(output_, ElementsAre(nlohmann::ordered_json::parse(R"json(
                 {
@@ -448,11 +441,11 @@ TEST_F(InternalCallbackTest, TwoConsecutiveToolCodeBlocks) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_a(x=1)\n"));
-  callback(CreateResponses("``````tool_code\n"));
-  callback(CreateResponses("tool_b(y='z')\n"));
-  callback(CreateResponses("```"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_a(x=1)\n"}));
+  callback(Responses({"``````tool_code\n"}));
+  callback(Responses({"tool_b(y='z')\n"}));
+  callback(Responses({"```"}));
 
   EXPECT_THAT(output_, ElementsAre(nlohmann::ordered_json::parse(R"json({
                             "role": "assistant",
@@ -489,8 +482,8 @@ TEST_F(InternalCallbackTest, IncompleteToolCodeBlock) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_name(x=1)"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_name(x=1)"}));
   callback(Responses());
 
   // The incomplete tool code block is sent to the callback as a text message.
@@ -503,9 +496,9 @@ TEST_F(InternalCallbackTest, WrongCodeFenceStart) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool\n"));
-  callback(CreateResponses("tool_name(x=1)"));
-  callback(CreateResponses("\n```"));
+  callback(Responses({"```tool\n"}));
+  callback(Responses({"tool_name(x=1)"}));
+  callback(Responses({"\n```"}));
   callback(Responses());
 
   EXPECT_THAT(output_, ElementsAre(TextMessage("```tool\n"),
@@ -518,9 +511,9 @@ TEST_F(InternalCallbackTest, WrongCodeFenceEnd) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("tool_name(x=1)"));
-  callback(CreateResponses("\n``x"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"tool_name(x=1)"}));
+  callback(Responses({"\n``x"}));
   callback(Responses());
 
   EXPECT_THAT(output_,
@@ -532,9 +525,9 @@ TEST_F(InternalCallbackTest, InvalidFunctionCall) {
   auto callback = CreateInternalCallback(
       *model_data_processor_, processor_args_, std::move(user_callback));
 
-  callback(CreateResponses("```tool_code\n"));
-  callback(CreateResponses("not a function call"));
-  callback(CreateResponses("\n```"));
+  callback(Responses({"```tool_code\n"}));
+  callback(Responses({"not a function call"}));
+  callback(Responses({"\n```"}));
 
   EXPECT_TRUE(done_);
   EXPECT_THAT(status_, StatusIs(absl::StatusCode::kInvalidArgument));
