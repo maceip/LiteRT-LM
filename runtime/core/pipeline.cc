@@ -336,15 +336,12 @@ absl::StatusOr<Responses> DecodeLoop(
 
   int benchmark_decode_token_count = 0;
   if (benchmark_info.has_value()) {
-    // If backend is CPU or GPU, set up the sampler before 1st decode step.
-    if (!sampler.has_value()) {
-      ASSIGN_OR_RETURN(auto settings, executor.GetExecutorSettings());
-      if (settings.GetBackend() == Backend::CPU ||
-          settings.GetBackend() == Backend::GPU) {
-        static_cast<LlmLiteRtCompiledModelExecutor*>(&executor)
-            ->InitializeSampler(num_output_candidates)
-            .IgnoreError();
-      }
+    // Initialize sampler early if the executor supports it.
+    auto* compiled_model_executor =
+        dynamic_cast<LlmLiteRtCompiledModelExecutor*>(&executor);
+    if (compiled_model_executor != nullptr) {
+      compiled_model_executor->InitializeSampler(num_output_candidates)
+          .IgnoreError();
     }
     benchmark_decode_token_count =
         benchmark_info->GetBenchmarkParams().num_decode_tokens();

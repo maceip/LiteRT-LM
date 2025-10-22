@@ -1750,8 +1750,7 @@ TEST_P(SessionBasicCancellationTest,
   session_config.SetSamplerBackend(Backend::CPU);
 
   std::optional<BenchmarkInfo> benchmark_info;
-  bool use_benchmark_info = GetParam();
-  if (use_benchmark_info) {
+  if (use_benchmark_info_) {
     proto::BenchmarkParams benchmark_params;
     benchmark_info.emplace(benchmark_params);
   }
@@ -1794,6 +1793,8 @@ TEST_P(SessionBasicCancellationTest,
       .IgnoreError();
   done2.WaitForNotification();
   EXPECT_OK(status);
+  // Reset worker thread pool to stop accessing session and fake executor.
+  worker_thread_pool_.reset();
 }
 
 INSTANTIATE_TEST_SUITE_P(SessionBasicCancellationTest,
