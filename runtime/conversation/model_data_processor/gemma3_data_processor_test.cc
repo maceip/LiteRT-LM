@@ -192,6 +192,23 @@ TEST(Gemma3DataProcessorTest, ToInputDataVectorTextAndImage) {
                                       HasInputText(&expected_text2)));
 }
 
+TEST(Gemma3DataProcessorTest, ToInputDataVectorNonArrayContent) {
+  ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
+  const std::string rendered_template_prompt =
+      "<start_of_turn>user\ntest prompt<end_of_turn>";
+  const nlohmann::ordered_json messages = {
+      {"role", "user"},
+      {"content", "test prompt"},
+  };
+  // This should not crash even though content is not an array.
+  ASSERT_OK_AND_ASSIGN(
+      const std::vector<InputData> input_data,
+      processor->ToInputDataVector(rendered_template_prompt, messages, {}));
+
+  InputText expected_text("<start_of_turn>user\ntest prompt<end_of_turn>");
+  EXPECT_THAT(input_data, ElementsAre(HasInputText(&expected_text)));
+}
+
 TEST(Gemma3DataProcessorTest, ToMessage) {
   ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
   Responses responses(1);
@@ -604,6 +621,28 @@ TEST(Gemma3DataProcessorTest, MessageToTemplateInputWithMultipleToolResponses) {
                     "text": "{\"key3\": \"value3\", \"key4\": \"value4\"}"
                   }
                 ]
+              })json")));
+}
+
+TEST(Gemma3DataProcessorTest, MessageToTemplateInputWithToolResponseAsObject) {
+  ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
+  const nlohmann::ordered_json message = nlohmann::ordered_json::parse(R"json({
+    "role": "tool",
+    "content": {
+      "type": "tool_response",
+      "tool_response": {
+        "key1": "value1",
+        "key2": "value2"
+      }
+    }
+  })json");
+
+  // The "tool_response" in "content", which is an object rather than an array,
+  // is converted into a string representation of a Python dict.
+  EXPECT_THAT(processor->MessageToTemplateInput(message),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json({
+                "role": "tool",
+                "content": "{\"key1\": \"value1\", \"key2\": \"value2\"}"
               })json")));
 }
 

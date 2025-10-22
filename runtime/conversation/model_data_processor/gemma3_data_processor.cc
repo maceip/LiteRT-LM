@@ -55,6 +55,14 @@ bool IsAudio(absl::string_view part) {
   return part == "<start_of_audio>" || part == "<audio_soft_token>";
 }
 
+bool HasToolCalls(const ordered_json& message) {
+  return message.contains("tool_calls") && message["tool_calls"].is_array();
+}
+
+bool IsToolMessage(const ordered_json& message) {
+  return message.contains("role") && message["role"] == "tool";
+}
+
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<Gemma3DataProcessor>>
@@ -72,7 +80,7 @@ absl::StatusOr<ordered_json> Gemma3DataProcessor::MessageToTemplateInput(
     const ordered_json& message) const {
   // If the message doesn't contain any tool calls and isn't a tool message,
   // then the template input is the same as the message.
-  if (!message.contains("tool_calls") && message["role"] != "tool") {
+  if (!HasToolCalls(message) && !IsToolMessage(message)) {
     return message;
   }
 
@@ -85,20 +93,30 @@ absl::StatusOr<ordered_json> Gemma3DataProcessor::MessageToTemplateInput(
     // If the role is "tool", then convert "tool_response" items into "text"
     // items, converting JSON to Python. All other content items are passed
     // through unchanged.
-    if (template_input.contains("role") && template_input["role"] == "tool") {
-      template_input["content"] = ordered_json::array();
-      for (const auto& item : message["content"]) {
-        if (item.contains("tool_response")) {
-          ASSIGN_OR_RETURN(std::string formatted_tool_response,
-                           FormatValueAsPython(item["tool_response"]));
-          template_input["content"].push_back(
-              {{"type", "text"}, {"text", formatted_tool_response}});
-        } else {
-          template_input["content"].push_back(item);
+    if (IsToolMessage(message)) {
+      if (message["content"].is_array()) {
+        template_input["content"] = ordered_json::array();
+        for (const auto& item : message["content"]) {
+          if (item.contains("tool_response")) {
+            ASSIGN_OR_RETURN(std::string formatted_tool_response,
+                             FormatValueAsPython(item["tool_response"]));
+            template_input["content"].push_back(
+                {{"type", "text"}, {"text", formatted_tool_response}});
+          } else {
+            template_input["content"].push_back(item);
+          }
         }
+      } else if (message["content"].is_object() &&
+                 message["content"].contains("tool_response")) {
+        ASSIGN_OR_RETURN(
+            std::string formatted_tool_response,
+            FormatValueAsPython(message["content"]["tool_response"]));
+        template_input["content"] = formatted_tool_response;
+      } else {
+        template_input["content"] = message["content"];
       }
     } else {
-      // If the role is not "tool", then take content through unchanged.
+      // If the role is not "tool", then pass through content unchanged.
       template_input["content"] = message["content"];
     }
   }
@@ -144,7 +162,7 @@ Gemma3DataProcessor::ToInputDataVectorImpl(
   std::deque<std::unique_ptr<MemoryMappedFile>> audio_files;
   // Find all images and audio contained in the messages.
   for (const auto& message : messages) {
-    if (message.contains("content")) {
+    if (message.contains("content") && message["content"].is_array()) {
       for (const auto& item : message["content"]) {
         if (item.is_string()) {
           continue;

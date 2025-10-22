@@ -131,5 +131,12 @@ TEST(DataUtilsTest, LoadItemData_ImageItemWithInvalidBase64Blob) {
               testing::HasSubstr("Failed to decode base64 blob."));
 }
 
+TEST(DataUtilsTest, LoadItemData_ToolResponseItem) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<MemoryMappedFile> memory_mapped_file,
+                       LoadItemData({{"type", "tool_response"},
+                                     {"tool_response", "some response"}}));
+  EXPECT_EQ(memory_mapped_file, nullptr);
+}
+
 }  // namespace
 }  // namespace litert::lm

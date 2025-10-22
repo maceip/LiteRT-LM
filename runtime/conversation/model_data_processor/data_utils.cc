@@ -48,6 +48,8 @@ absl::StatusOr<std::unique_ptr<MemoryMappedFile>> LoadItemData(
     }
     return absl::InvalidArgumentError(
         "Audio or image item must contain a path or blob.");
+  } else if (item["type"] == "tool_response") {
+    return nullptr;
   }
   return absl::UnimplementedError("Unsupported item type: " +
                                   item["type"].get<std::string>());
