@@ -418,6 +418,14 @@ TEST(ResponsesTest, GetScores) {
   EXPECT_THAT(responses.GetScores(), ElementsAre(0.1, 0.2));
 }
 
+TEST(ResponsesTest, GetMutableTexts) {
+  Responses responses = Responses({"Hello World!", "How's it going?"});
+
+  EXPECT_EQ(responses.GetMutableTexts().size(), 2);
+  EXPECT_THAT(responses.GetMutableTexts()[0], "Hello World!");
+  EXPECT_THAT(responses.GetMutableTexts()[1], "How's it going?");
+}
+
 TEST(ResponsesTest, GetMutableScores) {
   Responses responses =
       Responses(/*response_texts=*/{}, /*scores=*/{0.1f, 0.2f});
@@ -425,21 +433,6 @@ TEST(ResponsesTest, GetMutableScores) {
   EXPECT_EQ(responses.GetMutableScores().size(), 2);
   EXPECT_FLOAT_EQ(responses.GetMutableScores()[0], 0.1f);
   EXPECT_FLOAT_EQ(responses.GetMutableScores()[1], 0.2f);
-}
-
-TEST(ResponsesTest, HasScores) {
-  Responses responses;
-  responses.GetMutableScores().resize(2);
-  responses.GetMutableScores()[0] = 0.1;
-  responses.GetMutableScores()[1] = 0.2;
-}
-
-TEST(ResponsesTest, GetMutableTexts) {
-  Responses responses = Responses({"Hello World!", "How's it going?"});
-
-  EXPECT_EQ(responses.GetMutableTexts().size(), 2);
-  EXPECT_THAT(responses.GetMutableTexts()[0], "Hello World!");
-  EXPECT_THAT(responses.GetMutableTexts()[1], "How's it going?");
 }
 
 TEST(ResponsesTest, HandlesMultipleCandidatesWithTextAndScores) {
