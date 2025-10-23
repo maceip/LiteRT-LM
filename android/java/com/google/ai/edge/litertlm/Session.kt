@@ -210,6 +210,3 @@ interface ResponseCallback {
    */
   fun onError(throwable: Throwable) {}
 }
-
-// TODO(hoko): Remove this alias once all references are updated.
-typealias ResponseObserver = ResponseCallback

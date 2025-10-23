@@ -297,6 +297,3 @@ interface MessageCallback {
    */
   fun onError(throwable: Throwable)
 }
-
-// TODO(hoko): Remove this alias once all references are updated.
-typealias MessageCallbacks = MessageCallback
