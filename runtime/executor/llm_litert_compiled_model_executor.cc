@@ -35,12 +35,15 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/c/litert_common.h"  // from @litert
+#include "litert/c/litert_tensor_buffer_types.h"  // from @litert
 #include "litert/cc/litert_compiled_model.h"  // from @litert
+#include "litert/cc/litert_element_type.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_expected.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_options.h"  // from @litert
+#include "litert/cc/litert_ranked_tensor_type.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/cc/options/litert_cpu_options.h"  // from @litert
 #include "litert/cc/options/litert_gpu_options.h"  // from @litert
@@ -698,9 +701,35 @@ LlmLiteRtCompiledModelExecutor::DecodeLogits(
     // Update constraint state based on the current token id.
     RETURN_IF_ERROR(decode_params.GetConstraintDecoder()->UpdateConstraintState(
         absl::MakeSpan(&current_token_id, 1)));
-    // Mask logits based on the current constraint state.
-    RETURN_IF_ERROR(
-        decode_params.GetConstraintDecoder()->MaskLogits(output_logits));
+
+    LITERT_ASSIGN_OR_RETURN(auto output_logits_buffer_type,
+                            output_logits.BufferType());
+    // If the output logits are already on the host memory, use the buffer
+    // directly.
+    if (output_logits_buffer_type == kLiteRtTensorBufferTypeHostMemory) {
+      // Mask logits based on the current constraint state.
+      RETURN_IF_ERROR(
+          decode_params.GetConstraintDecoder()->MaskLogits(output_logits));
+    } else {
+      // For GPU, we always copy the logits to CPU and mask them, then write
+      // them back to GPU.
+      LITERT_ASSIGN_OR_RETURN(RankedTensorType logits_tensor_type,
+                              output_logits.TensorType());
+      if (logits_tensor_type.ElementType() == ::litert::ElementType::Float32) {
+        // Copy the logits from the tensor buffer to a vector.
+        LITERT_ASSIGN_OR_RETURN(auto logits_vector,
+                                CopyFromTensorBuffer<float>(output_logits));
+        // Mask logits based on the current constraint state.
+        RETURN_IF_ERROR(decode_params.GetConstraintDecoder()->MaskLogits(
+            absl::MakeSpan(logits_vector.data(), logits_vector.size()),
+            logits_tensor_type.Layout().Dimensions()));
+        // Write the masked logits back to the tensor buffer.
+        output_logits.Write(
+            absl::MakeConstSpan(logits_vector.data(), logits_vector.size()));
+      } else {
+        return absl::InvalidArgumentError("Output logits are not in float32.");
+      }
+    }
   }
 
   current_step_ = step_and_token.step + 1;

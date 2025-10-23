@@ -255,13 +255,16 @@ cc_library(
         "//conditions:default": [
             "@litert//litert/c:litert_common",
             "@litert//litert/c:litert_environment_options",
+            "@litert//litert/c:litert_tensor_buffer_types",
             "@litert//litert/c/internal:litert_external_litert_buffer_context",  # buildcleaner: keep
             "@litert//litert/cc:litert_compiled_model",
+            "@litert//litert/cc:litert_element_type",
             "@litert//litert/cc:litert_environment",
             "@litert//litert/cc:litert_expected",
             "@litert//litert/cc:litert_macros",
             "@litert//litert/cc:litert_model",
             "@litert//litert/cc:litert_options",
+            "@litert//litert/cc:litert_ranked_tensor_type",
             "@litert//litert/cc:litert_tensor_buffer",
             "@litert//litert/cc/options:litert_cpu_options",
             "@litert//litert/cc/options:litert_gpu_options",

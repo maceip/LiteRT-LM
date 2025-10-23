@@ -19,6 +19,7 @@
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
+#include "litert/cc/litert_layout.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
@@ -55,13 +56,19 @@ absl::Status ConstrainedDecoder::UpdateConstraintState(
 absl::Status ConstrainedDecoder::MaskLogits(::litert::TensorBuffer& logits) {
   // Compute the allowed tokens bitmap for the current constraint state.
   LITERT_ASSIGN_OR_RETURN_ABSL(auto logits_tensor_type, logits.TensorType());
-  absl::Span<const int32_t> logits_tensor_type_dims =
-      logits_tensor_type.Layout().Dimensions();
-  RET_CHECK_EQ(logits_tensor_type_dims.size(), 3)
+  LITERT_ASSIGN_OR_RETURN(auto logits_span,
+                          ReferTensorBufferAsSpan<float>(logits));
+  return MaskLogits(logits_span, logits_tensor_type.Layout().Dimensions());
+}
+
+absl::Status ConstrainedDecoder::MaskLogits(
+    absl::Span<float> logits,
+    absl::Span<const ::litert::Layout::Dim> logits_dims) {
+  RET_CHECK_EQ(logits_dims.size(), 3)
       << "Only support logits with dimensions [batch_size, 1, vocab_size].";
-  int batch_size = logits_tensor_type_dims[0];
-  int sequence_length = logits_tensor_type_dims[1];
-  int vocab_size = logits_tensor_type_dims[2];
+  int batch_size = logits_dims[0];
+  int sequence_length = logits_dims[1];
+  int vocab_size = logits_dims[2];
   RET_CHECK_EQ(sequence_length, 1) << "Only support sequence length 1.";
   RET_CHECK_EQ(vocab_size, constraint_->GetVocabularySize())
       << "Vocabulary size [" << vocab_size
@@ -70,15 +77,13 @@ absl::Status ConstrainedDecoder::MaskLogits(::litert::TensorBuffer& logits) {
   RET_CHECK_EQ(batch_size, batch_size_)
       << "Batch size [" << batch_size
       << "] does not match the expected batch size [" << batch_size_ << "].";
-  LITERT_ASSIGN_OR_RETURN(auto logits_span,
-                          ReferTensorBufferAsSpan<float>(logits));
   for (int b = 0; b < batch_size; ++b) {
     auto& constraint_state = constraint_states_[b];
     ASSIGN_OR_RETURN(auto bitmap,
                      constraint_->ComputeBitmap(*constraint_state));
     for (int i = 0; i < vocab_size; ++i) {
       if (!bitmap->Get(i)) {
-        logits_span.data()[b * vocab_size + i] =
+        logits.data()[b * vocab_size + i] =
             std::numeric_limits<float>::lowest();
       }
     }

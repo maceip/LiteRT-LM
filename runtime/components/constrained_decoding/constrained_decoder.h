@@ -22,6 +22,7 @@
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
+#include "litert/cc/litert_layout.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/constrained_decoding/constraint.h"
 
@@ -86,6 +87,10 @@ class ConstrainedDecoder {
   // @return Ok if masking was successful, or an error if dimensionss are
   // incorrect or masking fails.
   absl::Status MaskLogits(::litert::TensorBuffer& logits);
+
+  // Same as above, but takes a span of logits instead of a tensor buffer.
+  absl::Status MaskLogits(absl::Span<float> logits,
+                          absl::Span<const ::litert::Layout::Dim> logits_dims);
 
  private:
   // The constraint to be applied.
