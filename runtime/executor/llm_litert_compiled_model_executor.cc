@@ -237,6 +237,10 @@ absl::Status LlmLiteRtCompiledModelExecutor::Prefill(
     }
   }
 
+  if (embedding_lookup_ != nullptr) {
+    RETURN_IF_ERROR(embedding_lookup_->CleanupMultiModalEmbeddings());
+  }
+
   return absl::OkStatus();
 }
 
