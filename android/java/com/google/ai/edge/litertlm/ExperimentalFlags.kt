@@ -43,10 +43,9 @@ object ExperimentalFlags {
 }
 
 // Mark this annotation itself as requiring opt-in
-// TODO: Switch level to ERROR
 @RequiresOptIn(
   message = "This API is experimental and temporary. It may change or be removed without notice.",
-  level = RequiresOptIn.Level.WARNING,
+  level = RequiresOptIn.Level.ERROR,
 )
 @Retention(AnnotationRetention.BINARY)
 @Target(AnnotationTarget.CLASS, AnnotationTarget.FUNCTION)
