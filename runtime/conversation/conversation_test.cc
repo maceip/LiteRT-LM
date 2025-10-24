@@ -180,8 +180,9 @@ TEST(ConversationConfigTest, CreateDefaultWithOverwritePromptTemplate) {
   engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(10);
   ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
   ASSERT_OK_AND_ASSIGN(auto config, ConversationConfig::CreateDefault(
-                                        *engine, PromptTemplate("Hello world!"),
-                                        /*preface=*/std::nullopt));
+                                        *engine,
+                                        /*preface=*/std::nullopt,
+                                        PromptTemplate("Hello world!")));
   EXPECT_EQ(config.GetPromptTemplate().GetTemplateSource(), "Hello world!");
   EXPECT_TRUE(
       config.GetSessionConfig().GetPromptTemplates().user().prefix().empty());
@@ -834,7 +835,6 @@ TEST(ConversationTest, SendMessageWithPreface) {
       auto config,
       ConversationConfig::CreateDefault(
           *engine,
-          /*overwrite_prompt_template=*/std::nullopt,
           /*preface=*/
           JsonPreface{
               .messages = {{{"role", "system"},
@@ -869,7 +869,6 @@ TEST(ConversationTest, GetBenchmarkInfo) {
       auto config,
       ConversationConfig::CreateDefault(
           *engine,
-          /*overwrite_prompt_template=*/std::nullopt,
           /*preface=*/
           JsonPreface{
               .messages = {{{"role", "system"},

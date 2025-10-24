@@ -46,21 +46,20 @@ class ConversationConfig {
   // Creates a default ConversationConfig from the given Engine.
   // Args:
   // - `engine`: The Engine instance to be used for creating the default config.
-  // - `overwrite_prompt_template`: Optional PromptTemplate instance to be used
-  //     for the conversation. If not provided, the conversation will use the
-  //     template read from the model metadata.
   // - `preface`: Optional Preface for the conversation. The Preface provides
   //     the initial background for the conversation, tool uses and extra
   //     context for the conversation. If not provided, the conversation will
   //     start with an empty Preface.
+  // - `overwrite_prompt_template`: Optional PromptTemplate instance to be used
+  //     for the conversation. If not provided, the conversation will use the
+  //     template read from the model metadata.
   // - `overwrite_processor_config`: Optional configuration for the model data
   //     processor, if not provided, the default config for the model type's
   //     data processor will be used. Most of the time, the users don't need to
   //     provide the data processor config.
   static absl::StatusOr<ConversationConfig> CreateDefault(
-      const Engine& engine,
+      const Engine& engine, std::optional<Preface> preface = std::nullopt,
       std::optional<PromptTemplate> overwrite_prompt_template = std::nullopt,
-      std::optional<Preface> preface = std::nullopt,
       std::optional<DataProcessorConfig> overwrite_processor_config =
           std::nullopt
   );
@@ -148,10 +147,15 @@ class ConversationConfig {
 //
 //   // Send a message to the LLM and process the asynchronous message results
 //   // via the user_callback. The user_callback is a user-defined callback
-//   function that handles the message results.
+//   // function that handles the message results.
 //   EXPECT_OK(conversation->SendMessageAsync(
 //       JsonMessage{{"role", "user"}, {"content", "Hello world!"}},
-//       std::make_unique<MyMessageCallback>()));
+//       [](absl::StatusOr<Message> message) {
+//         // Handle the message results.
+//         if (message.ok()) {
+//           std::cout << "Message: " << std::endl;
+//         }
+//       });
 //
 class Conversation {
  public:

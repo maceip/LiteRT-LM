@@ -45,9 +45,8 @@
 namespace litert::lm {
 
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
-    const Engine& engine,
+    const Engine& engine, std::optional<Preface> preface,
     std::optional<PromptTemplate> overwrite_prompt_template,
-    std::optional<Preface> preface,
     std::optional<DataProcessorConfig> overwrite_processor_config
 ) {
   SessionConfig session_config = SessionConfig::CreateDefault();
