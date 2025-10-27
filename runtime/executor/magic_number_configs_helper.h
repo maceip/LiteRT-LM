@@ -15,12 +15,11 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_MAGIC_NUMBER_CONFIGS_HELPER_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_MAGIC_NUMBER_CONFIGS_HELPER_H_
 
-#include <cstdlib>
 #include <memory>
 #include <vector>
 
-#include "litert/c/litert_environment_options.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
+#include "litert/cc/options/litert_magic_number_options.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/executor/llm_executor_settings.h"
 
@@ -49,15 +48,8 @@ class MagicNumberConfigsHelper {
   }
 
  private:
-  struct FreeDeleter {
-    void operator()(void* ptr) const { free(ptr); }
-  };
-
-  template <typename T>
-  using UniqueCPtr = std::unique_ptr<T, FreeDeleter>;
-
-  UniqueCPtr<LiteRtMagicNumberConfigs> magic_number_configs_;
-  UniqueCPtr<LiteRtMagicNumberVerifications> magic_number_verifications_;
+  litert::options::MagicNumberConfigsPtr magic_number_configs_;
+  litert::options::MagicNumberVerificationsPtr magic_number_verifications_;
 };
 
 }  // namespace litert::lm

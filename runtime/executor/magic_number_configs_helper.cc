@@ -17,7 +17,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <iterator>
 #include <set>
 #include <utility>
@@ -26,11 +25,11 @@
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
-#include "litert/c/litert_environment_options.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_expected.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
+#include "litert/cc/options/litert_magic_number_options.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/executor/llm_executor_settings.h"
 
@@ -109,14 +108,13 @@ Expected<MagicNumbers> GetMagicNumbersFromModel(const Model& litert_model) {
     if (signature.Key().starts_with(kPrefillSignaturePrefix)) {
       for (const auto& input_name : signature.InputNames()) {
         if (absl::StrContains(input_name, kMaskSubstr)) {
-          LITERT_RETURN_IF_ERROR(SetMagicNumberIfPrime(
-              signature, input_name, /*input=*/true,
-              magic_numbers.context_length));
-        } else if (absl::StrContains(input_name, kInputPosSubstr)) {
-          int64_t prefill_length = 0;
           LITERT_RETURN_IF_ERROR(
               SetMagicNumberIfPrime(signature, input_name, /*input=*/true,
-                                    prefill_length));
+                                    magic_numbers.context_length));
+        } else if (absl::StrContains(input_name, kInputPosSubstr)) {
+          int64_t prefill_length = 0;
+          LITERT_RETURN_IF_ERROR(SetMagicNumberIfPrime(
+              signature, input_name, /*input=*/true, prefill_length));
           if (prefill_length > 0) {
             magic_numbers.prefill_lengths.push_back(prefill_length);
           }
@@ -125,9 +123,9 @@ Expected<MagicNumbers> GetMagicNumbersFromModel(const Model& litert_model) {
     } else if (signature.Key().starts_with(kDecodeSignaturePrefix)) {
       for (const auto& input_name : signature.InputNames()) {
         if (absl::StrContains(input_name, kMaskSubstr)) {
-          LITERT_RETURN_IF_ERROR(SetMagicNumberIfPrime(
-              signature, input_name, /*input=*/true,
-              magic_numbers.context_length));
+          LITERT_RETURN_IF_ERROR(
+              SetMagicNumberIfPrime(signature, input_name, /*input=*/true,
+                                    magic_numbers.context_length));
           LITERT_RETURN_IF_ERROR(
               SetMagicNumberIfPrime(signature, input_name, /*input=*/true,
                                     magic_numbers.context_length));
@@ -285,11 +283,13 @@ std::vector<Environment::Option> MagicNumberConfigsHelper::GetLiteRtEnvOptions(
 
   int num_configs =
       prefill_config_index_base + magic_numbers->prefill_lengths.size();
-  magic_number_configs_ = UniqueCPtr<LiteRtMagicNumberConfigs>(
-      reinterpret_cast<LiteRtMagicNumberConfigs*>(
-          malloc(sizeof(LiteRtMagicNumberConfigs) +
-                 num_configs * sizeof(LiteRtMagicNumberConfig))));
-  magic_number_configs_->num_configs = num_configs;
+
+  LITERT_ASSIGN_OR_RETURN(
+      magic_number_configs_,
+      litert::options::CreateMagicNumberConfigs(num_configs), ([&]() {
+        ABSL_LOG(ERROR) << "Failed to create LiteRT magic number configs";
+        return std::vector<Environment::Option>{};
+      })());
 
   MagicNumbers target_numbers{.context_length = 0, .num_output_candidates = 0};
   // Magic number configs for context length.
@@ -381,11 +381,14 @@ std::vector<Environment::Option> MagicNumberConfigsHelper::GetLiteRtEnvOptions(
     auto verify_pairs =
         GetVerificationPairs(**litert_model, *magic_numbers, target_numbers);
     if (verify_pairs && !verify_pairs->empty()) {
-      magic_number_verifications_ = UniqueCPtr<LiteRtMagicNumberVerifications>(
-          reinterpret_cast<LiteRtMagicNumberVerifications*>(malloc(
-              sizeof(LiteRtMagicNumberVerifications) +
-              verify_pairs->size() * sizeof(LiteRtMagicNumberVerification))));
-      magic_number_verifications_->num_verifications = verify_pairs->size();
+      LITERT_ASSIGN_OR_RETURN(
+          magic_number_verifications_,
+          litert::options::CreateMagicNumberVerifications(verify_pairs->size()),
+          ([&]() {
+            ABSL_LOG(ERROR)
+                << "Failed to create LiteRT magic number verifications";
+            return std::vector<Environment::Option>{};
+          })());
       for (int i = 0; i < verify_pairs->size(); ++i) {
         auto& verification = magic_number_verifications_->verifications[i];
         verification.signature = verify_pairs->at(i).first.data();
