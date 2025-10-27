@@ -30,9 +30,9 @@
 namespace litert::lm {
 namespace {
 
-static constexpr LazyRE2 kLoRAInputNamePattern(
+constexpr LazyRE2 kLoRAInputNamePattern = {
     "^(?:(?:query|key|value|post)_w_prime_(?:left|right)|"
-    "lora_atten_(?:q|k|v|o)_(?:a|b)_prime_weight)_\\d+$");
+    "lora_atten_(?:q|k|v|o)_(?:a|b)_prime_weight)_\\d+$"};
 
 uint64_t AlignByN(uint64_t number, uint64_t n) {
   const uint64_t q = number / n;
