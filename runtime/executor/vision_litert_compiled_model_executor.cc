@@ -25,7 +25,9 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
+#if !defined(LITERT_DISABLE_NPU)
 #include "litert/c/options/litert_qualcomm_options.h"  // from @litert
+#endif  // !defined(LITERT_DISABLE_NPU)
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
@@ -90,6 +92,7 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionEncoder::Initialize() {
       options.SetHardwareAccelerators(kLiteRtHwAcceleratorGpu);
       break;
     }
+#if !defined(LITERT_DISABLE_NPU)
     case Backend::NPU: {
       LITERT_ASSIGN_OR_RETURN_ABSL(auto qualcomm_options,
                                    qualcomm::QualcommOptions::Create());
@@ -101,6 +104,7 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionEncoder::Initialize() {
       options.SetHardwareAccelerators(kLiteRtHwAcceleratorCpu);
       break;
     }
+#endif  // !defined(LITERT_DISABLE_NPU)
     default:
       return absl::InvalidArgumentError(
           absl::StrCat("Unsupported encoder backend: ", backend_));
