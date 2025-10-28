@@ -23,5 +23,6 @@ kt_android_library(
     manifest = "AndroidManifest.xml",
     deps = [
         "@rules_kotlin//kotlin/compiler:kotlin-reflect",
+        "@maven//:com_google_flogger_flogger", "@maven//:com_google_flogger_flogger_system_backend",
     ],
 )

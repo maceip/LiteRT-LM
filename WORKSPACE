@@ -146,6 +146,30 @@ load("@pypi//:requirements.bzl", "install_deps")
 install_deps()
 # End hermetic Python initialization
 
+RULES_JVM_EXTERNAL_TAG = "6.8"
+RULES_JVM_EXTERNAL_SHA = "704a0197e4e966f96993260418f2542568198490456c21814f647ae7091f56f2"
+
+http_archive(
+    name = "rules_jvm_external",
+    sha256 = RULES_JVM_EXTERNAL_SHA,
+    strip_prefix = "rules_jvm_external-%s" % RULES_JVM_EXTERNAL_TAG,
+    url = "https://github.com/bazelbuild/rules_jvm_external/releases/download/%s/rules_jvm_external-%s.tar.gz" % (RULES_JVM_EXTERNAL_TAG, RULES_JVM_EXTERNAL_TAG),
+)
+
+load("@rules_jvm_external//:defs.bzl", "maven_install")
+
+maven_install(
+    name = "maven",
+    artifacts = [
+        "com.google.flogger:flogger:0.9",
+        "com.google.flogger:flogger-system-backend:0.9",
+    ],
+    repositories = [
+        "https://maven.google.com",
+        "https://repo1.maven.org/maven2",
+    ],
+)
+
 load("@org_tensorflow//tensorflow:workspace2.bzl", "tf_workspace2")
 
 tf_workspace2()
@@ -211,24 +235,6 @@ load(
 )
 
 nccl_configure(name = "local_config_nccl")
-
-load("@rules_jvm_external//:defs.bzl", "maven_install")
-
-maven_install(
-    name = "maven",
-    artifacts = [
-        "androidx.lifecycle:lifecycle-common:2.8.7",
-        "com.google.android.play:ai-delivery:0.1.1-alpha01",
-        "com.google.guava:guava:33.4.6-android",
-        "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1",
-        "org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.10.1",
-        "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.1",
-    ],
-    repositories = [
-        "https://maven.google.com",
-        "https://repo1.maven.org/maven2",
-    ],
-)
 
 # Kotlin rules
 http_archive(

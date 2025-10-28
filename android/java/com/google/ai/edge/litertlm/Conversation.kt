@@ -15,7 +15,7 @@
  */
 package com.google.ai.edge.litertlm
 
-import android.util.Log
+import com.google.common.flogger.FluentLogger
 import java.util.concurrent.CancellationException
 import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONArray
@@ -133,7 +133,7 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
       val functionName = functionJSONObject.getString("name")
       val arguments = functionJSONObject.getJSONObject("arguments")
 
-      Log.i(TAG, "handleToolCalls: Calling tools ${functionName}")
+      logger.atInfo().log("handleToolCalls: Calling tools %s", functionName)
       val result = toolManager.execute(functionName, arguments)
       val toolResponseJSONObject =
         JSONObject()
@@ -171,17 +171,17 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
     }
 
     override fun onDone() {
-      Log.d(TAG, "onDone")
+      logger.atFine().log("onDone")
       val localToolResponse = pendingToolResponseJSONMessage
       if (localToolResponse != null) {
         // If there is pending tool response message, send the message.
-        Log.d(TAG, "onDone: Sending tool response.")
+        logger.atFine().log("onDone: Sending tool response.")
         LiteRtLmJni.nativeSendMessageAsync(
           handle,
           localToolResponse.toString(),
           this@JniMessageCallbackImpl,
         )
-        Log.d(TAG, "onDone: Tool response sent.")
+        logger.atFine().log("onDone: Tool response sent.")
         pendingToolResponseJSONMessage = null // Clear after sending
       } else {
         // If no pending action, then call onDone to the original user callback.
@@ -190,7 +190,7 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
     }
 
     override fun onError(statusCode: Int, message: String) {
-      Log.d(TAG, "onError: $statusCode, $message")
+      logger.atFine().log("onError: %d, %s", statusCode, message)
 
       if (statusCode == 1) { // StatusCode::kCancelled
         callback.onError(CancellationException(message))
@@ -245,12 +245,12 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
   }
 
   companion object {
-    private const val TAG = "Conversation"
     /**
      * The maximum number of times the model can call tools in a single turn before an error is
      * thrown.
      */
     private const val RECURRING_TOOL_CALL_LIMIT = 25
+    private val logger = FluentLogger.forEnclosingClass()
 
     private fun jsonToMessage(messageJsonObject: JSONObject): Message {
       val contentsJsonArray = messageJsonObject.getJSONArray("content")
@@ -263,7 +263,7 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
         if (type == "text") {
           contents.add(Content.Text(contentJsonObject.getString("text")))
         } else {
-          Log.w(TAG, "jsonToMessage: Got unsupported content type: $type")
+          logger.atWarning().log("jsonToMessage: Got unsupported content type: %s", type)
         }
       }
       return Message.of(contents)
