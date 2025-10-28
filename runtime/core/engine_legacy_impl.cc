@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/no_destructor.h"  // from @com_google_absl
 #include "absl/log/absl_check.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/log/check.h"  // from @com_google_absl
@@ -104,6 +105,21 @@ absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildExecutor(
   return std::move(executor);
 }
 
+// Gets the singleton Environment, initializing it on the first call
+// with the provided settings. This ensure we maintain the same LiteRT
+// environment during the whole application lifetime. This is required for GPU
+// LiteRT environment. See b/454383477 for more details.
+absl::StatusOr<Environment&> GetEnvironment() {
+  static absl::NoDestructor<absl::StatusOr<Environment>> kEnvironment(
+      [&]() -> absl::StatusOr<Environment> {
+        LITERT_ASSIGN_OR_RETURN(auto env, Environment::Create({}));
+        return std::move(env);
+      }());
+  if (!kEnvironment->ok()) {
+    return kEnvironment->status();
+  }
+  return **kEnvironment;
+}
 }  // namespace
 
 class EngineImpl : public Engine {
@@ -113,7 +129,7 @@ class EngineImpl : public Engine {
   }
 
   explicit EngineImpl(
-      EngineSettings engine_settings, std::unique_ptr<Environment> env,
+      EngineSettings engine_settings,
       std::unique_ptr<oi::ExecutorModelResources> model_resources,
       std::unique_ptr<LlmExecutor> executor,
       std::unique_ptr<Tokenizer> task_tokenizer, Tokenizer* tokenizer,
@@ -122,7 +138,6 @@ class EngineImpl : public Engine {
       std::optional<BenchmarkInfo> benchmark_info,
       std::unique_ptr<ThreadPool> worker_thread_pool)
       : engine_settings_(std::move(engine_settings)),
-        env_(std::move(env)),
         model_resources_(std::move(model_resources)),
         executor_(std::move(executor)),
         task_tokenizer_(std::move(task_tokenizer)),
@@ -160,9 +175,6 @@ class EngineImpl : public Engine {
  private:
   // Stored engine settings.
   EngineSettings engine_settings_;
-
-  // Environment for the engine.
-  std::unique_ptr<Environment> env_;
 
   // Model resources, which must outlive `executor_`.
   std::unique_ptr<oi::ExecutorModelResources> model_resources_;
@@ -253,8 +265,7 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
   ASSIGN_OR_RETURN(auto executor,
                    BuildExecutor(*model_resources, engine_settings));
 
-  LITERT_ASSIGN_OR_RETURN(
-      auto lrt_env, Environment::Create(std::vector<Environment::Option>()));
+  ASSIGN_OR_RETURN(auto& lrt_env, GetEnvironment());
 
   std::unique_ptr<VisionExecutor> vision_executor;
   if (engine_settings.GetVisionExecutorSettings().has_value()) {
@@ -302,12 +313,10 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
       std::make_unique<ThreadPool>(/*name_prefix=*/"engine",
                                    /*max_num_threads=*/1);
   auto llm_impl = std::make_unique<EngineImpl>(
-      std::move(engine_settings),
-      std::make_unique<Environment>(std::move(lrt_env)),
-      std::move(model_resources), std::move(executor),
-      std::move(task_tokenizer), tokenizer, std::move(vision_executor),
-      std::move(audio_executor), std::move(benchmark_info),
-      std::move(worker_thread_pool));
+      std::move(engine_settings), std::move(model_resources),
+      std::move(executor), std::move(task_tokenizer), tokenizer,
+      std::move(vision_executor), std::move(audio_executor),
+      std::move(benchmark_info), std::move(worker_thread_pool));
   return llm_impl;
 };
 

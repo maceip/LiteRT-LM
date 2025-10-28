@@ -28,7 +28,7 @@
 #define _ASSIGN_OR_RETURN_IMPL(TMP_VAR, DECL, EXPR) \
   auto&& TMP_VAR = (EXPR);                          \
   if (!TMP_VAR.ok()) return TMP_VAR.status();       \
-  DECL = std::move(*TMP_VAR)
+  DECL = *std::move(TMP_VAR)
 #endif  // _LITERT_LM_REDEFINE_STATUS_MACROS || !defined(ASSIGN_OR_RETURN)
 
 #if _LITERT_LM_REDEFINE_STATUS_MACROS || !defined(RETURN_IF_ERROR)

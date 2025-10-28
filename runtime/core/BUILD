@@ -29,6 +29,7 @@ cc_library(
     srcs = ["engine_impl.cc"],
     deps = [
         ":session_factory",
+        "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
