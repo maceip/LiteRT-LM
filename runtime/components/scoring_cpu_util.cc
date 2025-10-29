@@ -38,12 +38,12 @@ absl::StatusOr<std::vector<float>> ComputeLogLikelihood(
     }
   }
   // Get all indices and their probabilities for calculating perplexity.
-  ASSIGN_OR_RETURN(auto all_indices,
-                   TopKIndicies(logits, vocab_size, batch_size));
+  ASSIGN_OR_RETURN(auto all_token_ids,
+                   TopKTokenIds(logits, vocab_size, batch_size));
   std::vector<float> all_logit_values;
-  ASSIGN_OR_RETURN(
-      auto all_probabilities,
-      Softmax(logits, all_indices, temperature, batch_size, all_logit_values));
+  ASSIGN_OR_RETURN(auto all_probabilities,
+                   Softmax(logits, all_token_ids, temperature, batch_size,
+                           all_logit_values));
   std::vector<float> batch_confidence(batch_size);
   for (int b = 0; b < batch_size; ++b) {
     if (sampled_ids[b] >= 0 && sampled_ids[b] < vocab_size) {

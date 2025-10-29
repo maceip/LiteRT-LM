@@ -32,7 +32,7 @@
 
 namespace litert::lm {
 
-absl::StatusOr<std::vector<int>> TopKIndicies(absl::Span<const float> logits,
+absl::StatusOr<std::vector<int>> TopKTokenIds(absl::Span<const float> logits,
                                               int k, int batch_size) {
   if (logits.size() % batch_size != 0) {
     return absl::InvalidArgumentError(
@@ -78,7 +78,7 @@ absl::StatusOr<std::vector<int>> TopKIndicies(absl::Span<const float> logits,
 }
 
 absl::StatusOr<std::vector<float>> Softmax(
-    absl::Span<const float> logits, absl::Span<const int> topk_indices,
+    absl::Span<const float> logits, absl::Span<const int> topk_token_ids,
     float temperature, int batch_size, std::vector<float>& max_logit_values) {
   if (logits.empty()) {
     return absl::InvalidArgumentError("Logits vector cannot be empty.");
@@ -96,34 +96,34 @@ absl::StatusOr<std::vector<float>> Softmax(
         absl::StrCat("Temperature must be >= 0, but got ", temperature));
   }
   const int vocab_size = logits.size() / batch_size;
-  const int k = topk_indices.size() / batch_size;
-  std::vector<float> probabilities(topk_indices.size());
+  const int k = topk_token_ids.size() / batch_size;
+  std::vector<float> probabilities(topk_token_ids.size());
   max_logit_values.resize(batch_size);
   for (size_t b = 0; b < batch_size; ++b) {
     // Define the comparator for ascending logit to be used with
-    // std::max_element. The comparator takes two indices from topk_indices and
-    // compares the corresponding logit values.
+    // std::max_element. The comparator takes two indices from topk_token_ids
+    // and compares the corresponding logit values.
     auto logit_comp = [&logits, vocab_size, b](int topk_idx1, int topk_idx2) {
       return logits[b * vocab_size + topk_idx1] <
              logits[b * vocab_size + topk_idx2];
     };
 
-    // Use std::max_element to find the index in topk_indices that corresponds
+    // Use std::max_element to find the index in topk_token_ids that corresponds
     // to the maximum logit value.
     auto max_iterator =
-        std::max_element(topk_indices.begin() + b * k,
-                         topk_indices.begin() + (b + 1) * k, logit_comp);
+        std::max_element(topk_token_ids.begin() + b * k,
+                         topk_token_ids.begin() + (b + 1) * k, logit_comp);
     const int max_logit_idx =
-        std::distance(topk_indices.begin() + b * k, max_iterator);
+        std::distance(topk_token_ids.begin() + b * k, max_iterator);
     max_logit_values[b] =
-        logits[b * vocab_size + topk_indices[b * k + max_logit_idx]];
+        logits[b * vocab_size + topk_token_ids[b * k + max_logit_idx]];
 
     float sum_of_exps = 0.0;
     float current_temp =
         std::max(temperature, std::numeric_limits<float>::epsilon());
     for (size_t i = b * k; i < (b + 1) * k; ++i) {
       probabilities[i] = std::exp(
-          (logits[b * vocab_size + topk_indices[i]] - max_logit_values[b]) /
+          (logits[b * vocab_size + topk_token_ids[i]] - max_logit_values[b]) /
           current_temp);
       sum_of_exps += probabilities[i];
     }
@@ -174,17 +174,17 @@ absl::StatusOr<std::vector<int>> TopKTopPSampling(
   // Ensure k is not larger than the number of probabilities
   k = std::min(k, vocab_size);
 
-  auto topk_indices = TopKIndicies(logits, k, batch_size);
-  if (!topk_indices.ok()) return topk_indices.status();
+  auto topk_token_ids = TopKTokenIds(logits, k, batch_size);
+  if (!topk_token_ids.ok()) return topk_token_ids.status();
 
   std::vector<float> max_logit_values;
-  auto probabilities =
-      Softmax(logits, *topk_indices, temperature, batch_size, max_logit_values);
+  auto probabilities = Softmax(logits, *topk_token_ids, temperature, batch_size,
+                               max_logit_values);
   if (!probabilities.ok()) return probabilities.status();
 
   std::vector<int> sampled_ids;
-  if (k == 1) {  // Greedy sampling. Return the topk_indices directly.
-    sampled_ids.assign(topk_indices->begin(), topk_indices->end());
+  if (k == 1) {  // Greedy sampling. Return the topk_token_ids directly.
+    sampled_ids.assign(topk_token_ids->begin(), topk_token_ids->end());
     sampled_scores = std::vector<float>(batch_size, 1.0f);
     return sampled_ids;
   }
@@ -205,8 +205,8 @@ absl::StatusOr<std::vector<int>> TopKTopPSampling(
     // range.
     // - probabilities[b*k + index_of_topk[i]] is the probability of the i-th
     // largest element.
-    // - topk_indices[b*k + index_of_topk[i]] is the actual token ID of the i-th
-    // largest element.
+    // - topk_token_ids[b*k + index_of_topk[i]] is the actual token ID of the
+    // i-th largest element.
     std::vector<int> index_of_topk(k);
     std::iota(index_of_topk.begin(), index_of_topk.end(), 0);
     std::sort(index_of_topk.begin(), index_of_topk.end(), desc_prob_comp);
@@ -214,39 +214,39 @@ absl::StatusOr<std::vector<int>> TopKTopPSampling(
     // Determine Top-P Cutoff Index within Top-K.
     // O(k) time complexity.
     double cumulative_prob = 0.0;
-    int final_nucleus_size = 0;  // Actual number of elements to sample from
+    int final_sample_size = 0;  // Actual number of elements to sample from
 
     for (int i = 0; i < k; ++i) {
       // Check if adding this probability would exceed the threshold p. It
       // stops when cumulative_prob >= p.
       cumulative_prob += (*probabilities)[b * k + index_of_topk[i]];
-      final_nucleus_size = i + 1;  // Include this element
+      final_sample_size = i + 1;  // Include this element
 
       if (cumulative_prob >= p) {
         break;  // Found the smallest set within Top-K satisfying Top-P
       }
     }
-    // final_nucleus_size now holds min(p_cutoff_within_top_k, k)
+    // final_sample_size now holds min(p_cutoff_within_top_k, k)
 
-    // Handle Edge Case: Zero Nucleus Sum.
+    // Handle Edge Case: Cumulative Probability is Zero.
     if (cumulative_prob <= std::numeric_limits<double>::epsilon()) {
       // Fallback: Return the index with the absolute highest probability
       // (indices[0] after sorting top-k).
-      sampled_ids[b] = (*topk_indices)[b * k + index_of_topk[0]];
+      sampled_ids[b] = (*topk_token_ids)[b * k + index_of_topk[0]];
       sampled_scores[b] = std::exp(
           (logits[b * vocab_size + sampled_ids[b]] - max_logit_values[b]) /
           current_temp);
       continue;
     }
 
-    // O(final_nucleus_size) which is O(k) time complexity.
+    // O(final_sample_size) which is O(k) time complexity.
     std::uniform_real_distribution<double> dist(0.0, cumulative_prob);
     double random_sample = dist(rng);
     double current_cumulative = 0.0;
-    for (int i = 0; i < final_nucleus_size; ++i) {
+    for (int i = 0; i < final_sample_size; ++i) {
       current_cumulative += (*probabilities)[b * k + index_of_topk[i]];
       if (random_sample <= current_cumulative) {
-        sampled_ids[b] = (*topk_indices)[b * k + index_of_topk[i]];
+        sampled_ids[b] = (*topk_token_ids)[b * k + index_of_topk[i]];
         sampled_scores[b] = (*probabilities)[b * k + index_of_topk[i]];
         break;
       }

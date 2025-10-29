@@ -23,24 +23,27 @@
 
 namespace litert::lm {
 
-// Computes the top k indices of the given logits. The logits must be a 2D
-// tensor (in a flattened buffer) of shape [batch_size, vocab_size]. The output
-// is a vector of indices of shape [batch_size, k].
-absl::StatusOr<std::vector<int>> TopKIndicies(absl::Span<const float> logits,
+// Computes the top k token ids (a.k.a. indices of the given logits).
+//   - logits: a 2D tensor (in a flattened buffer) of shape
+//     [batch_size, vocab_size].
+//   - k: the number of top k.
+//   - batch_size: the batch size of the logits.
+// The output is a vector of token ids of shape [batch_size, k].
+absl::StatusOr<std::vector<int>> TopKTokenIds(absl::Span<const float> logits,
                                               int k, int batch_size = 1);
 
 // Computes the softmax of the given logits.
 //   - logits: a 2D tensor (in a flattened buffer) of shape
 //     [batch_size, vocab_size].
-//   - topk_indices: a 2D tensor (in a flattened buffer) of shape
-//     [batch_size, k]. The indices of the top k logits.
+//   - topk_token_ids: a 2D tensor (in a flattened buffer) of shape
+//     [batch_size, k]. The token ids of the top k logits.
 //   - temperature: the temperature of the softmax.
 //   - batch_size: the batch size of the logits.
 //   - max_logit_values: this is an output parameter to store the max logit
 //     values of each batch. It is a vector of shape [batch_size].
 // The output is a vector of probabilities of shape [batch_size, vocab_size].
 absl::StatusOr<std::vector<float>> Softmax(
-    absl::Span<const float> logits, absl::Span<const int> topk_indices,
+    absl::Span<const float> logits, absl::Span<const int> topk_token_ids,
     float temperature, int batch_size, std::vector<float>& max_logit_values);
 
 // Samples a batch of token ids from the given probabilities.

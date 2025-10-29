@@ -27,20 +27,20 @@ namespace {
 using ::testing::ElementsAre;
 using ::testing::UnorderedElementsAre;
 
-TEST(SamplingCpuUtilTest, TopKIndicies_BatchSize1) {
+TEST(SamplingCpuUtilTest, TopKTokenIds_BatchSize1) {
   const std::vector<float> logits = {0.1, 0.5, 0.4, 0.2};
-  auto indices =
-      TopKIndicies(absl::MakeConstSpan(logits), /*k=*/2, /*batch_size=*/1);
-  EXPECT_TRUE(indices.ok());
-  EXPECT_THAT(*indices, UnorderedElementsAre(1, 2));
+  auto topk_token_ids =
+      TopKTokenIds(absl::MakeConstSpan(logits), /*k=*/2, /*batch_size=*/1);
+  EXPECT_TRUE(topk_token_ids.ok());
+  EXPECT_THAT(*topk_token_ids, UnorderedElementsAre(1, 2));
 }
 
-TEST(SamplingCpuUtilTest, TopKIndicies_BatchSize2) {
+TEST(SamplingCpuUtilTest, TopKTokenIds_BatchSize2) {
   const std::vector<float> logits = {0.1, 0.5, 0.4, 0.2};
-  auto indices =
-      TopKIndicies(absl::MakeConstSpan(logits), /*k=*/1, /*batch_size=*/2);
-  EXPECT_TRUE(indices.ok());
-  EXPECT_THAT(*indices, ElementsAre(1, 0));
+  auto topk_token_ids =
+      TopKTokenIds(absl::MakeConstSpan(logits), /*k=*/1, /*batch_size=*/2);
+  EXPECT_TRUE(topk_token_ids.ok());
+  EXPECT_THAT(*topk_token_ids, ElementsAre(1, 0));
 }
 
 TEST(SamplingCpuUtilTest, Softmax_BatchSize1) {
@@ -184,8 +184,9 @@ TEST(SamplingCpuUtilTest, TopKTopPSampling_BatchSize3) {
 }
 
 TEST(SamplingCpuUtilTest, TopKTopPSampling_LargeVocabIndices) {
-  // Tests that sampling works correctly when top-k indices are larger than k.
-  // This exposes a bug where vocab indices were incorrectly used as offsets.
+  // Tests that sampling works correctly when top-k topk_token_ids are larger
+  // than k. This exposes a bug where vocab topk_token_ids were incorrectly used
+  // as offsets.
   std::vector<float> logits = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
                                1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 10.0};
   absl::BitGen rng;
