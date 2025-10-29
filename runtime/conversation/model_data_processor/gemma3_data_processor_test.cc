@@ -494,29 +494,35 @@ TEST(Gemma3DataProcessorTest, FormatTools) {
   ASSERT_OK_AND_ASSIGN(auto processor, Gemma3DataProcessor::Create());
   nlohmann::ordered_json tools = nlohmann::ordered_json::parse(R"json([
     {
-      "name": "get_weather",
-      "description": "Gets weather information.",
-      "parameters": {
-        "properties": {
-          "location": {
-            "type": "string",
-            "description": "Weather location."
-          }
-        },
-        "required": ["location"]
+      "type": "function",
+      "function": {
+        "name": "get_weather",
+        "description": "Gets weather information.",
+        "parameters": {
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "Weather location."
+            }
+          },
+          "required": ["location"]
+        }
       }
     },
     {
-      "name": "get_stock_price",
-      "description": "Gets stock price.",
-      "parameters": {
-        "properties": {
-          "symbol": {
-            "type": "string",
-            "description": "Stock symbol."
-          }
-        },
-        "required": ["symbol"]
+      "type": "function",
+      "function": {
+        "name": "get_stock_price",
+        "description": "Gets stock price.",
+        "parameters": {
+          "properties": {
+            "symbol": {
+              "type": "string",
+              "description": "Stock symbol."
+            }
+          },
+          "required": ["symbol"]
+        }
       }
     }
   ])json");

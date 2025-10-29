@@ -332,4 +332,33 @@ TEST(PythonToolFormatUtilsTest, FormatToolWithMixedParameters) {
 )"));
 }
 
+TEST(PythonToolFormatUtilsTest, FormatToolAlternativeFormat) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json(
+    {
+      "type": "function",
+      "function": {
+        "name": "test_tool",
+        "description": "This is a test tool.",
+        "parameters": {
+          "properties": {
+            "test_param_1": {
+              "type": "string",
+              "description": "First parameter."
+            }
+          }
+        }
+      }
+    }
+  )json");
+  EXPECT_THAT(FormatToolAsPython(tool), IsOkAndHolds(R"(def test_tool(
+    test_param_1: str | None = None,
+) -> dict:
+  """This is a test tool.
+
+  Args:
+    test_param_1: First parameter.
+  """
+)"));
+}
+
 }  // namespace

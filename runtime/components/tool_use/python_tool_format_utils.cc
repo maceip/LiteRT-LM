@@ -20,6 +20,7 @@
 #include "absl/container/flat_hash_set.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
 #include "runtime/util/status_macros.h"
@@ -175,27 +176,36 @@ absl::StatusOr<std::string> FormatValueAsPython(
 
 absl::StatusOr<std::string> FormatToolAsPython(
     const nlohmann::ordered_json& tool) {
-  if (!tool.contains("name")) {
+  if (!tool.is_object()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Tool must be a JSON object but got: ", tool.type_name()));
+  }
+
+  const nlohmann::ordered_json& function =
+      tool.contains("function") ? tool["function"] : tool;
+
+  if (!function.contains("name")) {
     return absl::InvalidArgumentError("Tool name is required.");
   }
 
   std::stringstream ss;
-  ss << "def " << tool["name"].get<std::string>() << "(";
+  ss << "def " << function["name"].get<std::string>() << "(";
 
-  if (tool.contains("parameters") &&
-      tool["parameters"].contains("properties")) {
+  if (function.contains("parameters") &&
+      function["parameters"].contains("properties")) {
     ss << "\n";
-    const nlohmann::ordered_json required_params =
-        tool["parameters"].value("required", nlohmann::ordered_json::array());
+    const nlohmann::ordered_json required_params = function["parameters"].value(
+        "required", nlohmann::ordered_json::array());
     absl::flat_hash_set<std::string> required(required_params.begin(),
                                               required_params.end());
     int count = 0;
-    for (const auto& [key, value] : tool["parameters"]["properties"].items()) {
+    for (const auto& [key, value] :
+         function["parameters"]["properties"].items()) {
       const bool is_required = required.contains(key);
       ss << "    " << key << ": ";
       ss << FormatParameterType(key, value, is_required);
       ss << ",";
-      if (++count < tool["parameters"]["properties"].size()) {
+      if (++count < function["parameters"]["properties"].size()) {
         ss << "\n";
       }
     }
@@ -204,7 +214,7 @@ absl::StatusOr<std::string> FormatToolAsPython(
 
   ss << ") -> dict:\n";
 
-  std::string docstring = GenerateDocstring(tool);
+  std::string docstring = GenerateDocstring(function);
   if (!docstring.empty()) {
     ss << "  \"\"\"";
     ss << docstring;
