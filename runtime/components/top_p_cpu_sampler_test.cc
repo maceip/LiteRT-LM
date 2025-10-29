@@ -33,6 +33,21 @@ TEST(TopPSamplerTest, Create) {
   EXPECT_TRUE(sampler_or.ok());
 }
 
+TEST(TopPSamplerTest, CreateWithZeroTemp) {
+  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/0.0,
+                                        /*batch_size=*/1, /*seed=*/1);
+  EXPECT_TRUE(sampler_or.ok());
+}
+
+TEST(TopPSamplerTest, CreateWithNegativeTemp) {
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/-1.0,
+                          /*batch_size=*/1, /*seed=*/1);
+  EXPECT_FALSE(sampler_or.ok());
+  EXPECT_THAT(sampler_or.status().message(),
+              testing::HasSubstr("Temperature must be >= 0"));
+}
+
 TEST(TopPSamplerTest, SampleToIdAndScoreBuffer_IdsOnly_BatchSize2) {
   auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
                                         /*batch_size=*/2, /*seed=*/1);

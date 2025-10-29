@@ -65,9 +65,9 @@ absl::StatusOr<std::unique_ptr<TopPSampler>> TopPSampler::Create(
   if (batch_size <= 0) {
     return absl::InvalidArgumentError("batch_size must be positive.");
   }
-  if (temperature <= 0.0) {
+  if (temperature < 0.0) {
     return absl::InvalidArgumentError(
-        absl::StrCat("Temperature must be positive, but got ", temperature));
+        absl::StrCat("Temperature must be >= 0, but got ", temperature));
   }
   return absl::WrapUnique(new TopPSampler(k, p, temperature, batch_size, seed));
 }
