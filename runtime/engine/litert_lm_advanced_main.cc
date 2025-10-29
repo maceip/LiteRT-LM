@@ -21,8 +21,11 @@
 //
 // Consider run_llm_inference_engine.sh as an example to run on android device.
 
+#include <fstream>
+#include <iostream>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -47,6 +50,7 @@ ABSL_FLAG(std::string, model_path, "", "Model path to use for LLM execution.");
 ABSL_FLAG(std::string, input_prompt,
           "What is the tallest building in the world?",
           "Input prompt to use for testing LLM execution.");
+ABSL_FLAG(std::string, input_prompt_file, "", "File path to the input prompt.");
 
 namespace {
 
@@ -86,6 +90,31 @@ absl::StatusOr<std::set<int>> ParsePrefillBatchSizes(
   return parsed_prefill_batch_sizes;
 }
 
+std::string GetInputPrompt() {
+  const std::string input_prompt = absl::GetFlag(FLAGS_input_prompt);
+  const std::string input_prompt_file = absl::GetFlag(FLAGS_input_prompt_file);
+  if (!input_prompt.empty() && !input_prompt_file.empty()) {
+    ABSL_LOG(FATAL) << "Only one of --input_prompt and --input_prompt_file can "
+                       "be specified.";
+  }
+  if (!input_prompt.empty()) {
+    return input_prompt;
+  }
+  if (!input_prompt_file.empty()) {
+    std::ifstream file(input_prompt_file);
+    if (!file.is_open()) {
+      std::cerr << "Error: Could not open file " << input_prompt_file
+                << std::endl;
+      return "";
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+  }
+  // If no input prompt is provided, use the default prompt.
+  return "What is the tallest building in the world?";
+}
+
 absl::Status MainHelper(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
   LiteRtSetMinLoggerSeverity(
@@ -96,6 +125,7 @@ absl::Status MainHelper(int argc, char** argv) {
     ABSL_LOG(INFO)
         << "Example usage: ./litert_lm_main --model_path=<model_path> "
            "[--input_prompt=<input_prompt>] "
+           "[--input_prompt_file=<input_prompt_file>] "
            "[--expected_output=<expected_output>] [--backend=<cpu|gpu|npu>] "
            "[--max_num_tokens=<max_num_tokens>] "
            "[--prefill_batch_sizes=<size1>[,<size2>,...]]"
@@ -128,7 +158,7 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.audio_backend = absl::GetFlag(FLAGS_audio_backend);
   settings.sampler_backend = absl::GetFlag(FLAGS_sampler_backend);
   settings.model_path = absl::GetFlag(FLAGS_model_path);
-  settings.input_prompt = absl::GetFlag(FLAGS_input_prompt);
+  settings.input_prompt = GetInputPrompt();
   settings.expected_output = absl::GetFlag(FLAGS_expected_output);
   settings.max_num_tokens = absl::GetFlag(FLAGS_max_num_tokens);
   ASSIGN_OR_RETURN(
