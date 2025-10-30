@@ -145,47 +145,6 @@ class SessionBasic : public Engine::Session {
   absl::StatusOr<ExecutorInputs> ProcessAndCombineContents(
       const std::vector<InputData>& preprocessed_contents);
 
-  // Util function for combining multiple ExecutorAudioData into a single
-  // ExecutorAudioData, by concatenating the audio embeddings in a single tensor
-  // buffer.
-  //
-  // Specifically, if the elements of input ExecutorAudioData have TensorBuffer
-  // with shapes,
-  //  [batch_size, num_token_1, feature_dim].
-  //  [batch_size, num_token_2, feature_dim].
-  //  ...
-  //  [batch_size, num_token_n, feature_dim].
-  // The output ExecutorAudioData will have TensorBuffer with shape,
-  // [batch_size, num_token_1 + num_token_2 + ... + num_token_n, feature_dim].
-  static absl::StatusOr<ExecutorAudioData> CombineExecutorData(
-      std::vector<ExecutorAudioData>& executor_data);
-
-  // Util function for combining multiple ExecutorVisionData into a single
-  // ExecutorVisionData, by concatenating the vision embeddings in a single
-  // tensor buffer.
-  //
-  // Specifically, if the elements of input ExecutorVisionData have TensorBuffer
-  // with shapes,
-  //  [batch_size, num_token_1, feature_dim].
-  //  [batch_size, num_token_2, feature_dim].
-  //  ...
-  //  [batch_size, num_token_n, feature_dim].
-  // The output ExecutorVisionData will have TensorBuffer with shape,
-  // [batch_size, 1, num_token_1 + num_token_2 + ... + num_token_n,
-  // feature_dim].
-  //
-  // Or if the elements of input ExecutorVisionData have TensorBuffer
-  // with shapes,
-  //  [batch_size, dim1, num_token_1, feature_dim].
-  //  [batch_size, dim1, num_token_2, feature_dim].
-  //  ...
-  //  [batch_size, dim1, num_token_n, feature_dim].
-  // The output ExecutorVisionData will have TensorBuffer with shape,
-  // [batch_size, dim1, num_token_1 + num_token_2 + ... + num_token_n,
-  // feature_dim].
-  static absl::StatusOr<ExecutorVisionData> CombineExecutorData(
-      std::vector<ExecutorVisionData>& executor_data);
-
  private:
   explicit SessionBasic(LlmExecutor* absl_nonnull executor,
                         Tokenizer* absl_nonnull tokenizer,

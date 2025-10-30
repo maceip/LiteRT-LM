@@ -213,6 +213,7 @@ cc_library(
         "//runtime/proto:llm_model_type_cc_proto",
         "//runtime/proto:sampler_params_cc_proto",
         "//runtime/util:convert_tensor_buffer",
+        "//runtime/util:executor_data_util",
         "//runtime/util:litert_status_util",
         "//runtime/util:model_type_utils",
         "//runtime/util:tensor_buffer_util",
