@@ -234,6 +234,24 @@ void LogTensor(TensorBuffer& tensor, size_t num_values_to_log,
   ABSL_LOG(ERROR) << debug << ": Failed to log logits.";
 }
 
+absl::Status CopyBuffer(const TensorBuffer& buffers_from,
+                        TensorBuffer& buffers_to) {
+  // TODO: b/452977992: For GPU, we could use a shader to copy the buffer. If we
+  // were to do it this way for GPU, then it might make more sense just to keep
+  // the copy on the host. Also for GPU, consider optionally keeping its buffer
+  // copies in CPU memory to save on GPU memory.
+  LITERT_ASSIGN_OR_RETURN(auto read_lock,
+                          ::litert::TensorBufferScopedLock::Create(
+                              buffers_from, TensorBuffer::LockMode::kRead));
+  LITERT_ASSIGN_OR_RETURN(auto write_lock,
+                          ::litert::TensorBufferScopedLock::Create(
+                              buffers_to, TensorBuffer::LockMode::kWrite));
+
+  LITERT_ASSIGN_OR_RETURN(auto buffer_size, buffers_from.PackedSize());
+  memcpy(write_lock.second, read_lock.second, buffer_size);
+  return absl::OkStatus();
+}
+
 }  // namespace
 
 absl::Status LlmLiteRtCompiledModelExecutor::Prefill(
@@ -1229,8 +1247,8 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
       std::move(decode_input_kv_cache_buffers),
       std::move(decode_output_kv_cache_buffers), std::move(prefill_runner_set),
       signatures, batch_size, std::move(weight_cache_path),
-      std::move(embedding_lookup), std::move(per_layer_embedding_lookup),
-      activation_data_type));
+      std::string(prefill_signature_key), std::move(embedding_lookup),
+      std::move(per_layer_embedding_lookup), activation_data_type));
 }
 
 }  // namespace litert::lm

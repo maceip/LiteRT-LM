@@ -143,6 +143,7 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
           decode_output_kv_cache_buffers,
       SortedPrefillSignatureMap prefill_signature_map,
       ModelSignatures signatures, int batch_size, std::string weight_cache_path,
+      std::string prefill_signature_key,
       std::unique_ptr<EmbeddingLookupManager> embedding_lookup = nullptr,
       std::unique_ptr<EmbeddingLookupManager> per_layer_embedding_lookup =
           nullptr,
@@ -165,7 +166,8 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
         weight_cache_path_(std::move(weight_cache_path)),
         embedding_lookup_(std::move(embedding_lookup)),
         per_layer_embedding_lookup_(std::move(per_layer_embedding_lookup)),
-        logits_data_type_(logits_data_type) {}
+        logits_data_type_(logits_data_type),
+        prefill_signature_key_(prefill_signature_key) {}
 
  private:
   // Samples output logits and write to ids_tensor.
@@ -284,6 +286,10 @@ class LlmLiteRtCompiledModelExecutor : public LlmExecutor {
   // The logits data type of the model, used to determine the data type of the
   // logits tensor for gpu sampling.
   LogitsDataType logits_data_type_;
+
+  // The prefill signature key of the model. This is used to clone the KV cache
+  // buffers.
+  std::string prefill_signature_key_;
 };
 
 }  // namespace litert::lm
