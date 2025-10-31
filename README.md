@@ -102,9 +102,11 @@ Simple use case is like:
 
 ```
 lit list --show_all
-lit pull gemma3-1b --tf_token="**your huggingface token**"
-lit run gemma3-1b
+lit pull gemma3-1b --hf_token="**your huggingface token**"
+lit run gemma3-1b [--backend=<cpu|gpu>]
 ```
+Tip: For more functionality, use `lit --help` or `lit <command> --help`
+
 Tip: Follow this [link](https://huggingface.co/docs/hub/en/security-tokens) to
 get your own hugging face token
 
