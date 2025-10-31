@@ -46,9 +46,11 @@ import pathlib
 import tomllib
 from typing import Any, BinaryIO, Callable, Optional, TypeVar
 import zlib
+
 import flatbuffers
 from google.protobuf import message
 from google.protobuf import text_format
+
 from litert_lm.runtime.proto import llm_metadata_pb2
 from litert_lm.schema.core import litertlm_header_schema_py_generated as schema
 from litert_lm.schema.py import litertlm_core
@@ -111,6 +113,15 @@ class TfLiteModelType(enum.Enum):
     """A helper method to get the enum value from the TF-free value."""
     value = "tf_lite_" + tf_free_value.lower()
     return cls(value)
+
+
+@enum.unique
+class Backend(enum.StrEnum):
+  """Backend enum."""
+
+  CPU = "cpu"
+  GPU = "gpu"
+  NPU = "npu"
 
 
 @dataclasses.dataclass
@@ -228,6 +239,7 @@ class LitertLmFileBuilder:
           builder.add_tflite_model(
               _resolve_path(section["data_path"], parent_dir),
               model_type,
+              backend_constraint=section.get("backend_constraint", None),
               additional_metadata=additional_metadata,
           )
         elif section["section_type"] == "SP_Tokenizer":
@@ -318,6 +330,7 @@ class LitertLmFileBuilder:
       self,
       tflite_model_path: str,
       model_type: TfLiteModelType,
+      backend_constraint: Optional[str] = None,
       additional_metadata: Optional[list[Metadata]] = None,
   ) -> LitertLmFileBuilderT:
     """Adds a tflite model to the litertlm file.
@@ -325,6 +338,7 @@ class LitertLmFileBuilder:
     Args:
       tflite_model_path: The path to the tflite model file.
       model_type: The type of the tflite model.
+      backend_constraint: The backend constraint for the tflite model.
       additional_metadata: Additional metadata to add to the tflite model.
 
     Returns:
@@ -332,7 +346,8 @@ class LitertLmFileBuilder:
 
     Raises:
       FileNotFoundError: If the tflite model file is not found.
-      ValueError: If the model type metadata is overridden.
+      ValueError: If the model type metadata is overridden or backend_constraint
+      is invalid.
     """
     if not litertlm_core.path_exists(tflite_model_path):
       raise FileNotFoundError(
@@ -341,10 +356,21 @@ class LitertLmFileBuilder:
     metadata = [
         Metadata(key="model_type", value=model_type.value, dtype=DType.STRING)
     ]
+    if backend_constraint:
+      _validate_backend_constraints(backend_constraint)
+      metadata.append(
+          Metadata(
+              key="backend_constraint",
+              value=backend_constraint.lower(),
+              dtype=DType.STRING,
+          )
+      )
     if additional_metadata:
       for metadata_item in additional_metadata:
         if metadata_item.key == "model_type":
           raise ValueError("Model type metadata cannot be overridden.")
+        if metadata_item.key == "backend_constraint":
+          raise ValueError("Backend constraint metadata cannot be overridden.")
       metadata.extend(additional_metadata)
 
     def data_reader():
@@ -524,6 +550,18 @@ class LitertLmFileBuilder:
     schema.SectionMetadataStart(builder)
     schema.SectionMetadataAddObjects(builder, objects_vec)
     return schema.SectionMetadataEnd(builder)
+
+
+def _validate_backend_constraints(backend_constraint: str) -> None:
+  """Validates the backend constraint string."""
+  backends = [b.strip().lower() for b in backend_constraint.split(",")]
+  valid_backends = set(Backend)
+  for backend in backends:
+    if backend not in valid_backends:
+      raise ValueError(
+          f"Invalid backend constraint: {backend}. Must be one of"
+          f" {list(valid_backends)}"
+      )
 
 
 def _is_binary_proto(filepath: str) -> bool:

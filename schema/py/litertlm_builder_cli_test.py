@@ -53,6 +53,7 @@ data_path = "{EMBEDDER_PATH}"
 # Section 3: TFLiteModel (Prefill/Decode)
 section_type = "TFLiteModel"
 model_type = "PREFILL_DECODE"
+backend_constraint = "GPU"
 data_path = "{PREFILL_DECODE_PATH}"
 additional_metadata = [
   { key = "License", value_type = "String", value = "Example" }
@@ -152,6 +153,8 @@ class LiteRTLMBuilderCLITest(absltest.TestCase):
         "--str_metadata",
         "model_version",
         "1.0.1",
+        "--backend_constraint",
+        "CPU",
     ]
     output_path = self._run_command(*args)
     self.assertTrue(os.path.exists(output_path))
@@ -160,6 +163,7 @@ class LiteRTLMBuilderCLITest(absltest.TestCase):
     self.assertIn("Data Type:    TFLiteModel", ss)
     self.assertIn("Key: model_type, Value (String): tf_lite_prefill_decode", ss)
     self.assertIn("Key: model_version, Value (String): 1.0.1", ss)
+    self.assertIn("Key: backend_constraint, Value (String): cpu", ss)
 
   def test_sp_tokenizer(self):
     """Tests that a SentencePiece tokenizer can be added correctly."""
@@ -235,6 +239,8 @@ class LiteRTLMBuilderCLITest(absltest.TestCase):
         tflite_path,
         "--model_type",
         "prefill_decode",
+        "--backend_constraint",
+        "GPU",
         "llm_metadata",
         "--path",
         metadata_path,
@@ -247,6 +253,7 @@ class LiteRTLMBuilderCLITest(absltest.TestCase):
     self.assertIn("Data Type:    TFLiteModel", ss)
     self.assertIn("Key: model_type, Value (String): tf_lite_embedder", ss)
     self.assertIn("Key: model_type, Value (String): tf_lite_prefill_decode", ss)
+    self.assertIn("Key: backend_constraint, Value (String): gpu", ss)
     self.assertIn("Data Type:    LlmMetadataProto", ss)
     self.assertIn("max_num_tokens: 123", ss)
 
@@ -284,6 +291,7 @@ class LiteRTLMBuilderCLITest(absltest.TestCase):
     self.assertIn("Data Type:    TFLiteModel", ss)
     self.assertIn("Key: model_type, Value (String): tf_lite_embedder", ss)
     self.assertIn("Key: model_type, Value (String): tf_lite_prefill_decode", ss)
+    self.assertIn("Key: backend_constraint, Value (String): gpu", ss)
     self.assertIn("Data Type:    LlmMetadataProto", ss)
     self.assertIn("max_num_tokens: 123", ss)
 

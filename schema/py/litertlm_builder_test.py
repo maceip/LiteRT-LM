@@ -182,6 +182,60 @@ class LitertlmBuilderTest(parameterized.TestCase):
     self.assertIn("Key: model_type, Value (String): tf_lite_prefill_decode", ss)
     self.assertIn("Key: test_key, Value (String): test_value", ss)
 
+  def test_add_tflite_model_with_backend_constraint(self):
+    """Tests that a TFLite model with backend constraint added correctly."""
+    tflite_path = self._create_dummy_file(
+        "model.tflite", b"dummy tflite content"
+    )
+
+    builder = litertlm_builder.LitertLmFileBuilder()
+    self._add_system_metadata(builder)
+    builder.add_tflite_model(
+        tflite_path,
+        litertlm_builder.TfLiteModelType.PREFILL_DECODE,
+        backend_constraint="gpu",
+    )
+    ss = self._build_and_read_litertlm(builder)
+    self.assertIn("Sections (1)", ss)
+    self.assertIn("Data Type:    TFLiteModel", ss)
+    self.assertIn("Key: model_type, Value (String): tf_lite_prefill_decode", ss)
+    self.assertIn("Key: backend_constraint, Value (String): gpu", ss)
+
+  def test_add_tflite_model_with_multiple_backend_constraint(self):
+    """Tests that a TFLite model with backend constraint added correctly."""
+    tflite_path = self._create_dummy_file(
+        "model.tflite", b"dummy tflite content"
+    )
+
+    builder = litertlm_builder.LitertLmFileBuilder()
+    self._add_system_metadata(builder)
+    builder.add_tflite_model(
+        tflite_path,
+        litertlm_builder.TfLiteModelType.PREFILL_DECODE,
+        backend_constraint="cpu, GPU",
+    )
+    ss = self._build_and_read_litertlm(builder)
+    self.assertIn("Sections (1)", ss)
+    self.assertIn("Data Type:    TFLiteModel", ss)
+    self.assertIn("Key: model_type, Value (String): tf_lite_prefill_decode", ss)
+    self.assertIn("Key: backend_constraint, Value (String): cpu, gpu", ss)
+
+  def test_add_tflite_model_with_invalid_backend_constraint(self):
+    """Tests that a TFLite model with backend constraint added correctly."""
+    tflite_path = self._create_dummy_file(
+        "model.tflite", b"dummy tflite content"
+    )
+
+    builder = litertlm_builder.LitertLmFileBuilder()
+    self._add_system_metadata(builder)
+
+    with self.assertRaisesRegex(ValueError, "Invalid backend constraint"):
+      builder.add_tflite_model(
+          tflite_path,
+          litertlm_builder.TfLiteModelType.PREFILL_DECODE,
+          backend_constraint="foo, bar",
+      )
+
   def test_add_tflite_model_override_type(self):
     """Tests that overriding the model type in additional metadata raises a ValueError."""
     tflite_path = self._create_dummy_file(

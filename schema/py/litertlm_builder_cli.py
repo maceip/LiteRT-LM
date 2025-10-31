@@ -200,6 +200,14 @@ def _add_tflite_model_parser(subparsers) -> None:
       ],
       help="The type of the tflite model.",
   )
+  tflite_model_parser.add_argument(
+      "--backend_constraint",
+      type=str.lower,
+      required=False,
+      default=None,
+      choices=list(litertlm_builder.Backend),
+      help="A list of backend constraints for the tflite model.",
+  )
   _add_metadata_arguments(tflite_model_parser)
 
 
@@ -379,6 +387,7 @@ def _build_tflite_model(
       litertlm_builder.TfLiteModelType.get_enum_from_tf_free_value(
           args.model_type
       ),
+      backend_constraint=args.backend_constraint,
       additional_metadata=metadata,
   )
 
