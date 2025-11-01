@@ -1007,8 +1007,10 @@ TEST_F(PipelineCallbackTest, DecodeStreaming_ErrorCompletion) {
                             CreateTestCallback(responses, status, done)));
   EXPECT_EQ(responses[0], " How's");
   EXPECT_TRUE(done);
-  EXPECT_THAT(status, StatusIs(absl::StatusCode::kInternal,
-                               "Maximum kv-cache size reached."));
+  EXPECT_THAT(
+      status,
+      StatusIs(absl::StatusCode::kInternal,
+               "Maximum kv-cache size reached.(3) Please exit and re-start."));
 }
 
 TEST_F(PipelineCallbackTest,

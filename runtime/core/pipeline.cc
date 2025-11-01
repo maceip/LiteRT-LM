@@ -30,6 +30,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "absl/strings/str_format.h"  // from @com_google_absl
 #include "absl/strings/str_replace.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
@@ -448,7 +449,9 @@ absl::StatusOr<Responses> DecodeLoop(
 
   if (is_streaming) {
     if (executor.GetCurrentStep().value() >= max_num_tokens) {
-      callback.value()(absl::InternalError("Maximum kv-cache size reached."));
+      callback.value()(absl::InternalError(absl::StrFormat(
+          "Maximum kv-cache size reached.(%d) Please exit and re-start.",
+          max_num_tokens)));
     } else {
       callback.value()(Responses(TaskState::kDone));
     }
