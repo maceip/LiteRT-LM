@@ -1065,8 +1065,7 @@ LlmLiteRtCompiledModelExecutor::Create(LlmExecutorSettings executor_settings,
                               cpu_compilation_options->GetXNNPackFlags());
       cpu_compilation_options->SetXNNPackFlags(
           default_xnnpack_flags |
-          TFLITE_XNNPACK_DELEGATE_FLAG_ENABLE_LATEST_OPERATORS |
-          TFLITE_XNNPACK_DELEGATE_FLAG_ENABLE_SUBGRAPH_RESHAPING);
+          TFLITE_XNNPACK_DELEGATE_FLAG_ENABLE_LATEST_OPERATORS);
       LITERT_ASSIGN_OR_RETURN(auto runtime_options, RuntimeOptions::Create());
       runtime_options.SetShloCompositeInlining(true);
       compilation_options->AddOpaqueOptions(std::move(runtime_options));
