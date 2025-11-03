@@ -127,6 +127,7 @@ absl::Status MainHelper(int argc, char** argv) {
            "[--input_prompt=<input_prompt>] "
            "[--input_prompt_file=<input_prompt_file>] "
            "[--expected_output=<expected_output>] [--backend=<cpu|gpu|npu>] "
+           "[--log_sink_file=<log_sink_file>] "
            "[--max_num_tokens=<max_num_tokens>] "
            "[--prefill_batch_sizes=<size1>[,<size2>,...]]"
            "[--vision_backend=<cpu|gpu>] [--audio_backend=<cpu|gpu>] "
@@ -160,6 +161,7 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.model_path = absl::GetFlag(FLAGS_model_path);
   settings.input_prompt = GetInputPrompt();
   settings.expected_output = absl::GetFlag(FLAGS_expected_output);
+  settings.log_sink_file = absl::GetFlag(FLAGS_log_sink_file);
   settings.max_num_tokens = absl::GetFlag(FLAGS_max_num_tokens);
   ASSIGN_OR_RETURN(
       settings.prefill_batch_sizes,

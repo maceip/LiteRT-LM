@@ -37,6 +37,7 @@
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/log/absl_check.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
+#include "absl/log/log_sink_registry.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/match.h"  // from @com_google_absl
@@ -76,7 +77,6 @@ constexpr int kMemoryCheckIntervalMs = 50;
 const absl::Duration kWaitUntilDoneTimeout = absl::Minutes(10);
 
 namespace {
-
 // Helper to process the sampler backend string and return a sampler backend
 // if possible. Otherwise, return std::nullopt.
 std::optional<Backend> GetSamplerBackend(const LiteRtLmSettings& settings) {
@@ -422,6 +422,11 @@ void RunScoreText(litert::lm::Engine* llm, litert::lm::Engine::Session* session,
 }  // namespace
 
 absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
+  std::unique_ptr<FileLogSink> log_sink;
+  if (settings.log_sink_file.has_value()) {
+    log_sink = std::make_unique<FileLogSink>(settings.log_sink_file.value());
+    absl::AddLogSink(log_sink.get());
+  }
 
   std::unique_ptr<tflite::profiling::memory::MemoryUsageMonitor> mem_monitor;
   if (settings.report_peak_memory_footprint) {
@@ -494,6 +499,10 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
     ABSL_LOG(INFO) << "Memory usage: "
                    << tflite::profiling::memory::GetMemoryUsage();
     ABSL_LOG(INFO) << "Peak private footprint: " << peak_private_mb << "MB.";
+  }
+
+  if (log_sink) {
+    absl::RemoveLogSink(log_sink.get());
   }
 
   return absl::OkStatus();

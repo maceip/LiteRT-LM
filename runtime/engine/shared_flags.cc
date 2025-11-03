@@ -34,6 +34,8 @@ ABSL_FLAG(std::string, expected_output, "",
           "If not empty, the output will be checked against this string. If "
           "the output does not contain the string, the program will exit with "
           "an error.");
+ABSL_FLAG(std::optional<std::string>, log_sink_file, std::nullopt,
+          "If specified, the logs will be written to this file.");
 ABSL_FLAG(int, max_num_tokens, 0,
           "Maximum number of tokens or context length to use for LLM execution "
           "of a graph with dynamic context length. If 0, the maximum context "

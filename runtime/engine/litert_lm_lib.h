@@ -15,14 +15,40 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_LITERT_LM_LIB_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_LITERT_LM_LIB_H_
 
+#include <filesystem>
+#include <fstream>
+#include <ios>
 #include <optional>
 #include <set>
 #include <string>
 
+#include "absl/log/log_entry.h"  // from @com_google_absl
+#include "absl/log/log_sink.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 
 namespace litert {
 namespace lm {
+
+class FileLogSink : public absl::LogSink {
+ public:
+  explicit FileLogSink(const std::string& filename) {
+    std::filesystem::path path(filename);
+    if (path.has_parent_path()) {
+      std::filesystem::create_directories(path.parent_path());
+    }
+    file_.open(filename, std::ios_base::app);
+  }
+
+  void Send(const absl::LogEntry& entry) override {
+    absl::MutexLock lock(&mutex_);
+    file_ << entry.text_message_with_prefix_and_newline();
+  }
+
+ private:
+  absl::Mutex mutex_;
+  std::ofstream file_;
+};
 
 struct LiteRtLmSettings {
   std::string backend = "gpu";
@@ -32,6 +58,7 @@ struct LiteRtLmSettings {
   std::string model_path;
   std::string input_prompt = "What is the tallest building in the world?";
   std::optional<std::string> expected_output = std::nullopt;
+  std::optional<std::string> log_sink_file = std::nullopt;
   int max_num_tokens = 0;
   std::set<int> prefill_batch_sizes;
   int num_output_candidates = 1;
