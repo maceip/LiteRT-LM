@@ -25,6 +25,7 @@
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json_fwd.hpp"  // from @nlohmann_json
 #include "litert/cc/litert_layout.h"  // from @litert
@@ -196,7 +197,7 @@ Gemma3DataProcessor::ToInputDataVectorImpl(
     start = prompt_view.data();
     if (IsImage(part)) {
       input_data.emplace_back(
-          InputText(std::string(text_part) + "\n\n<start_of_image>\n\n"));
+          InputText(absl::StrCat(text_part, "\n\n", config_.boi_token)));
       if (image_files.empty()) {
         return absl::InvalidArgumentError(
             "Provided less images than expected in the prompt.");
@@ -210,9 +211,10 @@ Gemma3DataProcessor::ToInputDataVectorImpl(
                                image_file->length())),
                            image_params));
       input_data.emplace_back(InputImage(std::move(preprocessed_image)));
+      input_data.emplace_back(InputText("\n\n"));
     } else if (IsAudio(part)) {
       input_data.emplace_back(
-          InputText(std::string(text_part) + "\n\n<start_of_audio>\n\n"));
+          InputText(absl::StrCat(text_part, "\n\n", config_.boa_token)));
       if (audio_files.empty()) {
         return absl::InvalidArgumentError(
             "Provided less audio than expected in the prompt.");
@@ -225,6 +227,7 @@ Gemma3DataProcessor::ToInputDataVectorImpl(
                            audio_file->length()))));
       audio_preprocessor_->Reset();
       input_data.emplace_back(InputAudio(std::move(preprocessed_audio)));
+      input_data.emplace_back(InputText("\n\n"));
     }
   }
   if (!image_files.empty()) {

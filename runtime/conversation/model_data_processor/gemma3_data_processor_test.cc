@@ -179,17 +179,19 @@ TEST(Gemma3DataProcessorTest, ToInputDataVectorTextAndImage) {
 
   InputText expected_text1(
       "<start_of_turn>user\nHere is an image of apples "
-      "\n\n<start_of_image>\n\n");
+      "\n\n<start_of_image>");
   StbImagePreprocessor image_preprocessor;
   ImagePreprocessParameter image_params;
   image_params.SetTargetDimensions(Dimensions({1, 224, 128, 3}));
   ASSERT_OK_AND_ASSIGN(InputImage expected_image,
                        image_preprocessor.Preprocess(
                            InputImage(ReadFile(image_path)), image_params));
-  InputText expected_text2("<end_of_turn>");
+  InputText expected_text2("\n\n");
+  InputText expected_text3("<end_of_turn>");
   EXPECT_THAT(input_data, ElementsAre(HasInputText(&expected_text1),
                                       HasInputImage(&expected_image),
-                                      HasInputText(&expected_text2)));
+                                      HasInputText(&expected_text2),
+                                      HasInputText(&expected_text3)));
 }
 
 TEST(Gemma3DataProcessorTest, ToInputDataVectorNonArrayContent) {
@@ -470,32 +472,31 @@ Hello world!
 
 How are you?
 
-<start_of_image>
-
-)""");
+<start_of_image>)""");
   StbImagePreprocessor image_preprocessor;
   ImagePreprocessParameter image_params;
   image_params.SetTargetDimensions(Dimensions({1, 768, 768, 3}));
   ASSERT_OK_AND_ASSIGN(InputImage expected_image,
                        image_preprocessor.Preprocess(
                            InputImage(ReadFile(image_path)), image_params));
-  InputText expected_text2(R"""(<end_of_turn>
+  InputText expected_text2("\n\n");
+  InputText expected_text3(R"""(<end_of_turn>
 <start_of_turn>model
 I am doing well, thanks for asking.<end_of_turn>
 <start_of_turn>user
 
 
-<start_of_image>
-
-)""");
-  InputText expected_text3(R"""(What is the capital of France?<end_of_turn>
+<start_of_image>)""");
+  InputText expected_text4("\n\n");
+  InputText expected_text5(R"""(What is the capital of France?<end_of_turn>
 <start_of_turn>model
 )""");
   EXPECT_THAT(
       input_data,
       ElementsAre(HasInputText(&expected_text1), HasInputImage(&expected_image),
-                  HasInputText(&expected_text2), HasInputImage(&expected_image),
-                  HasInputText(&expected_text3)));
+                  HasInputText(&expected_text2), HasInputText(&expected_text3),
+                  HasInputImage(&expected_image), HasInputText(&expected_text4),
+                  HasInputText(&expected_text5)));
 }
 
 TEST(Gemma3DataProcessorTest, FormatTools) {
@@ -899,17 +900,19 @@ TEST(Gemma3DataProcessorTest, ToInputDataVectorTextAndAudio) {
 
   InputText expected_text1(
       "<start_of_turn>user\nHere is an audio. Please transcribe it: "
-      "\n\n<start_of_audio>\n\n");
+      "\n\n<start_of_audio>");
   ASSERT_OK_AND_ASSIGN(auto audio_preprocessor,
                        AudioPreprocessorMiniAudio::Create(
                            AudioPreprocessorConfig::CreateDefaultUsmConfig()));
   ASSERT_OK_AND_ASSIGN(
       InputAudio expected_audio,
       audio_preprocessor->Preprocess(InputAudio(ReadFile(audio_path))));
-  InputText expected_text2("<end_of_turn>");
+  InputText expected_text2("\n\n");
+  InputText expected_text3("<end_of_turn>");
   EXPECT_THAT(input_data, ElementsAre(HasInputText(&expected_text1),
                                       HasInputAudio(&expected_audio),
-                                      HasInputText(&expected_text2)));
+                                      HasInputText(&expected_text2),
+                                      HasInputText(&expected_text3)));
 }
 
 TEST(Gemma3DataProcessorTest, PromptTemplateToInputDataVectorTextAndAudio) {
@@ -949,32 +952,31 @@ Hello world!
 
 How are you?
 
-<start_of_audio>
-
-)""");
+<start_of_audio>)""");
   ASSERT_OK_AND_ASSIGN(auto audio_preprocessor,
                        AudioPreprocessorMiniAudio::Create(
                            AudioPreprocessorConfig::CreateDefaultUsmConfig()));
   ASSERT_OK_AND_ASSIGN(
       InputAudio expected_audio,
       audio_preprocessor->Preprocess(InputAudio(ReadFile(audio_path))));
-  InputText expected_text2(R"""(<end_of_turn>
+  InputText expected_text2("\n\n");
+  InputText expected_text3(R"""(<end_of_turn>
 <start_of_turn>model
 I am doing well, thanks for asking.<end_of_turn>
 <start_of_turn>user
 
 
-<start_of_audio>
-
-)""");
-  InputText expected_text3(R"""(What is the capital of France?<end_of_turn>
+<start_of_audio>)""");
+  InputText expected_text4("\n\n");
+  InputText expected_text5(R"""(What is the capital of France?<end_of_turn>
 <start_of_turn>model
 )""");
   EXPECT_THAT(
       input_data,
       ElementsAre(HasInputText(&expected_text1), HasInputAudio(&expected_audio),
-                  HasInputText(&expected_text2), HasInputAudio(&expected_audio),
-                  HasInputText(&expected_text3)));
+                  HasInputText(&expected_text2), HasInputText(&expected_text3),
+                  HasInputAudio(&expected_audio), HasInputText(&expected_text4),
+                  HasInputText(&expected_text5)));
 }
 
 #endif  // !defined(WIN32) && !defined(_WIN32) && !defined(__WIN32__) &&
