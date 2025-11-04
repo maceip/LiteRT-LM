@@ -15,7 +15,6 @@
  */
 package com.google.ai.edge.litertlm
 
-import com.google.common.flogger.FluentLogger
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -142,7 +141,6 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
       val functionName = functionJSONObject.get("name").asString
       val arguments = functionJSONObject.getAsJsonObject("arguments")
 
-      logger.atInfo().log("handleToolCalls: Calling tools %s", functionName)
       val result = toolManager.execute(functionName, arguments)
       val toolResponseJSONObject =
         JsonObject().apply {
@@ -190,17 +188,14 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
     }
 
     override fun onDone() {
-      logger.atFine().log("onDone")
       val localToolResponse = pendingToolResponseJSONMessage
       if (localToolResponse != null) {
         // If there is pending tool response message, send the message.
-        logger.atFine().log("onDone: Sending tool response.")
         LiteRtLmJni.nativeSendMessageAsync(
           handle,
           localToolResponse.toString(),
           this@JniMessageCallbackImpl,
         )
-        logger.atFine().log("onDone: Tool response sent.")
         pendingToolResponseJSONMessage = null // Clear after sending
       } else {
         // If no pending action, then call onDone to the original user callback.
@@ -209,8 +204,6 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
     }
 
     override fun onError(statusCode: Int, message: String) {
-      logger.atFine().log("onError: %d, %s", statusCode, message)
-
       if (statusCode == 1) { // StatusCode::kCancelled
         callback.onError(CancellationException(message))
       } else {
@@ -269,7 +262,6 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
      * thrown.
      */
     private const val RECURRING_TOOL_CALL_LIMIT = 25
-    private val logger = FluentLogger.forEnclosingClass()
 
     private fun jsonToMessage(messageJsonObject: JsonObject): Message {
       val contentsJsonArray = messageJsonObject.getAsJsonArray("content")
@@ -281,8 +273,6 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
 
         if (type == "text") {
           contents.add(Content.Text(contentJsonObject.get("text").asString))
-        } else {
-          logger.atWarning().log("jsonToMessage: Got unsupported content type: %s", type)
         }
       }
       return Message.of(contents)

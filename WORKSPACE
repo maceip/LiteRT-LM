@@ -161,8 +161,6 @@ load("@rules_jvm_external//:defs.bzl", "maven_install")
 maven_install(
     name = "maven",
     artifacts = [
-        "com.google.flogger:flogger:0.9",
-        "com.google.flogger:flogger-system-backend:0.9",
         "com.google.code.gson:gson:2.13.2"
     ],
     repositories = [
