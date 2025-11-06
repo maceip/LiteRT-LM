@@ -164,6 +164,8 @@ cc_test(
 cc_library(
     name = "default_static_gpu_accelerator",
     deps = select({
+        # If CAPI is linked dynamically, need to link the accelerator dynamically as well.
+        "@litert//litert:litert_link_capi_so": [],
         "//conditions:default": [
         ],
     }) + select({

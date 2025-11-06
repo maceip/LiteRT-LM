@@ -2,18 +2,27 @@
 
 workspace(name = "litert_lm")
 
-# UPDATED = 2025-10-31
-LITERT_REF = "7925eb956f3be5fae91b6c8c5b64156ad44fac5d"
+# UPDATED = 2025-11-05
+LITERT_REF = "d05c94fe62345630331a448b7a25d47ac9647714"
 
-LITERT_SHA256 = "95e1fec7aaaef4b3fcc90477936b1cdbcf35a5f9ef7274a68a0f1d30b6980b9c"
+LITERT_SHA256 = "92112ed9b9cd43fdeb5f2c02cb0c256dfa8a2d7c6c1a8a6af883591f19afea36"
 
-TENSORFLOW_REF = "eef0661fc5074d6461cbf8e79acad5058b1aaef6"
+TENSORFLOW_REF = "7e6a5445f545192b4050eb6a33fbedb213ea2665"
 
-TENSORFLOW_SHA256 = "1ece5f1c6a3fad97ff2a8204fc45c739bf5d0f165169203e1fa377df15c64073"
+TENSORFLOW_SHA256 = "54e30aae90a7cc6a0df8caa26357ca138c8e3d72838ba47e398d8c7ba9e91011"
 
 # buildifier: disable=load-on-top
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_jar")
+
+# Newer version (2025-11-05) than the one used by tensorflow (2025-10-30) to fix build errors on
+# Windows. Remove when tensorflow is updated to a newer version.
+http_archive(
+    name = "XNNPACK",
+    sha256 = "3d37fdea0bfc6fe12914b709de71be743483f6568b3174d67ffdabbc60bcf6c5",
+    strip_prefix = "XNNPACK-4d740af8c25f49646bd5d24813503788aa88909a",
+    url = "https://github.com/google/XNNPACK/archive/4d740af8c25f49646bd5d24813503788aa88909a.tar.gz",
+)
 
 http_archive(
     name = "rules_shell",
@@ -147,6 +156,7 @@ install_deps()
 # End hermetic Python initialization
 
 RULES_JVM_EXTERNAL_TAG = "6.8"
+
 RULES_JVM_EXTERNAL_SHA = "704a0197e4e966f96993260418f2542568198490456c21814f647ae7091f56f2"
 
 http_archive(
@@ -161,7 +171,7 @@ load("@rules_jvm_external//:defs.bzl", "maven_install")
 maven_install(
     name = "maven",
     artifacts = [
-        "com.google.code.gson:gson:2.13.2"
+        "com.google.code.gson:gson:2.13.2",
     ],
     repositories = [
         "https://maven.google.com",

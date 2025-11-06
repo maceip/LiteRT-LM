@@ -1168,6 +1168,10 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
 #if defined(LITERT_USE_WEBGPU_ACCELERATOR)
       gpu_compilation_options.SetGpuBackend(kLiteRtGpuBackendWebGpu);
 #endif  // defined(LITERT_USE_WEBGPU_ACCELERATOR)
+      // Prepare WebGPU command buffers ahead to reduce the overhead of command
+      // buffer preparation. 2 steps ahead because KV cache is swapped and the
+      // GPU resource bindings are the same as the previous previous step.
+      gpu_compilation_options.SetNumStepsOfCommandBufferPreparations(2);
       compilation_options->AddOpaqueOptions(std::move(gpu_compilation_options));
       compilation_options->SetHardwareAccelerators(
           litert::HwAccelerators::kGpu);
