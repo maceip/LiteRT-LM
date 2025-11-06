@@ -109,7 +109,7 @@ class PipelineTest : public testing::Test {
     // "How's it going?" followed by the stop token id (2294).
     std::vector<std::vector<int>> decode_tokens = {{224}, {24}, {8},    {66},
                                                    {246}, {18}, {2295}, {2294}};
-    // Vocab size needs to at least be larger than the largest token id 2294.
+    // Vocab size needs to at least be larger than the largest token id 2295.
     executor_ = std::make_unique<FakeLlmExecutor>(
         /*vocab_size=*/2560, prefill_tokens, decode_tokens);
   }
@@ -243,7 +243,7 @@ TEST_F(PipelineTest, DecodeWithConstrainedDecoding) {
   // Decode function. The decoded tokens are " How's it going?!"
   std::vector<std::vector<int>> decode_tokens = {
       {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}, {0}};
-  // Vocab size needs to at least be larger than the largest token id 2294.
+  // Vocab size needs to at least be larger than the largest token id 2295.
   auto executor = std::make_unique<FakeLlmExecutor>(
       /*vocab_size=*/2560, prefill_tokens, decode_tokens, /*batch_size=*/1);
 
@@ -311,7 +311,7 @@ TEST_F(PipelineTest, DecodeStreamingWithConstrainedDecoding) {
   // Decode function. The decoded tokens are " How's it going?!"
   std::vector<std::vector<int>> decode_tokens = {
       {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}, {0}};
-  // Vocab size needs to at least be larger than the largest token id 2294.
+  // Vocab size needs to at least be larger than the largest token id 2295.
   auto executor = std::make_unique<FakeLlmExecutor>(
       /*vocab_size=*/2560, prefill_tokens, decode_tokens, /*batch_size=*/1);
 
@@ -416,7 +416,7 @@ class PipelineCustomSamplingTest : public testing::Test {
       // The expected decode tokens that will be returned by the Decode
       // function.
       const std::vector<std::vector<int>>& decode_tokens = {},
-      // Vocab size needs to at least be larger than the largest token id 2294.
+      // Vocab size needs to at least be larger than the largest token id 2295.
       int vocab_size = 2560, int batch_size = 2) {
     return FakeLlmExecutor(vocab_size, prefill_tokens, decode_tokens,
                            batch_size);
@@ -528,7 +528,7 @@ TEST_F(PipelineCustomSamplingTest,
   auto constraint = std::make_unique<FakeConstraint>(expected_token_ids,
                                                      /*vocabulary_size=*/2560);
 
-  // Vocab size needs to at least be larger than the largest token id 2294.
+  // Vocab size needs to at least be larger than the largest token id 2295.
   auto executor = CreateFakeLlmExecutor(
       // The expected prefill tokens that after stop tokens are found in
       // decoding with CustomSampling. That is, the last sampled tokens at stop
