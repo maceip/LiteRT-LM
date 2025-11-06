@@ -21,7 +21,6 @@
 #include <functional>
 #include <memory>
 #include <optional>
-#include <string>
 #include <unordered_map>
 #include <utility>
 
@@ -132,24 +131,29 @@ class LitertLmLoader {
 
  private:
   // Initializes the LitertLmLoader. Includes reading the model header and
-  // mapping the sections to the section buffers.
+  // recording the section locations for on-demand loading later.
   absl::Status Initialize();
-  // Maps the sections to the section buffers.
-  absl::Status MapSections();
-  // Maps the section to the section buffer.
   absl::Status MapSection(BufferKey buffer_key, uint64_t begin_offset,
                           uint64_t end_offset);
-  // Returns the section buffer for the given buffer key.
-  // If not found, returns std::nullopt.
+  // Returns the section buffer for the given buffer key. Will map the section
+  // if it has not been mapped yet. If not found, returns std::nullopt.
   std::optional<litert::BufferRef<uint8_t>> GetSectionBuffer(
       BufferKey buffer_key);
 
   // The model file to be loaded.
   ScopedFile model_file_;
 
-  // The model_file_ mapped to a MemoryMappedFile.
-  ::std::unique_ptr<MemoryMappedFile> header_memory_mapped_file_;
+  // The header of the model file. Use this to understand what sections are
+  // available and their offsets.
+  schema::LitertlmHeader header_;
 
+  // The section locations in the model file. This is populated during
+  // initialization and later used to map the section buffers to the section
+  // memory mapped files on-demand.
+  ::std::unordered_map<
+      BufferKey, std::pair</*begin_offset*/ uint64_t, /*end_offset=*/uint64_t>,
+      BufferKeyHash>
+      section_locations_;
   // The section memory mapped files - stored here to ensure they are not
   // unmapped while in use. On Windows, these MemoryMappedFiles may contain more
   // than the current section's data because Windows has a data alignment of

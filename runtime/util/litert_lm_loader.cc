@@ -24,7 +24,6 @@
 #include <utility>
 #include <vector>
 
-#include "absl/log/absl_check.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
@@ -86,24 +85,32 @@ absl::Status LitertLmLoader::MapSection(BufferKey buffer_key,
   return absl::OkStatus();
 }
 
-absl::Status LitertLmLoader::MapSections() {
+absl::Status LitertLmLoader::Initialize() {
+  ABSL_LOG(INFO) << "LitertLmLoader::Initialize";
+
+  // Map the header of the model file.
+  ASSIGN_OR_RETURN(uint64_t model_file_size, model_file_.GetSize());
+  uint64_t header_size = std::min(kLitertLmHeaderMaxSize, model_file_size);
+  ASSIGN_OR_RETURN(std::unique_ptr<MemoryMappedFile> header_memory_mapped_file,
+                   CreateMemoryMapFromScopedFile(model_file_, /*offset=*/0,
+                                                 /*size=*/header_size));
+  ABSL_LOG(INFO) << "mmap_status is ok";
+  ABSL_LOG(INFO) << "length: " << header_memory_mapped_file->length();
+
   // Read the header information.
   schema::LitertlmHeader header;
   absl::Status status = ReadHeaderFromLiteRTLM(
-      header_memory_mapped_file_->data(),
-      std::min(kLitertLmHeaderMaxSize, header_memory_mapped_file_->length()),
-      &header);
+      header_memory_mapped_file->data(), header_size, &header_);
   ABSL_LOG(INFO) << "status: " << status;
-  ABSL_LOG(INFO) << "major_version: " << header.major_version;
-  ABSL_LOG(INFO) << "minor_version: " << header.minor_version;
-  ABSL_LOG(INFO) << "patch_version: " << header.patch_version;
-
+  ABSL_LOG(INFO) << "major_version: " << header_.major_version;
+  ABSL_LOG(INFO) << "minor_version: " << header_.minor_version;
+  ABSL_LOG(INFO) << "patch_version: " << header_.patch_version;
   if (!status.ok()) {
     return status;
   }
 
-  // Loop through the sections and map them to the section buffers.
-  auto sections = header.metadata->section_metadata()->objects();
+  // Loop through the sections and record the section locations.
+  auto sections = header_.metadata->section_metadata()->objects();
   for (size_t i = 0; i < sections->size(); ++i) {
     const schema::SectionObject* section = sections->Get(i);
     auto items = section->items();
@@ -143,11 +150,8 @@ absl::Status LitertLmLoader::MapSections() {
         ABSL_LOG(INFO) << "section_backend_constraint: " << backend_constraint;
       }
     }
-    section_buffers_[buffer_key] = BufferRef<uint8_t>(
-        static_cast<uint8_t*>(header_memory_mapped_file_->data()),
-        section->end_offset(), section->begin_offset());
-    RETURN_IF_ERROR(
-        MapSection(buffer_key, section->begin_offset(), section->end_offset()));
+    section_locations_[buffer_key] =
+        std::make_pair(section->begin_offset(), section->end_offset());
 
     ABSL_LOG(INFO) << "section_index: " << i;
     ABSL_LOG(INFO) << "section_data_type: "
@@ -158,30 +162,26 @@ absl::Status LitertLmLoader::MapSections() {
   return absl::OkStatus();
 }
 
-absl::Status LitertLmLoader::Initialize() {
-  ABSL_LOG(INFO) << "LitertLmLoader::Initialize";
-
-  absl::StatusOr<std::unique_ptr<MemoryMappedFile>> mmap_status =
-      CreateMemoryMapFromScopedFile(model_file_);
-  if (!mmap_status.ok()) {
-    return mmap_status.status();
-  }
-  header_memory_mapped_file_ = std::move(mmap_status.value());
-  ABSL_LOG(INFO) << "mmap_status is ok";
-  ABSL_LOG(INFO) << "length: " << header_memory_mapped_file_->length();
-
-  ABSL_CHECK_OK(MapSections());
-
-  return absl::OkStatus();
-}
-
 std::optional<litert::BufferRef<uint8_t>> LitertLmLoader::GetSectionBuffer(
     BufferKey buffer_key) {
-  auto section_buffer_it = section_buffers_.find(buffer_key);
-  if (section_buffer_it == section_buffers_.end()) {
+  auto section_location_it = section_locations_.find(buffer_key);
+  if (section_location_it == section_locations_.end()) {
+    ABSL_LOG(WARNING) << "Section not found: " << buffer_key.data_type;
     return std::nullopt;
   }
-  return section_buffer_it->second;
+
+  // If we have not already mapped this section, map it now.
+  auto section_buffer_it = section_buffers_.find(buffer_key);
+  if (section_buffer_it == section_buffers_.end()) {
+    auto [offset_begin, offset_end] = section_location_it->second;
+    absl::Status status = MapSection(buffer_key, offset_begin, offset_end);
+    if (!status.ok()) {
+      ABSL_LOG(WARNING) << "Failed to map section: " << status;
+      return std::nullopt;
+    }
+  }
+  // Return a BufferRef to the mapped section.
+  return section_buffers_[buffer_key];
 }
 
 std::optional<litert::OwningBufferRef<uint8_t>>
