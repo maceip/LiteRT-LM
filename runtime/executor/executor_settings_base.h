@@ -73,6 +73,9 @@ enum class ActivationDataType {
 std::ostream& operator<<(std::ostream& os,
                          const ActivationDataType& activation);
 
+absl::StatusOr<ActivationDataType> GetActivationDataTypeFromString(
+    const std::string& activation_data_type);
+
 // Fake weights mode.
 enum class FakeWeightsMode {
   // Don't use fake weights, read real weights from disk.

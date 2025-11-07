@@ -91,6 +91,24 @@ std::ostream& operator<<(std::ostream& os,
   }
 }
 
+absl::StatusOr<ActivationDataType> GetActivationDataTypeFromString(
+    const std::string& activation_data_type) {
+  if (absl::EqualsIgnoreCase(activation_data_type, "float32")) {
+    return ActivationDataType::FLOAT32;
+  } else if (absl::EqualsIgnoreCase(activation_data_type, "float16")) {
+    return ActivationDataType::FLOAT16;
+  } else if (absl::EqualsIgnoreCase(activation_data_type, "int16")) {
+    return ActivationDataType::INT16;
+  } else if (absl::EqualsIgnoreCase(activation_data_type, "int8")) {
+    return ActivationDataType::INT8;
+  } else {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unsupported activation data type: ", activation_data_type,
+                     ". Supported activation data types are: [FLOAT32, "
+                     "FLOAT16, INT16, INT8]"));
+  }
+}
+
 std::ostream& operator<<(std::ostream& os,
                          const FakeWeightsMode& fake_weights_mode) {
   switch (fake_weights_mode) {

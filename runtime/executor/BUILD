@@ -92,6 +92,7 @@ cc_test(
     deps = [
         ":executor_settings_base",
         "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
         "//runtime/util:test_utils",
     ],
 )

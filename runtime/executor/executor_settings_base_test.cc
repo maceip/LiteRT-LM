@@ -19,6 +19,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/status/status.h"  // from @com_google_absl
 #include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
@@ -70,6 +71,23 @@ TEST(LlmExecutorConfigTest, StringToBackend) {
   EXPECT_EQ(*backend, Backend::GOOGLE_TENSOR_ARTISAN);
   backend = GetBackendFromString("npu");
   EXPECT_EQ(*backend, Backend::NPU);
+}
+
+TEST(LlmExecutorConfigTest, StringToActivationDataType) {
+  auto activation_data_type = GetActivationDataTypeFromString("float32");
+  EXPECT_EQ(*activation_data_type, ActivationDataType::FLOAT32);
+  activation_data_type = GetActivationDataTypeFromString("float16");
+  EXPECT_EQ(*activation_data_type, ActivationDataType::FLOAT16);
+  activation_data_type = GetActivationDataTypeFromString("int16");
+  EXPECT_EQ(*activation_data_type, ActivationDataType::INT16);
+  activation_data_type = GetActivationDataTypeFromString("int8");
+  EXPECT_EQ(*activation_data_type, ActivationDataType::INT8);
+  activation_data_type = GetActivationDataTypeFromString("invalid");
+  EXPECT_EQ(activation_data_type.status(),
+            absl::InvalidArgumentError(
+                "Unsupported activation data type: invalid. Supported "
+                "activation data types are: [FLOAT32, "
+                "FLOAT16, INT16, INT8]"));
 }
 
 TEST(LlmExecutorConfigTest, ActivatonDataType) {
