@@ -34,8 +34,7 @@
 #include "absl/strings/str_join.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
-#include "litert/c/litert_common.h"  // from @litert
-#include "litert/c/litert_tensor_buffer_types.h"  // from @litert
+#include "litert/cc/litert_common.h"  // from @litert
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_element_type.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
@@ -307,16 +306,16 @@ absl::StatusOr<TensorBuffer> ResizeKVCacheTensorBuffer(
     }
   }
 
-  LITERT_ASSIGN_OR_RETURN(LiteRtTensorBufferType buffer_type,
-                          tensor_buffer.BufferType());
+  LITERT_ASSIGN_OR_RETURN(litert::TensorBufferType buffer_type,
+                          tensor_buffer.BufferTypeCC());
   Layout new_layout(Dimensions(new_dimensions.begin(), new_dimensions.end()));
   auto new_out_type =
       RankedTensorType(tensor_type.ElementType(), std::move(new_layout));
   LITERT_ASSIGN_OR_RETURN(size_t new_size, new_out_type.Bytes());
 
-  LITERT_ASSIGN_OR_RETURN(TensorBuffer new_tensor_buffer,
-                          TensorBuffer::CreateManaged(env.Get(), buffer_type,
-                                                      new_out_type, new_size));
+  LITERT_ASSIGN_OR_RETURN(
+      TensorBuffer new_tensor_buffer,
+      TensorBuffer::CreateManaged(env, buffer_type, new_out_type, new_size));
 
   LITERT_ASSIGN_OR_RETURN(auto tensor_buffer_lock_and_addr,
                           TensorBufferScopedLock::Create(
@@ -1125,11 +1124,9 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
       gpu_compilation_options.EnableInfiniteFloatCapping(true);
       gpu_compilation_options.EnableAllowSrcQuantizedFcConvOps(true);
       if (activation_data_type == ActivationDataType::FLOAT32) {
-        gpu_compilation_options.SetDelegatePrecision(
-            LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp32);
+        gpu_compilation_options.SetPrecision(GpuOptions::Precision::kFp32);
       } else {
-        gpu_compilation_options.SetDelegatePrecision(
-            LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp16);
+        gpu_compilation_options.SetPrecision(GpuOptions::Precision::kFp16);
       }
       gpu_compilation_options.SetPreferTextureWeights(true);
       if (weight_cache_path != ":nocache") {
@@ -1166,7 +1163,7 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
       }
       // TODO b/441627719 - Select backend by runtime options.
 #if defined(LITERT_USE_WEBGPU_ACCELERATOR)
-      gpu_compilation_options.SetGpuBackend(kLiteRtGpuBackendWebGpu);
+      gpu_compilation_options.SetBackend(GpuOptions::Backend::kWebGpu);
 #endif  // defined(LITERT_USE_WEBGPU_ACCELERATOR)
       // Prepare WebGPU command buffers ahead to reduce the overhead of command
       // buffer preparation. 2 steps ahead because KV cache is swapped and the
@@ -1579,7 +1576,7 @@ LlmLiteRtCompiledModelExecutorDynamic::Create(
     runtime_options.SetShloCompositeInlining(true);
     compilation_options->AddOpaqueOptions(std::move(runtime_options));
     compilation_options->AddOpaqueOptions(std::move(*cpu_compilation_options));
-    compilation_options->SetHardwareAccelerators(kLiteRtHwAcceleratorCpu);
+    compilation_options->SetHardwareAccelerators(litert::HwAccelerators::kCpu);
   }
 
   LITERT_ASSIGN_OR_RETURN(

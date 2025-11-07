@@ -22,7 +22,6 @@
 #include <optional>
 #include <set>
 #include <sstream>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -37,7 +36,6 @@
 #include "absl/time/clock.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
-#include "litert/c/options/litert_qualcomm_options.h"  // from @litert
 #include "litert/cc/litert_common.h"  // from @litert
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_element_type.h"  // from @litert
@@ -1418,8 +1416,10 @@ litert::Expected<litert::Options> CreateLiteRtOptions() {
   options.SetHardwareAccelerators(litert::HwAccelerators::kCpu);
   LITERT_ASSIGN_OR_RETURN(auto qnn_opts,
                           ::litert::qualcomm::QualcommOptions::Create());
-  qnn_opts.SetLogLevel(kLiteRtQualcommLogOff);
-  qnn_opts.SetHtpPerformanceMode(kLiteRtQualcommHtpPerformanceModeBurst);
+  qnn_opts.SetLogLevel(
+      ::litert::qualcomm::QualcommOptions::LogLevel::kOff);
+  qnn_opts.SetHtpPerformanceMode(
+      ::litert::qualcomm::QualcommOptions::HtpPerformanceMode::kBurst);
   options.AddOpaqueOptions(std::move(qnn_opts));
   return options;
 }

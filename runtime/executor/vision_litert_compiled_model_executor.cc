@@ -27,10 +27,10 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
+#include "litert/cc/litert_common.h"  // from @litert
 #if !defined(LITERT_DISABLE_NPU)
-#include "litert/c/options/litert_qualcomm_options.h"  // from @litert
+#include "litert/cc/options/litert_qualcomm_options.h"  // from @litert
 #endif  // !defined(LITERT_DISABLE_NPU)
-#include "litert/c/litert_common.h"  // from @litert
 #include "litert/cc/litert_compiled_model.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
@@ -39,7 +39,6 @@
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/cc/options/litert_cpu_options.h"  // from @litert
 #include "litert/cc/options/litert_gpu_options.h"  // from @litert
-#include "litert/cc/options/litert_qualcomm_options.h"  // from @litert
 #include "litert/cc/options/litert_runtime_options.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -94,11 +93,9 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionEncoder::Initialize() {
                               GpuOptions::Create());
       gpu_compilation_options.EnableConstantTensorSharing(true);
       if (activation_data_type == ActivationDataType::FLOAT32) {
-        gpu_compilation_options.SetDelegatePrecision(
-            kLiteRtDelegatePrecisionFp32);
+        gpu_compilation_options.SetPrecision(GpuOptions::Precision::kFp32);
       } else {
-        gpu_compilation_options.SetDelegatePrecision(
-            kLiteRtDelegatePrecisionFp16);
+        gpu_compilation_options.SetPrecision(GpuOptions::Precision::kFp32);
       }
       gpu_compilation_options.SetPreferTextureWeights(true);
 
@@ -122,9 +119,9 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionEncoder::Initialize() {
     case Backend::NPU: {
       LITERT_ASSIGN_OR_RETURN(auto qualcomm_options,
                                    qualcomm::QualcommOptions::Create());
-      qualcomm_options.SetLogLevel(kLiteRtQualcommLogOff);
+      qualcomm_options.SetLogLevel(qualcomm::QualcommOptions::LogLevel::kOff);
       qualcomm_options.SetHtpPerformanceMode(
-          kLiteRtQualcommHtpPerformanceModeBurst);
+          qualcomm::QualcommOptions::HtpPerformanceMode::kBurst);
       options.AddOpaqueOptions(std::move(qualcomm_options));
       // TODO: yunandrew - Add support for other NPU backends.
       options.SetHardwareAccelerators(litert::HwAccelerators::kCpu);
@@ -193,8 +190,7 @@ absl::Status VisionLiteRtCompiledModelExecutor::VisionAdapter::Initialize() {
       gpu_compilation_options.EnableConstantTensorSharing(true);
       gpu_compilation_options.EnableAllowSrcQuantizedFcConvOps(true);
 
-      gpu_compilation_options.SetDelegatePrecision(
-          kLiteRtDelegatePrecisionFp16);
+      gpu_compilation_options.SetPrecision(GpuOptions::Precision::kFp16);
       gpu_compilation_options.SetPreferTextureWeights(true);
       options.AddOpaqueOptions(std::move(gpu_compilation_options));
       options.SetHardwareAccelerators(litert::HwAccelerators::kGpu);
