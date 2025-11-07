@@ -35,7 +35,7 @@ cc_library(
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
         ],
         "//conditions:default": [
-            "@litert//litert/c:litert_common",
+            "@litert//litert/cc:litert_common",
             "@litert//litert/cc:litert_element_type",
             "@litert//litert/cc:litert_expected",
             "@litert//litert/cc:litert_layout",
@@ -55,7 +55,7 @@ cc_test(
         ":convert_tensor_buffer",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/types:span",
-        "@litert//litert/c:litert_common",
+        "@litert//litert/cc:litert_common",
         "@litert//litert/cc:litert_layout",
         "@litert//litert/cc:litert_tensor_buffer",
         "@litert//litert/cc:litert_tensor_buffer_types",

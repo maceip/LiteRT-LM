@@ -22,7 +22,7 @@
 
 #include "absl/log/absl_check.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
-#include "litert/c/litert_common.h"  // from @litert
+#include "litert/cc/litert_common.h"  // from @litert
 #include "litert/cc/litert_element_type.h"  // from @litert
 #include "litert/cc/litert_expected.h"  // from @litert
 #include "litert/cc/litert_layout.h"  // from @litert
@@ -86,7 +86,7 @@ template <typename T>
   if (auto type = tensor_buffer.TensorType();
       !type.HasValue() || type->ElementType() != ElementTypeFor<T>::kType) {
     return ::litert::Unexpected(
-        kLiteRtStatusErrorInvalidArgument,
+        ::litert::Status::kErrorInvalidArgument,
         "Element type is not compatible to the target type.");
   }
 
@@ -111,13 +111,13 @@ template <typename T>
   auto type = tensor_buffer.TensorType();
   if (!type.HasValue() || type->ElementType() != ElementTypeFor<T>::kType) {
     return ::litert::Unexpected(
-        kLiteRtStatusErrorInvalidArgument,
+        ::litert::Status::kErrorInvalidArgument,
         "Element type is not compatible to the target type.");
   }
 
   auto dimensions = type->Layout().Dimensions();
   if (dimensions.size() != 2) {
-    return ::litert::Unexpected(kLiteRtStatusErrorInvalidArgument,
+    return ::litert::Unexpected(::litert::Status::kErrorInvalidArgument,
                                 "Tensor buffer must have 2 dimensions.");
   }
 
@@ -190,14 +190,14 @@ template <typename T>
   if (auto buffer_type = tensor_buffer.BufferTypeCC();
       !buffer_type.HasValue() ||
       *buffer_type != ::litert::TensorBufferType::kHostMemory) {
-    return ::litert::Unexpected(kLiteRtStatusErrorInvalidArgument,
+    return ::litert::Unexpected(::litert::Status::kErrorInvalidArgument,
                                 "Tensor buffer is not in the host memory.");
   }
 
   auto type = tensor_buffer.TensorType();
   if (!type.HasValue() || type->ElementType() != ElementTypeFor<T>::kType) {
     return ::litert::Unexpected(
-        kLiteRtStatusErrorInvalidArgument,
+        ::litert::Status::kErrorInvalidArgument,
         "Element type is not compatible to the target type.");
   }
 
@@ -234,16 +234,16 @@ template <typename T>
   auto type = tensor_buffer.TensorType();
   if (!type.HasValue() || type->ElementType() != ElementTypeFor<T>::kType) {
     return ::litert::Unexpected(
-        kLiteRtStatusErrorInvalidArgument,
+        ::litert::Status::kErrorInvalidArgument,
         "Element type is not compatible to the target type.");
   }
   auto dimensions = type->Layout().Dimensions();
   if (dimensions.size() <= dimension) {
-    return ::litert::Unexpected(kLiteRtStatusErrorInvalidArgument,
+    return ::litert::Unexpected(::litert::Status::kErrorInvalidArgument,
                                 "Target dimension is out of range.");
   }
   if (num_tokens_to_drop < 0) {
-    return ::litert::Unexpected(kLiteRtStatusErrorInvalidArgument,
+    return ::litert::Unexpected(::litert::Status::kErrorInvalidArgument,
                                 "num_tokens_to_drop is negative.");
   }
   int prev_dims_size = 1;
@@ -257,21 +257,21 @@ template <typename T>
   }
   if (num_tokens_to_drop > target_dims_size) {
     return ::litert::Unexpected(
-        kLiteRtStatusErrorInvalidArgument,
+        ::litert::Status::kErrorInvalidArgument,
         "num_tokens_to_drop is larger than the target dimension.");
   }
   if (init_tokens_to_retain > target_dims_size) {
     return ::litert::Unexpected(
-        kLiteRtStatusErrorInvalidArgument,
+        ::litert::Status::kErrorInvalidArgument,
         "init_tokens_to_retain is larger than the target dimension.");
   }
   if (init_tokens_to_retain < 0) {
-    return ::litert::Unexpected(kLiteRtStatusErrorInvalidArgument,
+    return ::litert::Unexpected(::litert::Status::kErrorInvalidArgument,
                                 "init_tokens_to_retain is negative.");
   }
   if (init_tokens_to_retain + num_tokens_to_drop > target_dims_size) {
     return ::litert::Unexpected(
-        kLiteRtStatusErrorInvalidArgument,
+        ::litert::Status::kErrorInvalidArgument,
         "the total number of tokens retained and dropped is greater than the "
         "target dimension. This will result in an out of bounds access.");
   }

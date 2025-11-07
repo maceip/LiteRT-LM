@@ -21,7 +21,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/types/span.h"  // from @com_google_absl
-#include "litert/c/litert_common.h"  // from @litert
+#include "litert/cc/litert_common.h"  // from @litert
 #include "litert/cc/litert_layout.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer_types.h"  // from @litert
@@ -106,8 +106,8 @@ TEST(ConvertTensorBufferTest, ConvertAndCopyToTensorBuffer_ToInt8) {
   EXPECT_THAT(tensor_buffer.TensorType(),
               IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 5}))));
   EXPECT_THAT(tensor_buffer.Size(), IsOkAndHolds(10));
-  EXPECT_THAT(tensor_buffer.BufferType(),
-              IsOkAndHolds(kLiteRtTensorBufferTypeHostMemory));
+  EXPECT_THAT(tensor_buffer.BufferTypeCC(),
+              IsOkAndHolds(::litert::TensorBufferType::kHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto lock_and_addr, ::litert::TensorBufferScopedLock::Create(
@@ -178,7 +178,7 @@ TEST(ConvertTensorBufferTest, ReferTensorBufferAsSpan_Success_Const) {
 TEST(ConvertTensorBufferTest, ReferTensorBufferAsSpan_NonHostMemory) {
   ::litert::TensorBuffer tensor_buffer;
   EXPECT_THAT(ReferTensorBufferAsSpan<int8_t>(tensor_buffer),
-              IsError(kLiteRtStatusErrorInvalidArgument,
+              IsError(::litert::Status::kErrorInvalidArgument,
                       "Tensor buffer is not in the host memory."));
 }
 
@@ -187,7 +187,7 @@ TEST(ConvertTensorBufferTest, ReferTensorBufferAsSpan_IncompatibleElementType) {
   LITERT_ASSERT_OK_AND_ASSIGN(auto tensor_buffer,
                               CopyToTensorBuffer<int32_t>(data, {2, 5}));
   EXPECT_THAT(ReferTensorBufferAsSpan<float>(tensor_buffer),
-              IsError(kLiteRtStatusErrorInvalidArgument,
+              IsError(::litert::Status::kErrorInvalidArgument,
                       "Element type is not compatible to the target type."));
 }
 
@@ -213,7 +213,7 @@ TEST(ConvertTensorBufferTest, CopyFromTensorBuffer_IncompatibleElementType) {
   LITERT_ASSERT_OK_AND_ASSIGN(auto tensor_buffer,
                               CopyToTensorBuffer<int32_t>(data, {2, 5}));
   EXPECT_THAT(CopyFromTensorBuffer<float>(tensor_buffer),
-              IsError(kLiteRtStatusErrorInvalidArgument,
+              IsError(::litert::Status::kErrorInvalidArgument,
                       "Element type is not compatible to the target type."));
 }
 
@@ -248,7 +248,7 @@ TEST(ConvertTensorBufferTest, CopyFromTensorBuffer2D_IncompatibleElementType) {
   LITERT_ASSERT_OK_AND_ASSIGN(auto tensor_buffer,
                               CopyToTensorBuffer<int32_t>(data, {2, 5}));
   EXPECT_THAT(CopyFromTensorBuffer2D<float>(tensor_buffer),
-              IsError(kLiteRtStatusErrorInvalidArgument,
+              IsError(::litert::Status::kErrorInvalidArgument,
                       "Element type is not compatible to the target type."));
 }
 
@@ -257,7 +257,7 @@ TEST(ConvertTensorBufferTest, CopyFromTensorBuffer2D_Not2DTensor) {
   LITERT_ASSERT_OK_AND_ASSIGN(auto tensor_buffer,
                               CopyToTensorBuffer<int8_t>(data, {2, 3, 2}));
   EXPECT_THAT(CopyFromTensorBuffer2D<int8_t>(tensor_buffer),
-              IsError(kLiteRtStatusErrorInvalidArgument,
+              IsError(::litert::Status::kErrorInvalidArgument,
                       "Tensor buffer must have 2 dimensions."));
 }
 
@@ -296,7 +296,7 @@ TEST(ConvertTensorBufferTest, DropTokensfromTensorBuffer_InvalidTokenSize) {
       DropTokensfromTensorBuffer<int32_t>(source_tensor_buffer,
                                           /*num_tokens_to_drop=*/11,
                                           /*dimension=*/0),
-      IsError(kLiteRtStatusErrorInvalidArgument,
+      IsError(::litert::Status::kErrorInvalidArgument,
               "num_tokens_to_drop is larger than the target dimension."));
 }
 
@@ -306,7 +306,7 @@ TEST(ConvertTensorBufferTest, DropTokensfromTensorBuffer_InvalidDropSize) {
                               CopyToTensorBuffer<int32_t>(source_data, {10}));
   EXPECT_THAT(
       DropTokensfromTensorBuffer<int32_t>(source_tensor_buffer, 2, 10),
-      IsError(kLiteRtStatusErrorInvalidArgument,
+      IsError(::litert::Status::kErrorInvalidArgument,
               "Target dimension is out of range."));
 }
 
@@ -345,7 +345,7 @@ TEST(ConvertTensorBufferTest,
                                                   /*num_tokens_to_drop=*/2,
                                                   /*dimension=*/2,
                                                   /*init_tokens_to_retain=*/-1),
-              IsError(kLiteRtStatusErrorInvalidArgument,
+              IsError(::litert::Status::kErrorInvalidArgument,
                       "init_tokens_to_retain is negative."));
 }
 
@@ -363,7 +363,7 @@ TEST(ConvertTensorBufferTest,
                                           /*num_tokens_to_drop=*/2,
                                           /*dimension=*/2,
                                           /*init_tokens_to_retain=*/10),
-      IsError(kLiteRtStatusErrorInvalidArgument,
+      IsError(::litert::Status::kErrorInvalidArgument,
               "init_tokens_to_retain is larger than the target dimension."));
 }
 
@@ -380,7 +380,7 @@ TEST(ConvertTensorBufferTest, DropTokensFromTensorBuffer_TotalTokens_TooLarge) {
                                           /*num_tokens_to_drop=*/3,
                                           /*dimension=*/2,
                                           /*init_tokens_to_retain=*/2),
-      IsError(kLiteRtStatusErrorInvalidArgument,
+      IsError(::litert::Status::kErrorInvalidArgument,
               "the total number of tokens retained and dropped is greater than "
               "the target dimension. This will result in an out of bounds "
               "access."));
