@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -62,6 +63,10 @@ using ::testing::status::StatusIs;
 
 constexpr char kTestStaticModelPath[] =
     "litert_lm/runtime/testdata/test_lm.task";
+
+// Test model with dynamic sequence and context length dimensions.
+constexpr char kTestDynamicModelPath[] =
+    "litert_lm/runtime/testdata/test_lm_dynamic.litertlm";
 
 const int kMaxNumTokens = 32;
 const int kNumThreads = 4;
@@ -733,6 +738,86 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   EXPECT_TRUE(output_tokens);
   EXPECT_THAT((*executor)->Decode(*output_tokens),
               StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+absl::StatusOr<
+    std::pair<std::unique_ptr<ModelResources>,
+              std::unique_ptr<LlmLiteRtCompiledModelExecutorDynamic>>>
+CreateDynamicExecutor(absl::string_view model_path,
+                      uint32_t kv_increment_size = 8) {
+  auto path = std::filesystem::path(::testing::SrcDir()) / model_path;
+  ASSIGN_OR_RETURN(auto model_resources,
+                   CreateExecutorModelResourcesLitertLm(path.string()));
+  ASSIGN_OR_RETURN(auto model_assets, ModelAssets::Create(path.string()));
+  auto executor_settings =
+      LlmExecutorSettings::CreateDefault(model_assets, Backend::CPU);
+  executor_settings->SetCacheDir(":nocache");
+  executor_settings->SetMaxNumTokens(kMaxNumTokens);
+  CpuConfig config;
+  config.number_of_threads = kNumThreads;
+  config.kv_increment_size = kv_increment_size;
+  executor_settings->SetBackendConfig(config);
+  LITERT_ASSIGN_OR_RETURN(
+      auto env, Environment::Create(std::vector<Environment::Option>()));
+  ASSIGN_OR_RETURN(auto executor,
+                   LlmLiteRtCompiledModelExecutorDynamic::Create(
+                       *executor_settings, env, *model_resources));
+  return std::make_pair(std::move(model_resources), std::move(executor));
+}
+
+TEST(LlmLiteRtCompiledModelExecutorDynamicTest, PrefillTest) {
+  std::unique_ptr<ModelResources> model_resources;
+  std::unique_ptr<LlmLiteRtCompiledModelExecutorDynamic> executor;
+  {
+    ASSERT_OK_AND_ASSIGN(auto p, CreateDynamicExecutor(kTestDynamicModelPath));
+    std::tie(model_resources, executor) = std::move(p);
+  }
+
+  ExecutorInputs inputs;
+  // Create a tensor buffer with 3 elements but only the first two elements
+  // match the expected prefill tokens.
+  const std::vector<int> input_tokens = {1, 2, 0};
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto input_tokens_buffer,
+      CopyToTensorBuffer<int>(absl::MakeSpan(input_tokens), {1, 3}));
+  inputs.SetTextData(ExecutorTextData(std::move(input_tokens_buffer)));
+
+  for (int i = 0; i < 10; ++i) {
+    EXPECT_OK(executor->Prefill(inputs));
+    ASSERT_OK_AND_ASSIGN(auto current_step, executor->GetCurrentStep());
+    EXPECT_EQ(current_step, 3 * (i + 1));
+  }
+}
+
+TEST(LlmLiteRtCompiledModelExecutorDynamicTest, DecodeTest) {
+  std::unique_ptr<ModelResources> model_resources;
+  std::unique_ptr<LlmLiteRtCompiledModelExecutorDynamic> executor;
+  {
+    ASSERT_OK_AND_ASSIGN(auto p, CreateDynamicExecutor(kTestDynamicModelPath));
+    std::tie(model_resources, executor) = std::move(p);
+  }
+
+  ExecutorInputs inputs;
+  // Create a tensor buffer with 3 elements but only the first two elements
+  // match the expected prefill tokens.
+  const std::vector<int> input_tokens = {1, 2, 0};
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto input_tokens_buffer,
+      CopyToTensorBuffer<int>(absl::MakeSpan(input_tokens), {1, 3}));
+  inputs.SetTextData(ExecutorTextData(std::move(input_tokens_buffer)));
+
+  EXPECT_OK(executor->Prefill(inputs));
+  {
+    ASSERT_OK_AND_ASSIGN(auto current_step, executor->GetCurrentStep());
+    EXPECT_EQ(current_step, input_tokens.size());
+  }
+
+  LITERT_ASSERT_OK_AND_ASSIGN(auto output_tokens, CreateTensorBuffer<int>({1}));
+  for (int i = 0; i < 16; ++i) {
+    EXPECT_OK(executor->Decode(output_tokens));
+    ASSERT_OK_AND_ASSIGN(auto current_step, executor->GetCurrentStep());
+    EXPECT_EQ(current_step, input_tokens.size() + (i + 1));
+  }
 }
 
 }  // namespace
