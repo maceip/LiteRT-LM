@@ -67,6 +67,44 @@ void ThrowLiteRtLmJniException(JNIEnv* env, const std::string& message) {
   }
 }
 
+// Replacement of env->NewStringUTF(str.c_str()) to handle "Standard UTF-8".
+//
+// NewStringUTF() expects a "modified UTF-8" string. "Standard UTF-8" and
+// "modified UTF-8" are mostly the same, but differ in the encoding of null
+// characters and characters outside the Basic Multilingual Plane (BMP). Emojis
+// often fall into this latter category. nlohmann::json::dump() also returns a
+// "Standard UTF-8".
+//
+// https://developer.android.com/ndk/guides/jni-tips#utf-8-and-utf-16-strings
+jstring NewStringStandardUTF(JNIEnv* env, std::string standard_utf8_str) {
+  // Create a jbyteArray from the UTF-8 string
+  jbyteArray bytes = env->NewByteArray(standard_utf8_str.length());
+  env->SetByteArrayRegion(
+      bytes, 0, standard_utf8_str.length(),
+      reinterpret_cast<const jbyte*>(standard_utf8_str.c_str()));
+
+  // Get the java.lang.String class
+  jclass string_class = env->FindClass("java/lang/String");
+
+  // Get the constructor for String(byte[], String)
+  jmethodID string_ctor =
+      env->GetMethodID(string_class, "<init>", "([BLjava/lang/String;)V");
+
+  // Create a jstring for the charset name "UTF-8"
+  jstring charset_name = env->NewStringUTF("UTF-8");
+
+  // Create the new String object
+  jstring result =
+      (jstring)env->NewObject(string_class, string_ctor, bytes, charset_name);
+
+  // Clean up local references
+  env->DeleteLocalRef(bytes);
+  env->DeleteLocalRef(string_class);
+  env->DeleteLocalRef(charset_name);
+
+  return result;
+}
+
 // Helper function to convert BenchmarkInfo to Java object
 jobject CreateBenchmarkInfoJni(
     JNIEnv* env, const litert::lm::BenchmarkInfo& benchmark_info) {
@@ -401,7 +439,7 @@ JNIEXPORT jstring JNICALL JNI_METHOD(nativeRunDecode)(JNIEnv* env, jclass thiz,
                  std::to_string(responses->GetTexts().size()));
   }
 
-  return env->NewStringUTF(std::string(responses->GetTexts()[0]).c_str());
+  return NewStringStandardUTF(env, responses->GetTexts()[0]);
 }
 
 JNIEXPORT jstring JNICALL JNI_METHOD(nativeGenerateContent)(
@@ -428,7 +466,7 @@ JNIEXPORT jstring JNICALL JNI_METHOD(nativeGenerateContent)(
     return env->NewStringUTF("");
   }
 
-  return env->NewStringUTF(std::string(responses->GetTexts()[0]).c_str());
+  return NewStringStandardUTF(env, responses->GetTexts()[0]);
 }
 
 JNIEXPORT void JNICALL JNI_METHOD(nativeGenerateContentStream)(
@@ -481,8 +519,8 @@ JNIEXPORT void JNICALL JNI_METHOD(nativeGenerateContentStream)(
             env->CallVoidMethod(callback_global, on_done_mid);
             cleanup_callback_ref();
           } else {
-            jstring response_jstr = env->NewStringUTF(
-                std::string(responses->GetTexts()[0]).c_str());
+            jstring response_jstr =
+                NewStringStandardUTF(env, responses->GetTexts()[0]);
             env->CallVoidMethod(callback_global, on_response_mid,
                                 response_jstr);
             env->DeleteLocalRef(response_jstr);
@@ -490,8 +528,8 @@ JNIEXPORT void JNICALL JNI_METHOD(nativeGenerateContentStream)(
         } else {
           ABSL_LOG(WARNING)
               << "Receive callback OnError: " << responses.status();
-          jstring message =
-              env->NewStringUTF(responses.status().message().data());
+          jstring message = NewStringStandardUTF(
+              env, std::string(responses.status().message()));
           env->CallVoidMethod(callback_global, on_error_mid,
                               (jint)responses.status().code(), message);
           env->DeleteLocalRef(message);
@@ -671,7 +709,7 @@ JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
               on_done_fn();
             } else {
               std::string message_str = json_message.dump();
-              jstring message_jstr = env->NewStringUTF(message_str.c_str());
+              jstring message_jstr = NewStringStandardUTF(env, message_str);
               env->CallVoidMethod(callback_global, on_message_mid,
                                   message_jstr);
               env->DeleteLocalRef(message_jstr);
@@ -680,7 +718,7 @@ JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
         } else {
           ABSL_LOG(WARNING) << "Receive callback OnError: " << message.status();
           jstring err_message =
-              env->NewStringUTF(message.status().message().data());
+              NewStringStandardUTF(env, message.status().message().data());
           env->CallVoidMethod(callback_global, on_error_mid,
                               (jint)message.status().code(), err_message);
           env->DeleteLocalRef(err_message);
@@ -726,7 +764,7 @@ JNIEXPORT jstring JNICALL JNI_METHOD(nativeSendMessage)(
   }
 
   auto json_response = std::get<litert::lm::JsonMessage>(*response);
-  return env->NewStringUTF(json_response.dump().c_str());
+  return NewStringStandardUTF(env, json_response.dump());
 }
 
 JNIEXPORT void JNICALL JNI_METHOD(nativeConversationCancelProcess)(
