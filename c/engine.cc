@@ -41,16 +41,20 @@ absl::AnyInvocable<void(absl::StatusOr<litert::lm::Responses>)> CreateCallback(
   return [callback,
           callback_data](absl::StatusOr<litert::lm::Responses> responses) {
     if (!responses.ok()) {
-      callback(callback_data, /*text=*/nullptr, /*is_error=*/true,
+      callback(callback_data, /*text=*/nullptr, /*is_final=*/true,
                responses.status().ToString().c_str());
       return;
     }
-    if (responses->GetTexts().empty()) {
-      callback(callback_data, /*text=*/nullptr, /*is_error=*/true,
+    if (responses->GetTaskState() == litert::lm::TaskState::kDone) {
+      callback(callback_data, /*text=*/nullptr, /*is_final=*/true,
                /*error_message=*/nullptr);
+    } else if (responses->GetTaskState() ==
+               litert::lm::TaskState::kMaxNumTokensReached) {
+      callback(callback_data, /*text=*/nullptr, /*is_final=*/true,
+               "Max number of tokens reached.");
     } else {
       for (const auto& text : responses->GetTexts()) {
-        callback(callback_data, text.data(), /*is_error=*/false,
+        callback(callback_data, text.data(), /*is_final=*/false,
                  /*error_message=*/nullptr);
       }
     }

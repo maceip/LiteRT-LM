@@ -413,6 +413,10 @@ TEST(ResponsesTest, GetTaskState) {
     EXPECT_EQ(responses.GetTaskState(), TaskState::kDone);
   }
   {
+    Responses responses(TaskState::kMaxNumTokensReached, {});
+    EXPECT_EQ(responses.GetTaskState(), TaskState::kMaxNumTokensReached);
+  }
+  {
     Responses responses(TaskState::kUnknown, {});
     EXPECT_EQ(responses.GetTaskState(), TaskState::kUnknown);
   }
@@ -428,6 +432,11 @@ TEST(ResponsesTest, TaskStateToString) {
     std::stringstream ss;
     ss << TaskState::kDone;
     EXPECT_EQ(ss.str(), "Done");
+  }
+  {
+    std::stringstream ss;
+    ss << TaskState::kMaxNumTokensReached;
+    EXPECT_EQ(ss.str(), "MaxNumTokensReached");
   }
   {
     std::stringstream ss;

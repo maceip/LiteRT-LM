@@ -449,9 +449,7 @@ absl::StatusOr<Responses> DecodeLoop(
 
   if (is_streaming) {
     if (executor.GetCurrentStep().value() >= max_num_tokens) {
-      callback.value()(absl::InternalError(absl::StrFormat(
-          "Maximum kv-cache size reached.(%d) Please exit and re-start.",
-          max_num_tokens)));
+      callback.value()(Responses(TaskState::kMaxNumTokensReached));
     } else {
       callback.value()(Responses(TaskState::kDone));
     }
@@ -468,7 +466,10 @@ absl::StatusOr<Responses> DecodeLoop(
       }
     }
   }
-  return Responses(TaskState::kDone, std::move(final_texts),
+  TaskState task_state = executor.GetCurrentStep().value() >= max_num_tokens
+                             ? TaskState::kMaxNumTokensReached
+                             : TaskState::kDone;
+  return Responses(std::move(task_state), std::move(final_texts),
                    std::move(final_scores));
 }
 

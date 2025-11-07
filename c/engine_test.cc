@@ -159,8 +159,8 @@ TEST(EngineCTest, GenerateContentStream) {
       callback_data.status,
       testing::AnyOf(absl_testing::IsOk(),
                      absl_testing::StatusIs(
-                     absl::StatusCode::kInternal,
-                     testing::HasSubstr("Maximum kv-cache size reached."))));
+                         absl::StatusCode::kInternal,
+                         testing::HasSubstr("Max number of tokens reached."))));
   EXPECT_GT(callback_data.response.length(), 0);
 }
 

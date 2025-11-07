@@ -107,16 +107,6 @@ absl::AnyInvocable<void(absl::StatusOr<Responses>)> CreateInternalCallback(
           inside_tool_call =
               false](absl::StatusOr<Responses> responses) mutable {
     if (!responses.ok()) {
-      // If the error is due to maximum kv-cache size reached, then we should
-      // trigger the user callback with an OK status to indicate the inference
-      // is done.
-      if (absl::StrContainsIgnoreCase(responses.status().message(),
-                                      "Maximum kv-cache size reached")) {
-        SendCompleteMessage(user_callback, accumulated_response_text,
-                            model_data_processor, processor_args, cursor,
-                            complete_message_callback);
-        return;
-      }
       // If the error is due to cancellation, then we should trigger the cancel
       // callback for removing the last message from the history.
       if (cancel_callback && absl::IsCancelled(responses.status())) {
@@ -128,7 +118,8 @@ absl::AnyInvocable<void(absl::StatusOr<Responses>)> CreateInternalCallback(
     // If there are no more new responses, it means the model has finished
     // generating content, trigger the complete message callback and return an
     // OK status to indicate the inference is done.
-    if (responses->GetTaskState() == TaskState::kDone) {
+    if (responses->GetTaskState() == TaskState::kDone ||
+        responses->GetTaskState() == TaskState::kMaxNumTokensReached) {
       SendCompleteMessage(user_callback, accumulated_response_text,
                           model_data_processor, processor_args, cursor,
                           complete_message_callback);

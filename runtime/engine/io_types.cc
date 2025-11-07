@@ -135,6 +135,9 @@ std::ostream& operator<<(std::ostream& os, const TaskState& task_state) {
     case TaskState::kDone:
       os << "Done";
       break;
+    case TaskState::kMaxNumTokensReached:
+      os << "MaxNumTokensReached";
+      break;
     default:
       os << "Unknown";
       break;

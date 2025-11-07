@@ -74,7 +74,12 @@ absl::AnyInvocable<void(absl::StatusOr<Responses>)> CreateTestCallback(
       return;
     }
     // If the responses is done, the done reference is set to true.
-    if (responses->GetTaskState() == TaskState::kDone) {
+    if (responses->GetTaskState() == TaskState::kDone ||
+        responses->GetTaskState() == TaskState::kMaxNumTokensReached) {
+      if (responses->GetTaskState() == TaskState::kMaxNumTokensReached) {
+        status_ref = absl::InternalError(
+            "Maximum kv-cache size reached. Please exit and re-start.");
+      }
       EXPECT_FALSE(done_ref);
       done_ref = true;
       return;
@@ -1010,7 +1015,7 @@ TEST_F(PipelineCallbackTest, DecodeStreaming_ErrorCompletion) {
   EXPECT_THAT(
       status,
       StatusIs(absl::StatusCode::kInternal,
-               "Maximum kv-cache size reached.(3) Please exit and re-start."));
+               "Maximum kv-cache size reached. Please exit and re-start."));
 }
 
 TEST_F(PipelineCallbackTest,

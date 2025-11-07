@@ -167,9 +167,11 @@ inline absl::StatusOr<InputData> CreateInputDataCopy(const InputData& data) {
 
 // The state of the task.
 enum class TaskState {
-  kUnknown,     // The task is in an unknown state.
-  kProcessing,  // The task is being processed.
-  kDone,        // The task is done.
+  kUnknown,              // The task is in an unknown state.
+  kProcessing,           // The task is being processed.
+  kDone,                 // The task is done successfully.
+  kMaxNumTokensReached,  // The task is done because the max number of tokens is
+                         // reached.
 };
 std::ostream& operator<<(std::ostream& os, const TaskState& task_state);
 

@@ -514,9 +514,16 @@ JNIEXPORT void JNICALL JNI_METHOD(nativeGenerateContentStream)(
         if (!env) return;
 
         if (responses.ok()) {
-          if (responses->GetTexts().empty()) {
-            ABSL_LOG(INFO) << "Receive callback OnDone.";
+          if (responses->GetTaskState() == litert::lm::TaskState::kDone) {
             env->CallVoidMethod(callback_global, on_done_mid);
+            cleanup_callback_ref();
+          } else if (responses->GetTaskState() ==
+                     litert::lm::TaskState::kMaxNumTokensReached) {
+            jstring message =
+                NewStringStandardUTF(env, "Maximum kv-cache size reached.");
+            env->CallVoidMethod(callback_global, on_error_mid,
+                                (jint)absl::StatusCode::kInternal, message);
+            env->DeleteLocalRef(message);
             cleanup_callback_ref();
           } else {
             jstring response_jstr =
