@@ -128,8 +128,7 @@ AudioLiteRtCompiledModelExecutor::AudioStaticEncoder::Initialize() {
     LITERT_ASSIGN_OR_RETURN(GpuOptions gpu_compilation_options,
                             GpuOptions::Create());
     gpu_compilation_options.EnableConstantTensorSharing(true);
-    gpu_compilation_options.SetDelegatePrecision(
-        LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp32);
+    gpu_compilation_options.SetPrecision(GpuOptions::Precision::kFp32);
     gpu_compilation_options.SetPreferTextureWeights(true);
     options.AddOpaqueOptions(std::move(gpu_compilation_options));
     options.SetHardwareAccelerators(litert::HwAccelerators::kGpu);
@@ -246,8 +245,7 @@ AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::Initialize() {
     LITERT_ASSIGN_OR_RETURN(GpuOptions gpu_compilation_options,
                             GpuOptions::Create());
     gpu_compilation_options.EnableConstantTensorSharing(true);
-    gpu_compilation_options.SetDelegatePrecision(
-        LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp32);
+    gpu_compilation_options.SetPrecision(GpuOptions::Precision::kFp32);
     gpu_compilation_options.SetPreferTextureWeights(true);
     options.AddOpaqueOptions(std::move(gpu_compilation_options));
     options.SetHardwareAccelerators(litert::HwAccelerators::kGpu);
@@ -422,8 +420,7 @@ absl::Status AudioLiteRtCompiledModelExecutor::AudioAdapter::Initialize() {
     LITERT_ASSIGN_OR_RETURN(GpuOptions gpu_compilation_options,
                             GpuOptions::Create());
     gpu_compilation_options.EnableConstantTensorSharing(true);
-    gpu_compilation_options.SetDelegatePrecision(
-        LiteRtDelegatePrecision::kLiteRtDelegatePrecisionFp32);
+    gpu_compilation_options.SetPrecision(GpuOptions::Precision::kFp32);
     gpu_compilation_options.SetPreferTextureWeights(true);
     options.AddOpaqueOptions(std::move(gpu_compilation_options));
     options.SetHardwareAccelerators(litert::HwAccelerators::kGpu);
