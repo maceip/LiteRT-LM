@@ -16,7 +16,6 @@
 package com.google.ai.edge.litertlm.example
 
 import com.google.ai.edge.litertlm.Backend
-import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
@@ -51,13 +50,9 @@ fun main(args: Array<String>) {
           userMessage,
           object : MessageCallback {
             override fun onMessage(message: Message) {
-              for (content in message.contents) {
-                if (content is Content.Text) {
-                  print(ANSI_YELLOW)
-                  print(content.text)
-                  print(ANSI_RESET)
-                }
-              }
+              print(ANSI_YELLOW)
+              print(message)
+              print(ANSI_RESET)
             }
 
             override fun onDone() {

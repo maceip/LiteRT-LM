@@ -149,7 +149,7 @@ import com.google.ai.edge.litertlm.Message
 
 val userMessage = Message.of("What is the capital of France?")
 val modelMessage = conversation.sendMessage(userMessage)
-print((modelMessage.contents[0] as Content.Text).text)
+print(modelMessage)
 ```
 
 **Asynchronous Example:**
@@ -166,10 +166,7 @@ import java.util.concurrent.TimeUnit
 
 val callback = object : MessageCallback {
     override fun onMessage(message: Message) {
-        // Filter and handle text content.
-        for (contentText in message.contents.filterIsInstance<Content.Text>()) {
-            print(contentText.text)
-        }
+        print(message)
     }
 
     override fun onDone() {

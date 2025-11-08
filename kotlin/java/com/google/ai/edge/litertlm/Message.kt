@@ -36,6 +36,10 @@ class Message private constructor(val contents: List<Content>) {
     }
   }
 
+  override fun toString(): String {
+    return contents.joinToString("")
+  }
+
   companion object {
     /** Creates a [Message] from a text string. */
     fun of(text: String): Message {
@@ -66,6 +70,10 @@ sealed class Content {
         addProperty("type", "text")
         addProperty("text", text)
       }
+    }
+
+    override fun toString(): String {
+      return text
     }
   }
 
