@@ -35,6 +35,18 @@
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/proto/sampler_params.pb.h"
 
+// For Windows, __declspec( dllexport ) is required to export function in .dll.
+// https://learn.microsoft.com/en-us/cpp/cpp/using-dllimport-and-dllexport-in-cpp-classes?view=msvc-170
+//
+// _WIN32 is defined as 1 when the compilation target is 32-bit ARM, 64-bit ARM,
+// x86, x64, or ARM64EC. Otherwise, undefined.
+// https://learn.microsoft.com/en-us/cpp/preprocessor/predefined-macros
+#if defined(_WIN32)
+#define LITERTLM_JNIEXPORT __declspec(dllexport)
+#else
+#define LITERTLM_JNIEXPORT JNIEXPORT
+#endif  // _WIN32
+
 #define JNI_METHOD(METHOD_NAME) \
   Java_com_google_ai_edge_litertlm_LiteRtLmJni_##METHOD_NAME
 
@@ -259,11 +271,12 @@ SamplerParameters CreateSamplerParamsFromJni(JNIEnv* env,
 
 extern "C" {
 
-JNIEXPORT void JNICALL
+LITERTLM_JNIEXPORT void JNICALL
 Java_com_google_ai_edge_litertlm_NativeLibraryLoader_nativeCheckLoaded(
     JNIEnv* env, jclass thiz) {}
 
-JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateEngine)(
+// __declspec( dllexport )
+LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateEngine)(
     JNIEnv* env, jclass thiz, jstring model_path, jstring backend,
     jstring vision_backend, jstring audio_backend, jint max_num_tokens,
     jstring cache_dir, jboolean enable_benchmark) {
@@ -369,12 +382,12 @@ JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateEngine)(
   return reinterpret_cast<jlong>(engine->release());
 }
 
-JNIEXPORT void JNICALL JNI_METHOD(nativeDeleteEngine)(JNIEnv* env, jclass thiz,
-                                                      jlong engine_pointer) {
+LITERTLM_JNIEXPORT void JNICALL
+JNI_METHOD(nativeDeleteEngine)(JNIEnv* env, jclass thiz, jlong engine_pointer) {
   delete reinterpret_cast<Engine*>(engine_pointer);
 }
 
-JNIEXPORT jlong JNICALL
+LITERTLM_JNIEXPORT jlong JNICALL
 JNI_METHOD(nativeCreateSession)(JNIEnv* env, jclass thiz, jlong engine_pointer,
                                 jobject sampler_config_obj) {
   auto session_config = SessionConfig::CreateDefault();
@@ -394,14 +407,13 @@ JNI_METHOD(nativeCreateSession)(JNIEnv* env, jclass thiz, jlong engine_pointer,
   return reinterpret_cast<jlong>(session->release());
 }
 
-JNIEXPORT void JNICALL JNI_METHOD(nativeDeleteSession)(JNIEnv* env, jclass thiz,
-                                                       jlong session_pointer) {
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeDeleteSession)(
+    JNIEnv* env, jclass thiz, jlong session_pointer) {
   delete reinterpret_cast<Engine::Session*>(session_pointer);
 }
 
-JNIEXPORT void JNICALL JNI_METHOD(nativeRunPrefill)(JNIEnv* env, jclass thiz,
-                                                    jlong session_pointer,
-                                                    jobjectArray input_data) {
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeRunPrefill)(
+    JNIEnv* env, jclass thiz, jlong session_pointer, jobjectArray input_data) {
   Engine::Session* session =
       reinterpret_cast<Engine::Session*>(session_pointer);
 
@@ -420,8 +432,8 @@ JNIEXPORT void JNICALL JNI_METHOD(nativeRunPrefill)(JNIEnv* env, jclass thiz,
   }
 }
 
-JNIEXPORT jstring JNICALL JNI_METHOD(nativeRunDecode)(JNIEnv* env, jclass thiz,
-                                                      jlong session_pointer) {
+LITERTLM_JNIEXPORT jstring JNICALL
+JNI_METHOD(nativeRunDecode)(JNIEnv* env, jclass thiz, jlong session_pointer) {
   Engine::Session* session =
       reinterpret_cast<Engine::Session*>(session_pointer);
 
@@ -442,7 +454,7 @@ JNIEXPORT jstring JNICALL JNI_METHOD(nativeRunDecode)(JNIEnv* env, jclass thiz,
   return NewStringStandardUTF(env, responses->GetTexts()[0]);
 }
 
-JNIEXPORT jstring JNICALL JNI_METHOD(nativeGenerateContent)(
+LITERTLM_JNIEXPORT jstring JNICALL JNI_METHOD(nativeGenerateContent)(
     JNIEnv* env, jclass thiz, jlong session_pointer, jobjectArray input_data) {
   Engine::Session* session =
       reinterpret_cast<Engine::Session*>(session_pointer);
@@ -469,7 +481,7 @@ JNIEXPORT jstring JNICALL JNI_METHOD(nativeGenerateContent)(
   return NewStringStandardUTF(env, responses->GetTexts()[0]);
 }
 
-JNIEXPORT void JNICALL JNI_METHOD(nativeGenerateContentStream)(
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeGenerateContentStream)(
     JNIEnv* env, jclass thiz, jlong session_pointer, jobjectArray input_data,
     jobject callback) {
   JavaVM* jvm = nullptr;
@@ -557,15 +569,16 @@ JNIEXPORT void JNICALL JNI_METHOD(nativeGenerateContentStream)(
   }
 }
 
-JNIEXPORT void JNICALL JNI_METHOD(nativeCancelProcess)(JNIEnv* env, jclass thiz,
-                                                       jlong session_pointer) {
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeCancelProcess)(
+    JNIEnv* env, jclass thiz, jlong session_pointer) {
   Engine::Session* session =
       reinterpret_cast<Engine::Session*>(session_pointer);
   session->CancelProcess();
 }
 
-JNIEXPORT jobject JNICALL JNI_METHOD(nativeConversationGetBenchmarkInfo)(
-    JNIEnv* env, jclass thiz, jlong conversation_pointer) {
+LITERTLM_JNIEXPORT jobject JNICALL
+JNI_METHOD(nativeConversationGetBenchmarkInfo)(JNIEnv* env, jclass thiz,
+                                               jlong conversation_pointer) {
   Conversation* conversation =
       reinterpret_cast<Conversation*>(conversation_pointer);
 
@@ -579,7 +592,7 @@ JNIEXPORT jobject JNICALL JNI_METHOD(nativeConversationGetBenchmarkInfo)(
   return CreateBenchmarkInfoJni(env, *benchmark_info);
 }
 
-JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversation)(
+LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversation)(
     JNIEnv* env, jclass thiz, jlong engine_pointer, jobject sampler_config_obj,
     jstring system_message_json_string, jstring tools_description_json_string,
     jboolean disable_constraint_decoding) {
@@ -649,12 +662,12 @@ JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversation)(
   return reinterpret_cast<jlong>(conversation->release());
 }
 
-JNIEXPORT void JNICALL JNI_METHOD(nativeDeleteConversation)(
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeDeleteConversation)(
     JNIEnv* env, jclass thiz, jlong conversation_pointer) {
   delete reinterpret_cast<Conversation*>(conversation_pointer);
 }
 
-JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
     JNIEnv* env, jclass thiz, jlong conversation_pointer,
     jstring messageJSONString, jobject callback) {
   JavaVM* jvm = nullptr;
@@ -746,7 +759,7 @@ JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
   }
 }
 
-JNIEXPORT jstring JNICALL JNI_METHOD(nativeSendMessage)(
+LITERTLM_JNIEXPORT jstring JNICALL JNI_METHOD(nativeSendMessage)(
     JNIEnv* env, jclass thiz, jlong conversation_pointer,
     jstring messageJSONString) {
   Conversation* conversation =
@@ -774,7 +787,7 @@ JNIEXPORT jstring JNICALL JNI_METHOD(nativeSendMessage)(
   return NewStringStandardUTF(env, json_response.dump());
 }
 
-JNIEXPORT void JNICALL JNI_METHOD(nativeConversationCancelProcess)(
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeConversationCancelProcess)(
     JNIEnv* env, jclass thiz, jlong conversation_pointer) {
   Conversation* conversation =
       reinterpret_cast<Conversation*>(conversation_pointer);
