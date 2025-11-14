@@ -349,8 +349,6 @@ absl::Status SessionBasic::PrefillInternal(
   ASSIGN_OR_RETURN(ExecutorInputs inputs,
                    ProcessAndCombineContents(preprocessed_contents));
 
-  // This should be added to the beginning of the next prefill call as will no?
-  // Also, this is not thread safe. More discussion with @ztenghui is needed.
   ASSIGN_OR_RETURN(
       last_prefill_token_id_,
       Prefill(executor_, inputs, wait_for_completion, benchmark_info_));
@@ -529,14 +527,7 @@ absl::StatusOr<Responses> SessionBasic::RunTextScoring(
   if (target_text.size() != 1) {
     return absl::InvalidArgumentError("Target text size should be 1.");
   }
-  std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
-                               last_prefill_token_id_);
-  // Remove the last token from the decoded ids, since the last prefill token
-  // is used as the query during decoding of the model.
-  LITERT_ASSIGN_OR_RETURN(
-      auto decoded_ids_buffer,
-      CopyToTensorBuffer<int>(decoded_ids,
-                              {session_config_.GetNumOutputCandidates(), 1}));
+
   // TODO(b/435040163): Handle the temperature. Should it be calculated from
   // the sampler or the sampler parameters? For now, hardcode it to 1.0f for
   // testing.
@@ -546,10 +537,18 @@ absl::StatusOr<Responses> SessionBasic::RunTextScoring(
   // other engine operations as the function waits for completion.
   RETURN_IF_ERROR(worker_thread_pool_.Schedule(
       [this, &score, &target_text,
-       decoded_ids_buffer = std::move(decoded_ids_buffer),
        &temperature]() mutable {
+        std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
+                               last_prefill_token_id_);
+        auto decoded_ids_buffer = CopyToTensorBuffer<int>(
+            decoded_ids, {session_config_.GetNumOutputCandidates(), 1});
+        if (!decoded_ids_buffer.HasValue()) {
+          score = absl::InternalError(decoded_ids_buffer.Error().Message());
+          return;
+        }
         score = ScoreCustomSampling(executor_, tokenizer_, target_text,
-                                    temperature, std::move(decoded_ids_buffer));
+                                    temperature,
+                                    std::move(decoded_ids_buffer.Value()));
       }));
   RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
   return score;
