@@ -69,7 +69,10 @@ absl::Status ConstrainedDecoder::MaskLogits(
   int sequence_length = logits_dims[1];
   int vocab_size = logits_dims[2];
   RET_CHECK_EQ(sequence_length, 1) << "Only support sequence length 1.";
-  RET_CHECK_EQ(vocab_size, constraint_->GetVocabularySize())
+  // It is possible that the constraint vocabulary size is larger than the model
+  // vocabulary size. The remaining tokens in the constraint vocabulary are
+  // treated as unused tokens.
+  RET_CHECK_LE(vocab_size, constraint_->GetVocabularySize())
       << "Vocabulary size [" << vocab_size
       << "] does not match the expected vocabulary size ["
       << constraint_->GetVocabularySize() << "].";
