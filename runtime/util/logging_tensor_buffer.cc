@@ -70,7 +70,7 @@ std::ostream& LogTensorBuffer(std::ostream& os, const void* data,
 
 std::ostream& operator<<(std::ostream& os,
                          const ::litert::TensorBuffer& tensor_buffer) {
-  if (auto type = tensor_buffer.BufferTypeCC();
+  if (auto type = tensor_buffer.BufferType();
       !type.HasValue() || *type != ::litert::TensorBufferType::kHostMemory) {
     const int type_value =
         type.HasValue()

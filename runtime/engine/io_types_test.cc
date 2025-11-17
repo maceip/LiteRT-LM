@@ -104,7 +104,7 @@ TEST(InputTextTest, GetPreprocessedTextTensor) {
                               retrieved_tensor_buffer->Size());
   EXPECT_EQ(retrieved_tensor_buffer_size, kTensorSize);
   LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_buffer_type,
-                              retrieved_tensor_buffer->BufferTypeCC());
+                              retrieved_tensor_buffer->BufferType());
   EXPECT_EQ(retrieved_tensor_buffer_type, kTensorBufferType);
   LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_type,
                               retrieved_tensor_buffer->TensorType());
@@ -155,7 +155,7 @@ TEST(InputImageTest, GetPreprocessedImageTensor) {
                               retrieved_tensor_buffer->Size());
   EXPECT_EQ(retrieved_tensor_buffer_size, kTensorSize);
   LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_buffer_type,
-                              retrieved_tensor_buffer->BufferTypeCC());
+                              retrieved_tensor_buffer->BufferType());
   EXPECT_EQ(retrieved_tensor_buffer_type, kTensorBufferType);
   LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_type,
                               retrieved_tensor_buffer->TensorType());
@@ -206,7 +206,7 @@ TEST(InputAudioTest, GetPreprocessedAudioTensor) {
                               retrieved_tensor_buffer->Size());
   EXPECT_EQ(retrieved_tensor_buffer_size, kTensorSize);
   LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_buffer_type,
-                              retrieved_tensor_buffer->BufferTypeCC());
+                              retrieved_tensor_buffer->BufferType());
   EXPECT_EQ(retrieved_tensor_buffer_type, kTensorBufferType);
   LITERT_ASSERT_OK_AND_ASSIGN(auto retrieved_tensor_type,
                               retrieved_tensor_buffer->TensorType());

@@ -307,7 +307,7 @@ absl::StatusOr<TensorBuffer> ResizeKVCacheTensorBuffer(
   }
 
   LITERT_ASSIGN_OR_RETURN(litert::TensorBufferType buffer_type,
-                          tensor_buffer.BufferTypeCC());
+                          tensor_buffer.BufferType());
   Layout new_layout(Dimensions(new_dimensions.begin(), new_dimensions.end()));
   auto new_out_type =
       RankedTensorType(tensor_type.ElementType(), std::move(new_layout));
@@ -916,7 +916,7 @@ LlmLiteRtCompiledModelExecutorBase::DecodeLogits(
         absl::MakeSpan(current_token_ids)));
 
     LITERT_ASSIGN_OR_RETURN(auto output_logits_buffer_type,
-                            output_logits.BufferTypeCC());
+                            output_logits.BufferType());
     // If the output logits are already on the host memory, use the buffer
     // directly.
     if (output_logits_buffer_type == ::litert::TensorBufferType::kHostMemory) {

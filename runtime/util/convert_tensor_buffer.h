@@ -238,7 +238,7 @@ template <typename TargetType, typename SourceType>
 template <typename T>
 ::litert::Expected<absl::Span<T>> ReferTensorBufferAsSpan(
     const ::litert::TensorBuffer& tensor_buffer) {
-  if (auto buffer_type = tensor_buffer.BufferTypeCC();
+  if (auto buffer_type = tensor_buffer.BufferType();
       !buffer_type.HasValue() ||
       *buffer_type != ::litert::TensorBufferType::kHostMemory) {
     return ::litert::Unexpected(::litert::Status::kErrorInvalidArgument,

@@ -46,7 +46,7 @@ TEST(ConvertTensorBufferTest, CreateTensorBuffer_Success) {
   EXPECT_THAT(tensor_buffer.TensorType(),
               IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 5}))));
   EXPECT_THAT(tensor_buffer.Size(), IsOkAndHolds(10));
-  EXPECT_THAT(tensor_buffer.BufferTypeCC(),
+  EXPECT_THAT(tensor_buffer.BufferType(),
               IsOkAndHolds(::litert::TensorBufferType::kHostMemory));
 }
 
@@ -56,7 +56,7 @@ TEST(ConvertTensorBufferTest, CreateTensorBuffer_Success_MultipleBytes) {
   EXPECT_THAT(tensor_buffer.TensorType(),
               IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 5}))));
   EXPECT_THAT(tensor_buffer.Size(), IsOkAndHolds(40));
-  EXPECT_THAT(tensor_buffer.BufferTypeCC(),
+  EXPECT_THAT(tensor_buffer.BufferType(),
               IsOkAndHolds(::litert::TensorBufferType::kHostMemory));
 }
 
@@ -67,7 +67,7 @@ TEST(ConvertTensorBufferTest, CopyToTensorBuffer_Success) {
   EXPECT_THAT(tensor_buffer.TensorType(),
               IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 5}))));
   EXPECT_THAT(tensor_buffer.Size(), IsOkAndHolds(10));
-  EXPECT_THAT(tensor_buffer.BufferTypeCC(),
+  EXPECT_THAT(tensor_buffer.BufferType(),
               IsOkAndHolds(::litert::TensorBufferType::kHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
@@ -86,7 +86,7 @@ TEST(ConvertTensorBufferTest, CopyToTensorBuffer_Success_MultipleBytes) {
   EXPECT_THAT(tensor_buffer.TensorType(),
               IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 5}))));
   EXPECT_THAT(tensor_buffer.Size(), IsOkAndHolds(40));
-  EXPECT_THAT(tensor_buffer.BufferTypeCC(),
+  EXPECT_THAT(tensor_buffer.BufferType(),
               IsOkAndHolds(::litert::TensorBufferType::kHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
@@ -106,7 +106,7 @@ TEST(ConvertTensorBufferTest, ConvertAndCopyToTensorBuffer_ToInt8) {
   EXPECT_THAT(tensor_buffer.TensorType(),
               IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 5}))));
   EXPECT_THAT(tensor_buffer.Size(), IsOkAndHolds(10));
-  EXPECT_THAT(tensor_buffer.BufferTypeCC(),
+  EXPECT_THAT(tensor_buffer.BufferType(),
               IsOkAndHolds(::litert::TensorBufferType::kHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
@@ -126,7 +126,7 @@ TEST(ConvertTensorBufferTest, ConvertAndCopyToTensorBuffer_ToInt33) {
   EXPECT_THAT(tensor_buffer.TensorType(),
               IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 5}))));
   EXPECT_THAT(tensor_buffer.Size(), IsOkAndHolds(40));
-  EXPECT_THAT(tensor_buffer.BufferTypeCC(),
+  EXPECT_THAT(tensor_buffer.BufferType(),
               IsOkAndHolds(::litert::TensorBufferType::kHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(
@@ -146,7 +146,7 @@ TEST(ConvertTensorBufferTest, ConvertAndCopyToTensorBuffer_ToFloat) {
   EXPECT_THAT(tensor_buffer.TensorType(),
               IsOkAndHolds(LayoutDimensionsAre(Dimensions({2, 5}))));
   EXPECT_THAT(tensor_buffer.Size(), IsOkAndHolds(40));
-  EXPECT_THAT(tensor_buffer.BufferTypeCC(),
+  EXPECT_THAT(tensor_buffer.BufferType(),
               IsOkAndHolds(::litert::TensorBufferType::kHostMemory));
 
   LITERT_ASSERT_OK_AND_ASSIGN(

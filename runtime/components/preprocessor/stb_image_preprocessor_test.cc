@@ -65,7 +65,7 @@ TEST(StbImagePreprocessorTest, PreprocessSuccess) {
                        preprocessed_image.GetPreprocessedImageTensor());
 
   // Verify the output tensor properties.
-  auto buffer_type = preprocessed_tensor->BufferTypeCC();
+  auto buffer_type = preprocessed_tensor->BufferType();
   ASSERT_TRUE(buffer_type.HasValue());
   EXPECT_EQ(buffer_type.Value(), ::litert::TensorBufferType::kHostMemory);
   auto tensor_type = preprocessed_tensor->TensorType();
