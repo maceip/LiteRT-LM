@@ -989,7 +989,6 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SampleLogits(
 absl::Status LlmLiteRtCompiledModelExecutorBase::Reset() {
   current_step_ = 0;
   RETURN_IF_ERROR(processed_tokens_.RollBackToStep(0));
-  sampler_.reset();
   return absl::OkStatus();
 }
 
