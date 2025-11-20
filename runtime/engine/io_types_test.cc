@@ -481,6 +481,35 @@ TEST(ResponsesTest, TaskStateToString) {
   }
 }
 
+TEST(ResponsesTest, SetTaskState) {
+  Responses responses(TaskState::kCreated, {});
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kCreated);
+  responses.SetTaskState(TaskState::kQueued);
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kQueued);
+  responses.SetTaskState(TaskState::kProcessing);
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kProcessing);
+  responses.SetTaskState(TaskState::kDone);
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kDone);
+  responses.SetTaskState(TaskState::kMaxNumTokensReached);
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kMaxNumTokensReached);
+  responses.SetTaskState(TaskState::kFailed);
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kFailed);
+  responses.SetTaskState(TaskState::kDependentTaskFailed);
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kDependentTaskFailed);
+  responses.SetTaskState(TaskState::kUnknown);
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kUnknown);
+}
+
+TEST(ResponsesTest, IsTaskEndState) {
+  EXPECT_TRUE(IsTaskEndState(TaskState::kDone));
+  EXPECT_TRUE(IsTaskEndState(TaskState::kMaxNumTokensReached));
+  EXPECT_TRUE(IsTaskEndState(TaskState::kFailed));
+  EXPECT_TRUE(IsTaskEndState(TaskState::kDependentTaskFailed));
+  EXPECT_FALSE(IsTaskEndState(TaskState::kCreated));
+  EXPECT_FALSE(IsTaskEndState(TaskState::kQueued));
+  EXPECT_FALSE(IsTaskEndState(TaskState::kProcessing));
+}
+
 TEST(ResponsesTest, GetTexts) {
   Responses responses(TaskState::kProcessing,
                       {"Hello World!", "How's it going?"});

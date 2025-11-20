@@ -185,6 +185,8 @@ enum class TaskState {
 };
 std::ostream& operator<<(std::ostream& os, const TaskState& task_state);
 
+bool IsTaskEndState(const TaskState& task_state);
+
 // A container to host the model responses.
 class Responses {
  public:
@@ -197,6 +199,9 @@ class Responses {
 
   // Returns the task state.
   const TaskState& GetTaskState() const { return task_state_; }
+
+  // Sets the task state.
+  void SetTaskState(TaskState task_state) { task_state_ = task_state; }
 
   // Returns the const texts vector.
   const std::vector<std::string>& GetTexts() const { return response_texts_; }

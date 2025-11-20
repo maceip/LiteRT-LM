@@ -404,12 +404,6 @@ absl::Status ExecutionManager::AddPrefillTask(
   if (callback == nullptr) {
     callback = [](absl::StatusOr<Responses> responses) {};
   }
-  if (inputs.size() != 1) {
-    callback(absl::InvalidArgumentError(
-        absl::StrCat("Prefill task expects 1 input, but got ", inputs.size())));
-    return absl::InvalidArgumentError(
-        absl::StrCat("Prefill task expects 1 input, but got ", inputs.size()));
-  }
 
   absl::AnyInvocable<absl::StatusOr<Responses>(
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> & callback)>

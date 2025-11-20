@@ -177,6 +177,7 @@ cc_library(
     hdrs = ["session_basic.h"],
     deps = [
         ":pipeline",
+        ":session_utils",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/log:absl_log",
@@ -304,6 +305,51 @@ cc_test(
         "//runtime/executor:executor_settings_base",
         "//runtime/executor:fake_llm_executor",
         "//runtime/framework:threadpool",
+        "//runtime/util:test_utils",
+    ],
+)
+
+cc_library(
+    name = "session_utils",
+    srcs = ["session_utils.cc"],
+    hdrs = ["session_utils.h"],
+    deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@litert//litert/cc/internal:litert_detail",
+        "//runtime/components:tokenizer",
+        "//runtime/engine:engine_settings",
+        "//runtime/engine:io_types",
+        "//runtime/util:litert_status_util",
+    ],
+)
+
+cc_test(
+    name = "session_utils_test",
+    srcs = ["session_utils_test.cc"],
+    data = [
+        "//runtime/components/testdata",
+    ],
+    deps = [
+        ":session_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@litert//litert/test:matchers",
+        "//runtime/components:sentencepiece_tokenizer",
+        "//runtime/components:tokenizer",
+        "//runtime/engine:engine_settings",
+        "//runtime/engine:io_types",
+        "//runtime/proto:sampler_params_cc",
+        "//runtime/util:convert_tensor_buffer",
+        "//runtime/util:litert_status_util",
+        "//runtime/util:tensor_buffer_util",
         "//runtime/util:test_utils",
     ],
 )

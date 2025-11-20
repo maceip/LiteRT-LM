@@ -157,6 +157,13 @@ std::ostream& operator<<(std::ostream& os, const TaskState& task_state) {
   return os;
 }
 
+bool IsTaskEndState(const TaskState& task_state) {
+  return task_state == TaskState::kDone ||
+         task_state == TaskState::kMaxNumTokensReached ||
+         task_state == TaskState::kFailed ||
+         task_state == TaskState::kDependentTaskFailed;
+}
+
 std::ostream& operator<<(std::ostream& os, const Responses& responses) {
   os << "Task State: " << responses.GetTaskState() << std::endl;
   if (responses.GetTexts().empty()) {
