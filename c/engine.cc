@@ -97,6 +97,7 @@ using ::litert::lm::Message;
 using ::litert::lm::ModelAssets;
 using ::litert::lm::Responses;
 using ::litert::lm::SessionConfig;
+using ::litert::lm::proto::SamplerParameters;
 
 struct LiteRtLmEngineSettings {
   std::unique_ptr<EngineSettings> settings;
@@ -126,7 +127,35 @@ struct LiteRtLmJsonResponse {
   std::string json_string;
 };
 
+struct LiteRtLmSessionConfig {
+  std::unique_ptr<SessionConfig> config;
+};
+
 extern "C" {
+
+LiteRtLmSessionConfig* litert_lm_session_config_create(
+    const LiteRtLmSamplerParams* sampler_params) {
+  auto* c_config = new LiteRtLmSessionConfig;
+  c_config->config =
+      std::make_unique<SessionConfig>(SessionConfig::CreateDefault());
+  if (sampler_params) {
+    SamplerParameters& params = c_config->config->GetMutableSamplerParams();
+
+    // Based on the current engine implementation, when the SamplerConfig is
+    // set, we must switch to the TOP_P sampling type.
+    params.set_type(SamplerParameters::TOP_P);
+
+    params.set_k(sampler_params->top_k);
+    params.set_p(sampler_params->top_p);
+    params.set_temperature(sampler_params->temperature);
+    params.set_seed(sampler_params->seed);
+  }
+  return c_config;
+}
+
+void litert_lm_session_config_delete(LiteRtLmSessionConfig* config) {
+  delete config;
+}
 
 LiteRtLmEngineSettings* litert_lm_engine_settings_create(
     const char* model_path, const char* backend_str,

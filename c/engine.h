@@ -17,6 +17,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,30 @@ typedef struct LiteRtLmConversation LiteRtLmConversation;
 
 // Opaque pointer for a JSON response.
 typedef struct LiteRtLmJsonResponse LiteRtLmJsonResponse;
+
+// Opaque pointer for LiteRT LM Session Config.
+typedef struct LiteRtLmSessionConfig LiteRtLmSessionConfig;
+
+// Parameters for the sampler.
+typedef struct {
+  int32_t top_k;
+  float top_p;
+  float temperature;
+  int32_t seed;
+} LiteRtLmSamplerParams;
+
+// Creates a LiteRT LM Session Config.
+// The caller is responsible for destroying the config using
+// `litert_lm_session_config_delete`.
+// @param sampler_params The sampler parameters to use. If NULL, default
+// sampler parameters will be used.
+// @return A pointer to the created config, or NULL on failure.
+LiteRtLmSessionConfig* litert_lm_session_config_create(
+    const LiteRtLmSamplerParams* sampler_params);
+
+// Destroys a LiteRT LM Session Config.
+// @param config The config to destroy.
+void litert_lm_session_config_delete(LiteRtLmSessionConfig* config);
 
 // Sets the minimum log level for the LiteRT LM library.
 // Log levels are: 0=INFO, 1=WARNING, 2=ERROR, 3=FATAL.
@@ -101,8 +126,6 @@ void litert_lm_engine_settings_set_cache_dir(
 // @param settings The engine settings.
 void litert_lm_engine_settings_enable_benchmark(
     LiteRtLmEngineSettings* settings);
-
-
 
 // Creates a LiteRT LM Engine from the given settings. The caller is responsible
 // for destroying the engine using `litert_lm_engine_delete`.

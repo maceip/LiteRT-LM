@@ -17,6 +17,9 @@ struct LiteRtLmEngineSettings {
   std::unique_ptr<litert::lm::EngineSettings> settings;
 };
 
+struct LiteRtLmSessionConfig {
+  std::unique_ptr<litert::lm::SessionConfig> config;
+};
 
 namespace {
 
@@ -44,6 +47,9 @@ using ConversationPtr =
 using JsonResponsePtr =
     std::unique_ptr<LiteRtLmJsonResponse,
                     decltype(&litert_lm_json_response_delete)>;
+using SessionConfigPtr =
+    std::unique_ptr<LiteRtLmSessionConfig,
+                    decltype(&litert_lm_session_config_delete)>;
 
 TEST(EngineCTest, CreateSettingsWithNoVisionAndAudioBackend) {
   const std::string task_path = "test_model_path_1";
@@ -95,6 +101,30 @@ TEST(EngineCTest, SetCacheDir) {
   litert_lm_engine_settings_set_cache_dir(settings.get(), cache_dir.c_str());
   EXPECT_EQ(settings->settings->GetMainExecutorSettings().GetCacheDir(),
             cache_dir);
+}
+
+TEST(EngineCTest, CreateSessionConfigWithNoSamplerParams) {
+  SessionConfigPtr config(litert_lm_session_config_create(nullptr),
+                          &litert_lm_session_config_delete);
+  ASSERT_NE(config, nullptr);
+}
+
+TEST(EngineCTest, CreateSessionConfigWithSamplerParams) {
+  LiteRtLmSamplerParams sampler_params;
+  sampler_params.top_k = 10;
+  sampler_params.top_p = 0.5f;
+  sampler_params.temperature = 0.1f;
+  sampler_params.seed = 1234;
+
+  SessionConfigPtr config(litert_lm_session_config_create(&sampler_params),
+                          &litert_lm_session_config_delete);
+  ASSERT_NE(config, nullptr);
+
+  const auto& params = config->config->GetSamplerParams();
+  EXPECT_EQ(params.k(), 10);
+  EXPECT_FLOAT_EQ(params.p(), 0.5f);
+  EXPECT_FLOAT_EQ(params.temperature(), 0.1f);
+  EXPECT_EQ(params.seed(), 1234);
 }
 
 TEST(EngineCTest, GenerateContent) {
