@@ -114,23 +114,39 @@ absl::StatusOr<DataProcessorConfig> CreateGenericDataProcessorConfig(
 
 absl::StatusOr<DataProcessorConfig> CreateQwen3DataProcessorConfig(
     const proto::LlmModelType& model_type) {
-  if (!model_type.has_qwen3()) {
+  if (!model_type.has_qwen3() && !model_type.has_qwen2p5()) {
     return absl::InvalidArgumentError(
-        "Qwen3 LlmModelType is required to create "
+        "Qwen3 or Qwen2.5 LlmModelType is required to create "
         "Qwen3DataProcessorConfig.");
   }
   Qwen3DataProcessorConfig config;
-  if (model_type.qwen3().has_code_fence_start()) {
-    config.code_fence_start = model_type.qwen3().code_fence_start();
+  if (model_type.has_qwen3()) {
+    if (model_type.qwen3().has_code_fence_start()) {
+      config.code_fence_start = model_type.qwen3().code_fence_start();
+    }
+    if (model_type.qwen3().has_code_fence_end()) {
+      config.code_fence_end = model_type.qwen3().code_fence_end();
+    }
+    if (model_type.qwen3().has_escape_fence_strings()) {
+      config.escape_fence_strings = model_type.qwen3().escape_fence_strings();
+    }
+    if (model_type.qwen3().has_tool_code_regex()) {
+      config.tool_code_regex = model_type.qwen3().tool_code_regex();
+    }
   }
-  if (model_type.qwen3().has_code_fence_end()) {
-    config.code_fence_end = model_type.qwen3().code_fence_end();
-  }
-  if (model_type.qwen3().has_escape_fence_strings()) {
-    config.escape_fence_strings = model_type.qwen3().escape_fence_strings();
-  }
-  if (model_type.qwen3().has_tool_code_regex()) {
-    config.tool_code_regex = model_type.qwen3().tool_code_regex();
+  if (model_type.has_qwen2p5()) {
+    if (model_type.qwen2p5().has_code_fence_start()) {
+      config.code_fence_start = model_type.qwen2p5().code_fence_start();
+    }
+    if (model_type.qwen2p5().has_code_fence_end()) {
+      config.code_fence_end = model_type.qwen2p5().code_fence_end();
+    }
+    if (model_type.qwen2p5().has_escape_fence_strings()) {
+      config.escape_fence_strings = model_type.qwen2p5().escape_fence_strings();
+    }
+    if (model_type.qwen2p5().has_tool_code_regex()) {
+      config.tool_code_regex = model_type.qwen2p5().tool_code_regex();
+    }
   }
   return config;
 }
@@ -142,6 +158,7 @@ absl::StatusOr<DataProcessorConfig> CreateDataProcessorConfigFromLlmModelType(
     case proto::LlmModelType::kGemma3N:
       return CreateGemma3DataProcessorConfig(model_type);
     case proto::LlmModelType::kQwen3:
+    case proto::LlmModelType::kQwen2P5:
       return CreateQwen3DataProcessorConfig(model_type);
     case proto::LlmModelType::kGenericModel:
       return CreateGenericDataProcessorConfig(model_type);

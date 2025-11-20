@@ -108,6 +108,7 @@ absl::StatusOr<std::string> GetDefaultJinjaPromptTemplate(
     case proto::LlmModelType::kGemma3N:
     case proto::LlmModelType::kGemma3:
     case proto::LlmModelType::kQwen3:
+    case proto::LlmModelType::kQwen2P5:
     case proto::LlmModelType::kGenericModel:
       // absl::Substitute takes up to 10 arguments, so we have to split the
       // template into two parts.
