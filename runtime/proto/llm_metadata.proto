@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 syntax = "proto3";
 
 package litert.lm.proto;
@@ -96,3 +97,4 @@ message LlmMetadata {
   // field is also not set, the input will not be formatted with jinja template.
   optional string jinja_prompt_template = 7;
 }
+

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+
 syntax = "proto3";
 
 package litert.lm.proto;
@@ -90,3 +91,4 @@ message Qwen2p5 {
   // An optional regex to match each line of the tool code block.
   optional string tool_code_regex = 4;
 }
+
