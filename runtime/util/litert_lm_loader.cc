@@ -225,6 +225,15 @@ std::optional<litert::BufferRef<uint8_t>> LitertLmLoader::GetSectionBuffer(
   return section_buffers_[buffer_key];
 }
 
+absl::StatusOr<std::pair<size_t, size_t>> LitertLmLoader::GetSectionLocation(
+    BufferKey buffer_key) const{
+  auto section_location_it = section_locations_.find(buffer_key);
+  if (section_location_it == section_locations_.end()) {
+    return absl::NotFoundError("Section not found.");
+  }
+  return section_location_it->second;
+}
+
 std::optional<litert::OwningBufferRef<uint8_t>>
 LitertLmLoader::GetHuggingFaceTokenizer() {
   auto optional_section_buffer =

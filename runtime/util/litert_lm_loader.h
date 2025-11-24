@@ -150,6 +150,9 @@ class LitertLmLoader {
         .value();
   }
 
+  absl::StatusOr<std::pair<size_t, size_t>> GetSectionLocation(
+      BufferKey buffer_key) const;
+
  private:
   // Initializes the LitertLmLoader. Includes reading the model header and
   // recording the section locations for on-demand loading later.

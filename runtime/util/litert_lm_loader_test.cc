@@ -23,6 +23,7 @@
 #include "runtime/components/model_resources.h"
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
+#include "schema/core/litertlm_header_schema_generated.h"
 
 namespace litert::lm {
 
@@ -66,6 +67,33 @@ TEST(LitertLmLoaderTest, InitializeWithMemoryMappedFile) {
   EXPECT_GT(loader.GetTFLiteModel(ModelType::kTfLitePrefillDecode).Size(), 0);
   EXPECT_GT(loader.GetLlmMetadata().Size(), 0);
   EXPECT_EQ(loader.GetTFLiteModel(ModelType::kTfLiteEmbedder).Size(), 0);
+}
+
+TEST(LitertLmLoaderTest, GetSectionLocationSizeMatch) {
+  const auto model_path =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/runtime/testdata/test_lm.litertlm";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<MemoryMappedFile> mapped_file,
+                       MemoryMappedFile::Create(model_path.string()));
+  LitertLmLoader loader(std::move(mapped_file));
+
+  BufferKey sp_key(schema::AnySectionDataType_SP_Tokenizer);
+  ASSERT_OK_AND_ASSIGN(auto sp_location, loader.GetSectionLocation(sp_key));
+  EXPECT_EQ(sp_location.second - sp_location.first,
+            loader.GetSentencePieceTokenizer()->Size());
+
+  BufferKey model_key(schema::AnySectionDataType_TFLiteModel,
+                      ModelType::kTfLitePrefillDecode);
+  ASSERT_OK_AND_ASSIGN(auto model_location,
+                       loader.GetSectionLocation(model_key));
+  EXPECT_EQ(model_location.second - model_location.first,
+            loader.GetTFLiteModel(ModelType::kTfLitePrefillDecode).Size());
+
+  BufferKey metadata_key(schema::AnySectionDataType_LlmMetadataProto);
+  ASSERT_OK_AND_ASSIGN(auto metadata_location,
+                       loader.GetSectionLocation(metadata_key));
+  EXPECT_EQ(metadata_location.second - metadata_location.first,
+            loader.GetLlmMetadata().Size());
 }
 
 }  // namespace
