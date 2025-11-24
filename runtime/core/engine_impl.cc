@@ -27,7 +27,6 @@
 #include "absl/log/check.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
-#include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "litert/cc/litert_environment.h"  // from @litert
@@ -51,7 +50,6 @@
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/proto/sampler_params.pb.h"
-#include "runtime/util/file_format_util.h"
 #include "runtime/util/status_macros.h"  // NOLINT
 
 namespace litert::lm {
@@ -196,16 +194,6 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
 
   ASSIGN_OR_RETURN(auto model_resources,
                    BuildLiteRtCompiledModelResources(model_assets));
-  ASSIGN_OR_RETURN(auto scoped_file, model_assets.GetOrCreateScopedFile());
-  ASSIGN_OR_RETURN(auto file_format,
-                   GetFileFormat(/*model_path=*/"", scoped_file));
-
-  // TODO(b/397975034): factor out the tokenizer creation logic once the
-  // model loading mechanism of the new file format is determined.
-  if (file_format != FileFormat::TASK && file_format != FileFormat::LITERT_LM) {
-    return absl::InvalidArgumentError(
-        absl::StrCat("Not supported file format: ", file_format));
-  }
 
   if (benchmark_info.has_value()) {
     RETURN_IF_ERROR(
