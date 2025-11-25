@@ -23,7 +23,7 @@ stack, and more flexibility. LiteRT-LM can help with all three.
 
 ### 🚀 What's New
 
-*   ***Oct 2025*** **: Desktop GPU support and more**
+*   ***Nov 2025*** **: Desktop GPU support and more (`v0.8.0`)**
     - Desktop GPU support.
     - Simple CLI for Desktop: [Link to Quick Start section](#quick_start)
     - Multi-Modality support: Vision and Audio input are supported when models
@@ -93,10 +93,10 @@ with performance lock on Android devices).
 the pre-built binary below to run the LiteRT-LM immediately.
 ### Desktop CLI (LIT)
 
--   [MacOS ARM64](https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.7.0/lit.macos_arm64)
--   [Linux x86_64](https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.7.0/lit.linux_x86_64)
--   [Linux ARM64](https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.7.0/lit.linux_arm64)
--   [Windows x86_64](https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.7.0/lit.windows_x86_64.exe)
+-   [MacOS ARM64](https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.8.0/lit.macos_arm64)
+-   [Linux x86_64](https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.8.0/lit.linux_x86_64)
+-   [Linux ARM64](https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.8.0/lit.linux_arm64)
+-   [Windows x86_64](https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.8.0/lit.windows_x86_64.exe)
 
 After the download the `lit` binary, just run `lit` to see the options.
 Simple use case is like:
@@ -169,7 +169,7 @@ To start working, create a new branch from the stable tag. This is the
 recommended approach for development.
 
 ```
-git checkout -b <my-feature-branch> <release-tag, e.g. "v0.7.0">
+git checkout -b <my-feature-branch> <release-tag, e.g. "v0.8.0">
 ```
 
 You are now on a local branch created from the tag and ready to work.
