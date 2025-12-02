@@ -347,6 +347,11 @@ int litert_lm_conversation_send_message_stream(
     LiteRtLmConversation* conversation, const char* message_json,
     LiteRtLmStreamCallback callback, void* callback_data);
 
+// Cancels the ongoing inference process, for asynchronous inference.
+//
+// @param conversation The conversation to cancel the inference for.
+void litert_lm_conversation_cancel_process(LiteRtLmConversation* conversation);
+
 // Retrieves the benchmark information from the conversation. The caller is
 // responsible for destroying the benchmark info using
 // `litert_lm_benchmark_info_delete`.

@@ -597,6 +597,13 @@ int litert_lm_conversation_send_message_stream(
   return 0;
 }
 
+void litert_lm_conversation_cancel_process(LiteRtLmConversation* conversation) {
+  if (!conversation || !conversation->conversation) {
+    return;
+  }
+  conversation->conversation->CancelProcess();
+}
+
 LiteRtLmBenchmarkInfo* litert_lm_conversation_get_benchmark_info(
     LiteRtLmConversation* conversation) {
   if (!conversation || !conversation->conversation) {
