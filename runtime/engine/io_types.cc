@@ -150,6 +150,12 @@ std::ostream& operator<<(std::ostream& os, const TaskState& task_state) {
     case TaskState::kDependentTaskFailed:
       os << "DependentTaskFailed";
       break;
+    case TaskState::kCancelled:
+      os << "Cancelled";
+      break;
+    case TaskState::kDependentTaskCancelled:
+      os << "DependentTaskCancelled";
+      break;
     default:
       os << "Unknown";
       break;
@@ -161,7 +167,9 @@ bool IsTaskEndState(const TaskState& task_state) {
   return task_state == TaskState::kDone ||
          task_state == TaskState::kMaxNumTokensReached ||
          task_state == TaskState::kFailed ||
-         task_state == TaskState::kDependentTaskFailed;
+         task_state == TaskState::kDependentTaskFailed ||
+         task_state == TaskState::kCancelled ||
+         task_state == TaskState::kDependentTaskCancelled;
 }
 
 std::ostream& operator<<(std::ostream& os, const Responses& responses) {

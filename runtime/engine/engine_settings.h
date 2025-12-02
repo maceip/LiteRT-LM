@@ -159,6 +159,18 @@ class SessionConfig {
   // correctly. Returns an error if the validation fails.
   absl::Status MaybeUpdateAndValidate(const EngineSettings& engine_settings);
 
+  // Configures the audio modality in the session.
+  bool AudioModalityEnabled() const { return audio_modality_enabled_; }
+  void SetAudioModalityEnabled(bool enable_audio_modality) {
+    audio_modality_enabled_ = enable_audio_modality;
+  }
+
+  // Configures the vision modality in the session.
+  bool VisionModalityEnabled() const { return vision_modality_enabled_; }
+  void SetVisionModalityEnabled(bool enable_vision_modality) {
+    vision_modality_enabled_ = enable_vision_modality;
+  }
+
   // Sampler parameters:
   // Getters for the sampler parameters.
   const proto::SamplerParameters& GetSamplerParams() const;
@@ -215,6 +227,12 @@ class SessionConfig {
   // Private constructor for the SessionConfig. The user should use the
   // CreateDefault() method to create a SessionConfig.
   explicit SessionConfig(const proto::SamplerParameters& sampler_params);
+
+  // Whether to enable audio modality in the session.
+  bool audio_modality_enabled_ = false;
+
+  // Whether to enable vision modality in the session.
+  bool vision_modality_enabled_ = false;
 
   // Parameters used to configure the sampling process.
   proto::SamplerParameters sampler_params_;

@@ -433,12 +433,20 @@ TEST(ResponsesTest, GetTaskState) {
     EXPECT_EQ(responses.GetTaskState(), TaskState::kDependentTaskFailed);
   }
   {
+    Responses responses(TaskState::kCancelled, {});
+    EXPECT_EQ(responses.GetTaskState(), TaskState::kCancelled);
+  }
+  {
+    Responses responses(TaskState::kDependentTaskCancelled, {});
+    EXPECT_EQ(responses.GetTaskState(), TaskState::kDependentTaskCancelled);
+  }
+  {
     Responses responses(TaskState::kUnknown, {});
     EXPECT_EQ(responses.GetTaskState(), TaskState::kUnknown);
   }
 }
 
-TEST(ResponsesTest, TaskStateToString) {
+TEST(TaskStateTest, TaskStateToString) {
   {
     std::stringstream ss;
     ss << TaskState::kCreated;
@@ -476,6 +484,16 @@ TEST(ResponsesTest, TaskStateToString) {
   }
   {
     std::stringstream ss;
+    ss << TaskState::kCancelled;
+    EXPECT_EQ(ss.str(), "Cancelled");
+  }
+  {
+    std::stringstream ss;
+    ss << TaskState::kDependentTaskCancelled;
+    EXPECT_EQ(ss.str(), "DependentTaskCancelled");
+  }
+  {
+    std::stringstream ss;
     ss << TaskState::kUnknown;
     EXPECT_EQ(ss.str(), "Unknown");
   }
@@ -496,15 +514,21 @@ TEST(ResponsesTest, SetTaskState) {
   EXPECT_EQ(responses.GetTaskState(), TaskState::kFailed);
   responses.SetTaskState(TaskState::kDependentTaskFailed);
   EXPECT_EQ(responses.GetTaskState(), TaskState::kDependentTaskFailed);
+  responses.SetTaskState(TaskState::kCancelled);
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kCancelled);
+  responses.SetTaskState(TaskState::kDependentTaskCancelled);
+  EXPECT_EQ(responses.GetTaskState(), TaskState::kDependentTaskCancelled);
   responses.SetTaskState(TaskState::kUnknown);
   EXPECT_EQ(responses.GetTaskState(), TaskState::kUnknown);
 }
 
-TEST(ResponsesTest, IsTaskEndState) {
+TEST(TaskStateTest, IsTaskEndState) {
   EXPECT_TRUE(IsTaskEndState(TaskState::kDone));
   EXPECT_TRUE(IsTaskEndState(TaskState::kMaxNumTokensReached));
   EXPECT_TRUE(IsTaskEndState(TaskState::kFailed));
   EXPECT_TRUE(IsTaskEndState(TaskState::kDependentTaskFailed));
+  EXPECT_TRUE(IsTaskEndState(TaskState::kCancelled));
+  EXPECT_TRUE(IsTaskEndState(TaskState::kDependentTaskCancelled));
   EXPECT_FALSE(IsTaskEndState(TaskState::kCreated));
   EXPECT_FALSE(IsTaskEndState(TaskState::kQueued));
   EXPECT_FALSE(IsTaskEndState(TaskState::kProcessing));

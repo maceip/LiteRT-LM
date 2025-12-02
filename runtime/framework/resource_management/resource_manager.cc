@@ -249,46 +249,25 @@ class LockedLlmExecutor : public LlmExecutor {
   }
 
   absl::Status Decode(TensorBuffer& output_tokens) override {
-    // If the executor is not acquired by any handler, forward the decode
-    // request to the executor directly.
-    if (current_handler_ == nullptr) {
-      return llm_executor_->Decode(output_tokens);
-    }
-    // If the current_step is pointing at the step right after the last
-    // processed token, call executor directly.
-    ASSIGN_OR_RETURN(int current_step, llm_executor_->GetCurrentStep());
-    ASSIGN_OR_RETURN(const ProcessedTokens* processed_tokens,
-                     llm_executor_->GetProcessedTokens());
-    if (processed_tokens->TokenCount() == current_step) {
-      return llm_executor_->Decode(output_tokens);
-    }
+    return Decode(output_tokens, ExecutorDecodeParams());
+  }
 
-    // Confirm if the current handler is the longest handler. If not,
-    // cloning processed context is required to avoid modifying the
-    // processed context of other handlers.
-    ASSIGN_OR_RETURN(
-        int largest_time_step,
-        current_handler_->shared_processed_context()->LongestHandlerTimeStep(
-            *llm_executor_));
-    if (largest_time_step != current_step) {
-      // If the current handler is not the longest handler, retrieve the
-      // processed_context for the previous handler, and update the current
-      // handler's shared_processed_context.
-      RETURN_IF_ERROR(SaveProcessedContextAndSeparateLoadedHandler(
-          current_handler_, llm_executor_));
-    }
-    // Update the current step since the new processed context (set above)
-    // might not match the executor's current step, and the processed
-    // context may need to be truncated.
-    // TODO: b/418002952 - Consider setting the current step within Decode
-    // rather than relying on the caller.
-    RETURN_IF_ERROR(llm_executor_->SetCurrentStep(current_step));
-    return llm_executor_->Decode(output_tokens);
+  absl::Status Decode(TensorBuffer& output_tokens,
+                      const ExecutorDecodeParams& decode_params) override {
+    RETURN_IF_ERROR(MaybeTruncateProcessedTokens());
+    return llm_executor_->Decode(output_tokens, decode_params);
   }
 
   absl::Status Decode(const ExecutorInputs& inputs,
                       TensorBuffer& output_logits) override {
-    return llm_executor_->Decode(inputs, output_logits);
+    RETURN_IF_ERROR(MaybeTruncateProcessedTokens());
+    return llm_executor_->Decode(output_logits);
+  }
+
+  absl::StatusOr<TensorBuffer> DecodeLogits(
+      const ExecutorInputs& inputs) override {
+    RETURN_IF_ERROR(MaybeTruncateProcessedTokens());
+    return llm_executor_->DecodeLogits(inputs);
   }
 
   absl::StatusOr<std::unique_ptr<LlmContext>> CloneContext() const override {
@@ -317,6 +296,10 @@ class LockedLlmExecutor : public LlmExecutor {
     return llm_executor_->GetRuntimeState();
   }
 
+  absl::StatusOr<LlmExecutorSettings> GetExecutorSettings() const override {
+    return llm_executor_->GetExecutorSettings();
+  }
+
   absl::StatusOr<int> GetCurrentStep() const override {
     return llm_executor_->GetCurrentStep();
   }
@@ -341,6 +324,39 @@ class LockedLlmExecutor : public LlmExecutor {
   }
 
  private:
+  absl::Status MaybeTruncateProcessedTokens() {
+    if (current_handler_ == nullptr) {
+      return absl::OkStatus();
+    }
+    ASSIGN_OR_RETURN(int current_step, llm_executor_->GetCurrentStep());
+    ASSIGN_OR_RETURN(const ProcessedTokens* processed_tokens,
+                     llm_executor_->GetProcessedTokens());
+    if (processed_tokens->TokenCount() == current_step) {
+      return absl::OkStatus();
+    }
+
+    // Confirm if the current handler is the longest handler. If not,
+    // cloning processed context is required to avoid modifying the
+    // processed context of other handlers.
+    ASSIGN_OR_RETURN(
+        int largest_time_step,
+        current_handler_->shared_processed_context()->LongestHandlerTimeStep(
+            *llm_executor_));
+    if (largest_time_step != current_step) {
+      // If the current handler is not the longest handler, retrieve the
+      // processed_context for the previous handler, and update the current
+      // handler's shared_processed_context.
+      RETURN_IF_ERROR(SaveProcessedContextAndSeparateLoadedHandler(
+          current_handler_, llm_executor_));
+    }
+    // Update the current step since the new processed context (set above)
+    // might not match the executor's current step, and the processed
+    // context may need to be truncated.
+    // TODO: b/418002952 - Consider setting the current step within Decode
+    // rather than relying on the caller.
+    return llm_executor_->SetCurrentStep(current_step);
+  }
+
   // The current context handler;
   std::shared_ptr<ContextHandler> current_handler_;
 

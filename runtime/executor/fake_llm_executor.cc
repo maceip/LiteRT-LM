@@ -150,6 +150,7 @@ absl::Status FakeLlmExecutor::Prefill(const ExecutorInputs& inputs) {
       CheckEquivalent(absl::MakeSpan(prefill_tokens_set_[prefill_times_]),
                       *text_token_ids_span));
   last_op_ = LastOp::kPrefill;
+  processed_tokens_.AddProcessedTokens(prefill_tokens_set_[prefill_times_]);
   prefill_times_++;
   current_step_ += text_token_ids_span->size();
   return absl::OkStatus();
@@ -224,6 +225,7 @@ absl::Status FakeLlmExecutor::Decode(
     }
   }
   last_op_ = LastOp::kDecode;
+  processed_tokens_.AddProcessedTokens(decode_tokens_set_[decode_times_]);
   decode_times_++;
   current_step_++;
   return absl::OkStatus();
@@ -253,6 +255,7 @@ absl::Status FakeLlmExecutor::Decode(const ExecutorInputs& inputs,
   DecodeIdsToLogits(decode_tokens_set_[decode_times_], vocab_size_,
                     output_logits);
   last_op_ = LastOp::kDecode;
+  processed_tokens_.AddProcessedTokens(decode_tokens_set_[decode_times_]);
   decode_times_++;
   current_step_++;
   return absl::OkStatus();
@@ -260,34 +263,11 @@ absl::Status FakeLlmExecutor::Decode(const ExecutorInputs& inputs,
 
 absl::StatusOr<::litert::TensorBuffer> FakeLlmExecutor::DecodeLogits(
     const ExecutorInputs& inputs) {
-  TryDecodeDelay();
-  RETURN_IF_ERROR(decode_status_);
-  if (last_op_ == LastOp::kNone) {
-    return absl::FailedPreconditionError(
-        "Decode called without prior prefill or decode.");
-  }
-  if (decode_times_ >= decode_tokens_set_.size()) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "Decode function has been called more times than the number of "
-        "expected decode tokens.",
-        decode_times_));
-  }
-  if (decode_times_ > 0) {
-    // Check that the input tokens match the decode tokens from the last call.
-    auto input_span =
-        ReferTensorBufferAsSpan<int>(*(*inputs.GetTextTokenIdsPtr()));
-    RETURN_IF_ERROR(CheckEquivalent(
-        absl::MakeSpan(decode_tokens_set_[decode_times_ - 1]), *input_span));
-  }
   LITERT_ASSIGN_OR_RETURN(
       auto output_logits,
       CreateTensorBuffer<float>({batch_size_, 1, vocab_size_}));
-  DecodeIdsToLogits(decode_tokens_set_[decode_times_], vocab_size_,
-                    output_logits);
-  last_op_ = LastOp::kDecode;
-  decode_times_++;
-  current_step_++;
-  return std::move(output_logits);
+  RETURN_IF_ERROR(Decode(inputs, output_logits));
+  return output_logits;
 }
 
 void FakeLlmExecutor::TryDecodeDelay() {

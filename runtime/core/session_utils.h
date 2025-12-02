@@ -34,7 +34,7 @@ absl::StatusOr<std::string> MaybeGetBosString(
 // The util function to convert the string to processed input text.
 absl::StatusOr<InputText> StringToProcessedInputText(
     absl::string_view text, const SessionConfig& session_config,
-    Tokenizer& tokenizer, std::optional<BenchmarkInfo>& benchmark_info);
+    Tokenizer& tokenizer, const std::optional<BenchmarkInfo>& benchmark_info);
 
 // Util function for applying the prompt templates.
 // input: The input text to apply the prompt templates.
@@ -53,7 +53,7 @@ absl::StatusOr<std::vector<InputData>> ApplyPromptTemplates(
 // Text input will be preprocessed by the tokenizer.
 absl::StatusOr<std::vector<InputData>> PreprocessContents(
     const std::vector<InputData>& contents, const SessionConfig& session_config,
-    Tokenizer& tokenizer, std::optional<BenchmarkInfo>& benchmark_info);
+    Tokenizer& tokenizer, const std::optional<BenchmarkInfo>& benchmark_info);
 
 }  // namespace litert::lm
 

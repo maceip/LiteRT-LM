@@ -633,6 +633,20 @@ TEST(SessionConfigTest, CreateDefault) {
   EXPECT_EQ(session_config.GetSamplerBackend(), Backend::UNSPECIFIED);
 }
 
+TEST(SessionConfigTest, SetAndGetAudioModalityEnabled) {
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  EXPECT_FALSE(session_config.AudioModalityEnabled());
+  session_config.SetAudioModalityEnabled(true);
+  EXPECT_TRUE(session_config.AudioModalityEnabled());
+}
+
+TEST(SessionConfigTest, SetAndGetVisionModalityEnabled) {
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  EXPECT_FALSE(session_config.VisionModalityEnabled());
+  session_config.SetVisionModalityEnabled(true);
+  EXPECT_TRUE(session_config.VisionModalityEnabled());
+}
+
 TEST(SessionConfigTest, SetAndGetSamplerParams) {
   SessionConfig session_config = SessionConfig::CreateDefault();
   proto::SamplerParameters& sampler_params =

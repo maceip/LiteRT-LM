@@ -44,7 +44,7 @@ absl::StatusOr<std::string> MaybeGetBosString(
 
 absl::StatusOr<InputText> StringToProcessedInputText(
     absl::string_view text, const SessionConfig& session_config,
-    Tokenizer& tokenizer, std::optional<BenchmarkInfo>& benchmark_info) {
+    Tokenizer& tokenizer, const std::optional<BenchmarkInfo>& benchmark_info) {
   auto bos_token_id = session_config.GetStartTokenId();
   std::string bos_string = "";
   if (bos_token_id >= 0) {
@@ -158,7 +158,7 @@ absl::StatusOr<std::vector<InputData>> ApplyPromptTemplates(
 
 absl::StatusOr<std::vector<InputData>> PreprocessContents(
     const std::vector<InputData>& contents, const SessionConfig& session_config,
-    Tokenizer& tokenizer, std::optional<BenchmarkInfo>& benchmark_info) {
+    Tokenizer& tokenizer, const std::optional<BenchmarkInfo>& benchmark_info) {
   std::vector<InputData> preprocessed_contents;
   for (int i = 0; i < contents.size(); ++i) {
     const auto& content = contents[i];

@@ -15,6 +15,7 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_MOCK_LLM_EXECUTOR_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_MOCK_LLM_EXECUTOR_H_
 
+#include <memory>
 #include <optional>
 #include <vector>
 
@@ -25,6 +26,7 @@
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
+#include "runtime/executor/llm_executor_processed_tokens.h"
 #include "runtime/executor/llm_executor_settings.h"
 
 namespace litert::lm {
@@ -120,6 +122,9 @@ class FakeLlmExecutor : public LlmExecutor {
 
   // The current step of the executor.
   int current_step_;
+
+  // The processed tokens of the executor.
+  ProcessedTokens processed_tokens_;
 
   // The status to be returned by the Prefill function.
   absl::Status prefill_status_ = absl::OkStatus();

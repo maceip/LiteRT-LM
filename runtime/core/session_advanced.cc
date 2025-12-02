@@ -48,8 +48,12 @@ absl::StatusOr<std::unique_ptr<SessionAdvanced>> SessionAdvanced::Create(
     ExecutionManager* absl_nonnull execution_manager,
     Tokenizer* absl_nonnull tokenizer, const SessionConfig& session_config,
     std::optional<BenchmarkInfo> benchmark_info) {
-  return absl::WrapUnique(new SessionAdvanced(execution_manager, tokenizer,
-                                              session_config, benchmark_info));
+  ASSIGN_OR_RETURN(auto session_id, execution_manager->RegisterNewSession(
+                                        session_config, benchmark_info));
+  ASSIGN_OR_RETURN(auto session_info_,
+                   execution_manager->GetSessionInfo(session_id));
+  return absl::WrapUnique(new SessionAdvanced(session_id, execution_manager,
+                                              tokenizer, session_info_));
 }
 
 absl::Status SessionAdvanced::RunPrefill(
@@ -74,38 +78,28 @@ absl::Status SessionAdvanced::RunPrefillAsync(
     cancelled_->store(false);
   }
   std::vector<InputData> preprocessed_contents;
-  if (benchmark_info_.has_value() &&
-      benchmark_info_->GetBenchmarkParams().num_prefill_tokens() > 0) {
-    ASSIGN_OR_RETURN(preprocessed_contents,
-                     PreprocessContents(contents, session_config_, tokenizer_,
-                                        benchmark_info_));
+  if (session_info_->benchmark_info.has_value() &&
+      session_info_->benchmark_info->GetBenchmarkParams().num_prefill_tokens() >
+          0) {
+    ASSIGN_OR_RETURN(
+        preprocessed_contents,
+        PreprocessContents(contents, session_info_->session_config, tokenizer_,
+                           session_info_->benchmark_info));
   } else {
-    ASSIGN_OR_RETURN(std::vector<InputData> templated_contents,
-                     ApplyPromptTemplates(contents, session_config_, tokenizer_,
-                                          is_first_turn_));
-    ASSIGN_OR_RETURN(preprocessed_contents,
-                     PreprocessContents(templated_contents, session_config_,
-                                        tokenizer_, benchmark_info_));
+    ASSIGN_OR_RETURN(
+        std::vector<InputData> templated_contents,
+        ApplyPromptTemplates(contents, session_info_->session_config,
+                             tokenizer_, is_first_turn_));
+    ASSIGN_OR_RETURN(
+        preprocessed_contents,
+        PreprocessContents(templated_contents, session_info_->session_config,
+                           tokenizer_, session_info_->benchmark_info));
   }
   ASSIGN_OR_RETURN(auto task_id, execution_manager_.GetNewTaskId());
-  absl::flat_hash_set<TaskId> dep_tasks;
-  {
-    absl::MutexLock lock(processing_tasks_mutex_);
-    dep_tasks = processing_tasks_;
-    processing_tasks_.insert(task_id);
-  }
+
   RETURN_IF_ERROR(execution_manager_.AddPrefillTask(
-      task_id, std::move(preprocessed_contents), dep_tasks, benchmark_info_,
-      [&, task_id, callback = std::move(callback)](
-          absl::StatusOr<Responses> responses) mutable {
-        callback(responses);
-        if (responses.ok()) {
-          if (IsTaskEndState(responses->GetTaskState())) {
-            absl::MutexLock lock(processing_tasks_mutex_);
-            processing_tasks_.erase(task_id);
-          }
-        }
-      }));
+      session_id_, task_id, std::move(preprocessed_contents), last_task_ids_,
+      std::move(callback)));
   return absl::OkStatus();
 }
 
@@ -116,10 +110,13 @@ absl::StatusOr<Responses> SessionAdvanced::RunDecode() {
 absl::StatusOr<Responses> SessionAdvanced::RunDecode(
     const DecodeConfig& decode_config) {
   absl::StatusOr<Responses> collected_responses;
-  collected_responses = Responses(
-      TaskState::kCreated, /*texts=*/
-      std::vector<std::string>(session_config_.GetNumOutputCandidates()),
-      /*scores=*/std::vector<float>(session_config_.GetNumOutputCandidates()));
+  collected_responses =
+      Responses(TaskState::kCreated, /*texts=*/
+                std::vector<std::string>(
+                    session_info_->session_config.GetNumOutputCandidates()),
+                /*scores=*/
+                std::vector<float>(
+                    session_info_->session_config.GetNumOutputCandidates()));
   int num_decode_tokens = 0;
   auto decode_sync_callback = [&collected_responses, &num_decode_tokens](
                                   absl::StatusOr<Responses> responses) {
@@ -186,26 +183,13 @@ absl::Status SessionAdvanced::RunDecodeAsync(
     cancelled_->store(false);
   }
   ASSIGN_OR_RETURN(auto task_id, execution_manager_.GetNewTaskId());
-  absl::flat_hash_set<TaskId> dep_tasks;
-  {
-    absl::MutexLock lock(processing_tasks_mutex_);
-    dep_tasks = processing_tasks_;
-    processing_tasks_.insert(task_id);
-  }
+
   RETURN_IF_ERROR(execution_manager_.AddDecodeTask(
-      task_id, dep_tasks, session_config_.GetNumOutputCandidates(),
-      decode_config.GetConstraint(), cancelled_, benchmark_info_,
-      /*callback=*/
-      [&, callback = std::move(callback)](
-          absl::StatusOr<Responses> responses) mutable {
-        callback(responses);
-        if (responses.ok()) {
-          if (IsTaskEndState(responses->GetTaskState())) {
-            absl::MutexLock lock(processing_tasks_mutex_);
-            processing_tasks_.erase(task_id);
-          }
-        }
-      }));
+      session_id_, task_id, last_task_ids_, decode_config.GetConstraint(),
+      cancelled_, std::move(callback)));
+
+  last_task_ids_ = {task_id};
+
   return absl::OkStatus();
 }
 
@@ -216,8 +200,8 @@ absl::StatusOr<Responses> SessionAdvanced::RunTextScoring(
 }
 
 absl::StatusOr<BenchmarkInfo> SessionAdvanced::GetBenchmarkInfo() {
-  if (benchmark_info_.has_value()) {
-    return benchmark_info_.value();
+  if (session_info_->benchmark_info.has_value()) {
+    return session_info_->benchmark_info.value();
   }
   return absl::InternalError(
       "Benchmark is not enabled. Please make sure the BenchmarkParams is set "

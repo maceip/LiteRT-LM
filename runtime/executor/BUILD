@@ -396,6 +396,7 @@ cc_library(
         ":executor_settings_base",
         ":llm_executor",
         ":llm_executor_io_types",
+        ":llm_executor_processed_tokens",
         ":llm_executor_settings",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

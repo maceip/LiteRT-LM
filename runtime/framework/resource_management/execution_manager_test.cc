@@ -36,6 +36,7 @@
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/fake_llm_executor.h"
 #include "runtime/proto/token.pb.h"
+#include "runtime/util/status_macros.h"  // IWYU pragma: keep
 #include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
@@ -69,12 +70,12 @@ class ExecutionManagerTest : public ::testing::Test {
         .WillRepeatedly(Return("6"));
   }
 
-  void CreateExecutionManager(
-      std::unique_ptr<FakeLlmExecutor> fake_llm_executor,
+  absl::StatusOr<SessionConfig> CreateDefaultSessionConfig(
       bool use_external_sampler = false) {
-    auto model_assets = ModelAssets::Create("test_model_path_1");
-    ASSERT_OK(model_assets);
-    auto settings = EngineSettings::CreateDefault(*model_assets);
+    ASSIGN_OR_RETURN(auto model_assets,
+                     ModelAssets::Create("test_model_path_1"));
+    ASSIGN_OR_RETURN(auto settings,
+                     EngineSettings::CreateDefault(model_assets));
 
     proto::LlmMetadata llm_metadata;
     llm_metadata.mutable_stop_tokens()
@@ -88,24 +89,30 @@ class ExecutionManagerTest : public ::testing::Test {
         ->mutable_ids()
         ->Add(6);
     llm_metadata.mutable_llm_model_type()->mutable_gemma3n();
-    EXPECT_OK(settings->MaybeUpdateAndValidate(*tokenizer_, &llm_metadata));
+    EXPECT_OK(settings.MaybeUpdateAndValidate(*tokenizer_, &llm_metadata));
     SessionConfig session_config = SessionConfig::CreateDefault();
-    EXPECT_OK(session_config.MaybeUpdateAndValidate(*settings));
+    EXPECT_OK(session_config.MaybeUpdateAndValidate(settings));
     if (use_external_sampler) {
       session_config.SetSamplerBackend(Backend::CPU);
     } else {
       session_config.SetSamplerBackend(Backend::GPU);
     }
+    return session_config;
+  };
+
+  void CreateExecutionManager(
+      std::unique_ptr<FakeLlmExecutor> fake_llm_executor) {
+    std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
 
     // The objects are moved to execution_manager_ so we can't access them
     // after creation.
-    LITERT_ASSERT_OK_AND_ASSIGN(
-        execution_manager_, ExecutionManager::Create(
-                                /*tokenizer=*/tokenizer_.get(),
-                                /*llm_executor=*/std::move(fake_llm_executor),
-                                /*vision_executor=*/nullptr,
-                                /*audio_executor=*/nullptr,
-                                /*session_config=*/std::move(session_config)));
+    ASSERT_OK_AND_ASSIGN(execution_manager_,
+                         ExecutionManager::Create(
+                             /*tokenizer=*/tokenizer_.get(),
+                             /*llm_executor=*/std::move(fake_llm_executor),
+                             /*vision_executor_settings=*/nullptr,
+                             /*audio_executor_settings=*/nullptr,
+                             /*litert_env=*/nullptr));
   }
 
   std::unique_ptr<FakeLlmExecutor> CreateDefaultFakeLlmExecutor() {
@@ -124,6 +131,10 @@ class ExecutionManagerTest : public ::testing::Test {
 
 TEST_F(ExecutionManagerTest, AddPrefillTask) {
   CreateExecutionManager(CreateDefaultFakeLlmExecutor());
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
   std::vector<TaskState> task_states;
   absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback =
       [&task_states](absl::StatusOr<Responses> responses) {
@@ -135,11 +146,11 @@ TEST_F(ExecutionManagerTest, AddPrefillTask) {
   ASSERT_OK_AND_ASSIGN(auto input_text,
                        tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
   inputs.push_back(InputText(std::move(input_text)));
-  std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
+
   ASSERT_OK_AND_ASSIGN(const TaskId task_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
-      task_id, std::move(inputs), {}, benchmark_info, std::move(callback)));
+      session_id, task_id, std::move(inputs), {}, std::move(callback)));
 
   EXPECT_OK(execution_manager_->WaitUntilDone(task_id, absl::Seconds(3)));
 
@@ -152,6 +163,11 @@ TEST_F(ExecutionManagerTest, AddPrefillTask) {
 TEST_F(ExecutionManagerTest, AddDecodeTaskWithInternalSampler) {
   // The default execution manager is using the internal sampler.
   CreateExecutionManager(CreateDefaultFakeLlmExecutor());
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
   std::vector<TaskState> task_states;
   std::vector<std::string> responses_texts;
   absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback =
@@ -171,16 +187,17 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithInternalSampler) {
   ASSERT_OK_AND_ASSIGN(const TaskId prefill_task_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
-      prefill_task_id, std::move(inputs), {}, benchmark_info,
+      session_id, prefill_task_id, std::move(inputs), {},
       [](absl::StatusOr<Responses> responses) {}));
   ASSERT_OK(
       execution_manager_->WaitUntilDone(prefill_task_id, absl::Seconds(3)));
 
   ASSERT_OK_AND_ASSIGN(const TaskId decode_task_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddDecodeTask(decode_task_id, {}, 1, nullptr,
-                                              nullptr, benchmark_info,
-                                              std::move(callback)));
+  ASSERT_OK(execution_manager_->AddDecodeTask(
+      session_id, decode_task_id,
+      /*dependency_task_ids=*/{},
+      /*constraint=*/nullptr, /*cancelled=*/nullptr, std::move(callback)));
 
   EXPECT_OK(
       execution_manager_->WaitUntilDone(decode_task_id, absl::Seconds(3)));
@@ -198,10 +215,15 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithExternalSampler) {
   std::vector<std::vector<int>> decode_tokens = {{4}, {5}, {6}};
 
   CreateExecutionManager(std::make_unique<FakeLlmExecutor>(
-                             /*vocab_size=*/10,
-                             /*prefill_tokens=*/std::move(prefill_tokens),
-                             /*decode_tokens=*/std::move(decode_tokens)),
-                         /*use_external_sampler=*/true);
+      /*vocab_size=*/10,
+      /*prefill_tokens=*/std::move(prefill_tokens),
+      /*decode_tokens=*/std::move(decode_tokens)));
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig(
+                                                /*use_external_sampler=*/true));
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
   std::vector<TaskState> task_states;
   std::vector<std::string> responses_texts;
   absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback =
@@ -221,15 +243,17 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithExternalSampler) {
   ASSERT_OK_AND_ASSIGN(const TaskId prefill_task_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
-      prefill_task_id, std::move(inputs), {}, benchmark_info,
+      session_id, prefill_task_id, std::move(inputs), {},
       [](absl::StatusOr<Responses> responses) {}));
   ASSERT_OK(
       execution_manager_->WaitUntilDone(prefill_task_id, absl::Seconds(3)));
 
   ASSERT_OK_AND_ASSIGN(const TaskId decode_task_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddDecodeTask(decode_task_id, {}, 1, nullptr,
-                                              nullptr, benchmark_info,
+  ASSERT_OK(execution_manager_->AddDecodeTask(session_id, decode_task_id,
+                                              /*dependency_task_ids=*/{},
+                                              /*constraint=*/nullptr,
+                                              /*constraint_params=*/nullptr,
                                               std::move(callback)));
 
   EXPECT_OK(
@@ -246,9 +270,10 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithExternalSampler) {
 
 TEST_F(ExecutionManagerTest, CreateAndRunDependentTasks) {
   CreateExecutionManager(CreateDefaultFakeLlmExecutor());
-  auto callback = [](absl::StatusOr<Responses> responses) {
-    ASSERT_OK(responses);
-  };
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
 
   std::vector<InputData> inputs;
   ASSERT_OK_AND_ASSIGN(auto input_text,
@@ -257,13 +282,18 @@ TEST_F(ExecutionManagerTest, CreateAndRunDependentTasks) {
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddPrefillTask(task_a_id, std::move(inputs), {},
-                                               benchmark_info, callback));
+  ASSERT_OK(execution_manager_->AddPrefillTask(session_id, task_a_id,
+                                               std::move(inputs),
+                                               /*dependency_task_ids=*/{},
+                                               /*callback=*/nullptr));
 
   ASSERT_OK_AND_ASSIGN(const TaskId task_b_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddDecodeTask(
-      task_b_id, {task_a_id}, 1, nullptr, nullptr, benchmark_info, callback));
+      session_id, task_b_id,
+      /*dependency_task_ids=*/{task_a_id},
+      /*constraint=*/nullptr, /*cancelled=*/nullptr,
+      /*callback=*/nullptr));
 
   EXPECT_OK(execution_manager_->WaitUntilDone(task_b_id, absl::Seconds(1)));
   EXPECT_OK(execution_manager_->WaitUntilDone(task_a_id, absl::Seconds(1)));
@@ -271,7 +301,10 @@ TEST_F(ExecutionManagerTest, CreateAndRunDependentTasks) {
 
 TEST_F(ExecutionManagerTest, CreateTaskWithInvalidDependency) {
   CreateExecutionManager(CreateDefaultFakeLlmExecutor());
-  auto callback = [](absl::StatusOr<Responses> responses) {};
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
 
   std::vector<InputData> inputs;
   inputs.push_back(InputText("test"));
@@ -279,14 +312,18 @@ TEST_F(ExecutionManagerTest, CreateTaskWithInvalidDependency) {
   ASSERT_OK_AND_ASSIGN(const TaskId task_id,
                        execution_manager_->GetNewTaskId());
   auto add_task_status = execution_manager_->AddPrefillTask(
-      task_id, std::move(inputs), {12345}, benchmark_info, callback);
+      session_id, task_id, std::move(inputs),
+      /*dependency_task_ids=*/{12345}, /*callback=*/nullptr);
   EXPECT_FALSE(add_task_status.ok());
   EXPECT_EQ(add_task_status.code(), absl::StatusCode::kInvalidArgument);
 }
 
 TEST_F(ExecutionManagerTest, CreateTaskWithInvalidDependencyId) {
   CreateExecutionManager(CreateDefaultFakeLlmExecutor());
-  auto callback = [](absl::StatusOr<Responses> responses) {};
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
 
   // Add a valid task.
   std::vector<InputData> inputs;
@@ -296,8 +333,10 @@ TEST_F(ExecutionManagerTest, CreateTaskWithInvalidDependencyId) {
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddPrefillTask(task_a_id, std::move(inputs), {},
-                                               benchmark_info, callback));
+  ASSERT_OK(execution_manager_->AddPrefillTask(session_id, task_a_id,
+                                               std::move(inputs),
+                                               /*dependency_task_ids=*/{},
+                                               /*callback=*/nullptr));
   EXPECT_OK(execution_manager_->WaitUntilDone(task_a_id, absl::Seconds(1)));
 
   // Try to add a task with an invalid dependency.
@@ -307,8 +346,9 @@ TEST_F(ExecutionManagerTest, CreateTaskWithInvalidDependencyId) {
   inputs_b.push_back(InputText(std::move(input_text_b)));
   const TaskId invalid_task_id = 99999;
   auto task_status = execution_manager_->AddPrefillTask(
-      invalid_task_id, std::move(inputs_b), {invalid_task_id}, benchmark_info,
-      callback);
+      session_id, invalid_task_id, std::move(inputs_b),
+      /*dependency_task_ids=*/{invalid_task_id},
+      /*callback=*/nullptr);
   EXPECT_FALSE(task_status.ok());
   EXPECT_EQ(task_status.code(), absl::StatusCode::kInvalidArgument);
   EXPECT_THAT(task_status.message(),
@@ -331,12 +371,19 @@ TEST_F(ExecutionManagerTest, WaitUntilTaskDoneTimeout) {
 
   CreateExecutionManager(std::move(fake_llm_executor));
 
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddDecodeTask(
-      task_id, {}, 1, nullptr, nullptr, benchmark_info,
-      [](absl::StatusOr<Responses> responses) {}));
+  ASSERT_OK(execution_manager_->AddDecodeTask(session_id, task_id,
+                                              /*dependency_task_ids=*/{},
+
+                                              /*constraint=*/nullptr,
+                                              /*cancelled=*/nullptr,
+                                              /*callback=*/nullptr));
 
   EXPECT_EQ(
       execution_manager_->WaitUntilDone(task_id, absl::Milliseconds(100)),
@@ -363,12 +410,17 @@ TEST_F(ExecutionManagerTest, WaitUntilAllDoneTimeout) {
 
   CreateExecutionManager(std::move(fake_llm_executor));
 
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddDecodeTask(
-      task_id, {}, 1, nullptr, nullptr, benchmark_info,
-      [](absl::StatusOr<Responses> responses) {}));
+      session_id, task_id,
+      /*dependency_task_ids=*/{},
+      /*constraint=*/nullptr, /*cancelled=*/nullptr, /*callback=*/nullptr));
 
   EXPECT_EQ(
       execution_manager_->WaitUntilAllDone(absl::Milliseconds(100)).code(),
@@ -392,16 +444,19 @@ TEST_F(ExecutionManagerTest, TaskReturnsError) {
 
   CreateExecutionManager(std::move(fake_llm_executor));
 
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
   std::vector<InputData> inputs;
   ASSERT_OK_AND_ASSIGN(auto input_text,
                        tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
   inputs.push_back(InputText(std::move(input_text)));
-  std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   absl::Status final_status = absl::OkStatus();
   ASSERT_OK_AND_ASSIGN(const TaskId task_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
-      task_id, std::move(inputs), {}, benchmark_info,
+      session_id, task_id, std::move(inputs), {},
       [&](absl::StatusOr<Responses> responses) {
         if (!responses.ok()) {
           final_status = responses.status();
@@ -429,6 +484,10 @@ TEST_F(ExecutionManagerTest, CreateDependentTaskOnFailedTask) {
 
   CreateExecutionManager(std::move(fake_llm_executor));
 
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
   std::vector<InputData> inputs;
   ASSERT_OK_AND_ASSIGN(auto input_text,
                        tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
@@ -438,7 +497,7 @@ TEST_F(ExecutionManagerTest, CreateDependentTaskOnFailedTask) {
   ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
-      task_a_id, std::move(inputs), {}, benchmark_info,
+      session_id, task_a_id, std::move(inputs), {},
       [&](absl::StatusOr<Responses> responses) {
         task_a_status = responses.status();
       }));
@@ -451,7 +510,9 @@ TEST_F(ExecutionManagerTest, CreateDependentTaskOnFailedTask) {
   ASSERT_OK_AND_ASSIGN(const TaskId task_b_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddDecodeTask(
-      task_b_id, {task_a_id}, 1, nullptr, nullptr, benchmark_info,
+      session_id, task_b_id,
+      /*dependency_task_ids=*/{task_a_id},
+      /*constraint=*/nullptr, /*cancelled=*/nullptr,
       [&](absl::StatusOr<Responses> responses) {
         task_b_status = responses.status();
         if (responses.ok()) {
@@ -468,6 +529,10 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithInternalSampler) {
   // The default execution manager is using the internal sampler.
   CreateExecutionManager(CreateDefaultFakeLlmExecutor());
 
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
   std::vector<InputData> inputs;
   ASSERT_OK_AND_ASSIGN(auto input_text,
                        tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
@@ -475,9 +540,10 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithInternalSampler) {
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddPrefillTask(
-      task_a_id, std::move(inputs), {}, benchmark_info,
-      [](absl::StatusOr<Responses> responses) {}));
+  ASSERT_OK(execution_manager_->AddPrefillTask(session_id, task_a_id,
+                                               std::move(inputs),
+                                               /*dependency_task_ids=*/{},
+                                               /*callback=*/nullptr));
 
   ASSERT_OK_AND_ASSIGN(const TaskId task_b_id,
                        execution_manager_->GetNewTaskId());
@@ -496,8 +562,9 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithInternalSampler) {
       };
 
   ASSERT_OK(execution_manager_->AddDecodeTask(
-      task_b_id, {task_a_id}, 1, decode_config.GetConstraint(), nullptr,
-      benchmark_info, std::move(callback)));
+      session_id, task_b_id,
+      /*dependency_task_ids=*/{task_a_id}, decode_config.GetConstraint(),
+      /*cancelled=*/nullptr, std::move(callback)));
 
   EXPECT_OK(execution_manager_->WaitUntilDone(task_b_id, absl::Seconds(3)));
 
@@ -514,10 +581,14 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithExternalSampler) {
   decode_tokens.push_back({6});
 
   CreateExecutionManager(std::make_unique<FakeLlmExecutor>(
-                             /*vocab_size=*/10,
-                             /*prefill_tokens=*/std::move(prefill_tokens),
-                             /*decode_tokens=*/std::move(decode_tokens)),
-                         /*use_external_sampler=*/true);
+      /*vocab_size=*/10,
+      /*prefill_tokens=*/std::move(prefill_tokens),
+      /*decode_tokens=*/std::move(decode_tokens)));
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig(
+                                                /*use_external_sampler=*/true));
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
 
   std::vector<InputData> inputs;
   ASSERT_OK_AND_ASSIGN(auto input_text,
@@ -526,9 +597,10 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithExternalSampler) {
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddPrefillTask(
-      task_a_id, std::move(inputs), {}, benchmark_info,
-      [](absl::StatusOr<Responses> responses) {}));
+  ASSERT_OK(execution_manager_->AddPrefillTask(session_id, task_a_id,
+                                               std::move(inputs),
+                                               /*dependency_task_ids=*/{},
+                                               /*callback=*/nullptr));
 
   ASSERT_OK_AND_ASSIGN(const TaskId task_b_id,
                        execution_manager_->GetNewTaskId());
@@ -547,8 +619,9 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithExternalSampler) {
       };
 
   ASSERT_OK(execution_manager_->AddDecodeTask(
-      task_b_id, {task_a_id}, 1, decode_config.GetConstraint(), nullptr,
-      benchmark_info, std::move(callback)));
+      session_id, task_b_id,
+      /*dependency_task_ids=*/{task_a_id}, decode_config.GetConstraint(),
+      /*cancelled=*/nullptr, std::move(callback)));
 
   EXPECT_OK(execution_manager_->WaitUntilDone(task_b_id, absl::Seconds(3)));
 

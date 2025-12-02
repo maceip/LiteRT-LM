@@ -520,6 +520,10 @@ std::string& SessionConfig::GetMutableJinjaPromptTemplate() {
 
 std::ostream& operator<<(std::ostream& os, const SessionConfig& config) {
   os << "SessionConfig: " << std::endl;
+  os << "  AudioModalityEnabled: " << config.AudioModalityEnabled()
+     << std::endl;
+  os << "  VisionModalityEnabled: " << config.VisionModalityEnabled()
+     << std::endl;
   os << "  SamplerParams: " << config.GetSamplerParams().DebugString()
      << std::endl;
   os << "  SamplerBackend: " << config.GetSamplerBackend() << std::endl;

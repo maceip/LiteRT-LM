@@ -133,20 +133,23 @@ class SessionAdvanced : public Engine::Session {
   }
 
   const SessionConfig& GetSessionConfig() const override {
-    return session_config_;
+    return session_info_->session_config;
   }
 
   const Tokenizer& GetTokenizer() const override { return tokenizer_; }
 
  private:
-  explicit SessionAdvanced(ExecutionManager* absl_nonnull execution_manager,
+  explicit SessionAdvanced(SessionId session_id,
+                           ExecutionManager* absl_nonnull execution_manager,
                            Tokenizer* absl_nonnull tokenizer,
-                           SessionConfig session_config,
-                           std::optional<BenchmarkInfo> benchmark_info)
-      : execution_manager_(*execution_manager),
+                           std::shared_ptr<const SessionInfo> session_info)
+      : session_id_(session_id),
+        execution_manager_(*execution_manager),
         tokenizer_(*tokenizer),
-        session_config_(session_config),
-        benchmark_info_(benchmark_info) {}
+        session_info_(session_info) {}
+
+  // The session ID used for the session.
+  SessionId session_id_;
 
   // The execution manager used for the session.
   ExecutionManager& execution_manager_;
@@ -154,11 +157,8 @@ class SessionAdvanced : public Engine::Session {
   // The tokenizer used for the session.
   Tokenizer& tokenizer_;
 
-  // The session config used for the session.
-  SessionConfig session_config_;
-
-  // The benchmark info used for the session.
-  std::optional<BenchmarkInfo> benchmark_info_;
+  // The session info used for the session.
+  std::shared_ptr<const SessionInfo> session_info_;
 
   // Whether the current turn is the first turn.
   // TODO - b/436674053: This is a temporary solution to determine whether the
@@ -166,11 +166,8 @@ class SessionAdvanced : public Engine::Session {
   // is no longer used.
   bool is_first_turn_ = true;
 
-  // The mutex to protect the processing tasks set.
-  absl::Mutex processing_tasks_mutex_;
-  // The set of processing tasks that are currently running.
-  absl::flat_hash_set<TaskId> processing_tasks_
-      ABSL_GUARDED_BY(processing_tasks_mutex_) = {};
+  // The last task IDs that might be executing in the session.
+  absl::flat_hash_set<TaskId> last_task_ids_ = {};
 
   // An atomic boolean to indicate whether the session is cancelled.
   std::shared_ptr<std::atomic<bool>> cancelled_ =
