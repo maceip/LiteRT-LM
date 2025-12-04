@@ -184,14 +184,8 @@ class Conversation(private val handle: Long, val toolManager: ToolManager) : Aut
       val result = toolManager.execute(functionName, arguments)
       val toolResponseJSONObject =
         JsonObject().apply {
-          addProperty("type", "tool_response")
-          add(
-            "tool_response",
-            JsonObject().apply {
-              addProperty("name", functionName)
-              add("value", result)
-            },
-          )
+          addProperty("name", functionName)
+          add("response", result)
         }
       toolResponsesJSONArray.add(toolResponseJSONObject)
     }

@@ -220,7 +220,11 @@ internal class Tooling(
       openApiSpec.add("parameters", schema)
     }
 
-    return openApiSpec
+    // Wrap the Open API spec in function object, expected by the native library.
+    return JsonObject().apply {
+      addProperty("type", "function")
+      add("function", openApiSpec)
+    }
   }
 }
 
