@@ -14,6 +14,7 @@
 
 #include "runtime/conversation/model_data_processor/gemma3_data_processor.h"
 
+#include <cstddef>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -27,6 +28,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "nlohmann/json.hpp"  // from @nlohmann_json
 #include "nlohmann/json_fwd.hpp"  // from @nlohmann_json
 #include "litert/cc/litert_layout.h"  // from @litert
 #include "runtime/components/constrained_decoding/constraint.h"
