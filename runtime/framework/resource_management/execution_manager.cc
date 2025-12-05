@@ -599,6 +599,24 @@ absl::Status ExecutionManager::AddPrefillTask(
                        /*wait_for_completion=*/true,
                        /*benchmark_info=*/session_info->benchmark_info);
 
+    // Keep track of the last_prefill_token_id after prefill is done.
+    if (responses.ok()) {
+      auto processed_tokens = llm_executor.value()->GetProcessedTokens();
+      if (!processed_tokens.ok()) {
+        responses = processed_tokens.status();
+      }
+      auto current_step = llm_executor.value()->GetCurrentStep();
+      if (!current_step.ok()) {
+        responses = current_step.status();
+      }
+      if (processed_tokens.ok() && current_step.ok()) {
+        session_info->last_prefill_token_id =
+            processed_tokens.value()
+                ->GetTokenAtStep(current_step.value() - 1)
+                .at(0);
+      }
+    }
+
     auto status =
         FinishTask(task_id, std::move(responses), std::move(callback));
     if (!status.ok()) {
