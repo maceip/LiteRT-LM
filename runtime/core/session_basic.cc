@@ -370,6 +370,10 @@ absl::StatusOr<Responses> SessionBasic::GenerateContent(
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
   }
+  ABSL_DLOG(INFO) << "GenerateContent";
+  for (const auto& content : contents) {
+    ABSL_DLOG(INFO) << content;
+  }
   RETURN_IF_ERROR(RunPrefill(contents));
   return RunDecode(DecodeConfig::CreateDefault());
 }
@@ -422,6 +426,10 @@ absl::Status SessionBasic::GenerateContentStream(
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
+  }
+  ABSL_DLOG(INFO) << "GenerateContentStream";
+  for (const auto& content : contents) {
+    ABSL_DLOG(INFO) << content;
   }
 
   RETURN_IF_ERROR(RunPrefillAsync(

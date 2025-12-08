@@ -73,6 +73,20 @@ class InputText {
   std::variant<std::string, TensorBuffer> data_;
 };
 
+inline std::ostream& operator<<(std::ostream& os, const InputText& input_text) {
+  if (input_text.IsTensorBuffer()) {
+    os << "[TensorBuffer]";
+  } else {
+    auto raw_text = input_text.GetRawTextString();
+    if (raw_text.ok()) {
+      os << *raw_text;
+    } else {
+      os << "Error getting raw text: " << raw_text.status();
+    }
+  }
+  return os;
+}
+
 // A container to host the input image.
 class InputImage {
  public:
@@ -110,6 +124,12 @@ class InputImage {
  private:
   std::variant<std::string, TensorBuffer> data_;
 };
+
+inline std::ostream& operator<<(std::ostream& os,
+                                const InputImage& input_image) {
+  os << "[InputImage]";
+  return os;
+}
 
 // A container to host the input audio.
 class InputAudio {
@@ -149,9 +169,20 @@ class InputAudio {
   std::variant<std::string, TensorBuffer> data_;
 };
 
+inline std::ostream& operator<<(std::ostream& os,
+                                const InputAudio& input_audio) {
+  os << "[InputAudio]";
+  return os;
+}
+
 // A container to host the input data. Will be extended to support more input
 // types in the future.
 using InputData = std::variant<InputText, InputImage, InputAudio>;
+
+inline std::ostream& operator<<(std::ostream& os, const InputData& input_data) {
+  std::visit([&os](const auto& data) { os << data; }, input_data);
+  return os;
+}
 
 // A struct that holds the scoring output for a single option.
 struct ScorerOutput {
