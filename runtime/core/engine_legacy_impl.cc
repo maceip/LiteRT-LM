@@ -28,10 +28,7 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
-#include "third_party/odml/infra/genai/inference/executor/gpu_artisan_audio_executor.h"
 #include "third_party/odml/infra/genai/inference/executor/litert_executor_utils.h"
-#include "third_party/odml/infra/genai/inference/executor/llm_gpu_artisan_executor.h"
-#include "third_party/odml/infra/genai/inference/executor/llm_litert_opencl_executor.h"
 #include "third_party/odml/infra/genai/inference/executor/llm_litert_xnnpack_executor.h"
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
@@ -55,6 +52,12 @@
 #include "runtime/util/metadata_util.h"
 #include "runtime/util/model_asset_bundle_resources.h"
 #include "util/task/status_macros.h"
+
+#if !defined(LITERTLM_CPU_ONLY)
+#include "third_party/odml/infra/genai/inference/executor/gpu_artisan_audio_executor.h"
+#include "third_party/odml/infra/genai/inference/executor/llm_gpu_artisan_executor.h"
+#include "third_party/odml/infra/genai/inference/executor/llm_litert_opencl_executor.h"
+#endif  // !defined(LITERTLM_CPU_ONLY)
 
 namespace litert::lm {
 namespace {
@@ -80,6 +83,7 @@ absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildExecutor(
     ASSIGN_OR_RETURN(executor, oi::LlmLiteRTXnnpackExecutor::Create(
                                    engine_settings.GetMainExecutorSettings(),
                                    model_resources));
+#if !defined(LITERTLM_CPU_ONLY)
   } else if (engine_settings.GetMainExecutorSettings().GetBackend() ==
              Backend::GPU) {
     ASSIGN_OR_RETURN(executor, oi::LlmLiteRTOpenClExecutor::Create(
@@ -96,6 +100,7 @@ absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildExecutor(
                      oi::LlmGpuArtisanExecutor::Create(
                          engine_settings.GetMainExecutorSettings(),
                          *(model_resources.litert_lm_model_resources.get())));
+#endif  // !defined(LITERTLM_CPU_ONLY)
   } else {
     return absl::InvalidArgumentError(
         absl::StrCat("Unsupported backend: ",
@@ -305,6 +310,7 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
             engine_settings.GetMainExecutorSettings().GetMaxNumTokens(),
             audio_backend));
     if (audio_backend == Backend::GPU_ARTISAN) {
+#if !defined(LITERTLM_CPU_ONLY)
       if (engine_settings.GetMainExecutorSettings().GetBackend() ==
           Backend::GPU_ARTISAN) {
         // Both the text decoder and audio encoder are GPU_ARTISAN, assuming
@@ -322,6 +328,10 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
         ASSIGN_OR_RETURN(audio_executor, oi::GpuArtisanAudioExecutor::Create(
                                              audio_executor_settings));
       }
+#else   // !defined(LITERTLM_CPU_ONLY)
+      return absl::InternalError(
+          "GPU_ARTISAN backend is not supported on this platform.");
+#endif  // !defined(LITERTLM_CPU_ONLY)
     } else {
       ASSIGN_OR_RETURN(audio_executor, AudioLiteRtCompiledModelExecutor::Create(
                                            audio_executor_settings, lrt_env));
