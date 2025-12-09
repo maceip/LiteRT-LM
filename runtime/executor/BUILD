@@ -560,6 +560,7 @@ cc_test(
         ":llm_executor_settings",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
         "//runtime/util:scoped_file",
         "//runtime/util:test_utils",
     ],

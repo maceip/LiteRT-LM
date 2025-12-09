@@ -23,12 +23,46 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {
+
+#if defined(_WIN32)
+constexpr absl::string_view kPathToModel1 = "\\path\\to\\model1";
+constexpr absl::string_view kPathToModel1Tflite = "\\path\\to\\model1.tflite";
+constexpr absl::string_view kPathToModel1TfliteCache =
+    "\\path\\to\\model1.tflite.cache";
+constexpr absl::string_view kPathToCache = "\\path\\to\\cache";
+constexpr absl::string_view kWeightCachePath = "\\weight\\cache\\path";
+constexpr absl::string_view kWeightCachePathWithSeparator =
+    "\\weight\\cache\\path\\";
+constexpr absl::string_view kWeightCachePathFile =
+    "\\weight\\cache\\path\\model1.tflite.cache";
+constexpr absl::string_view kWeightCachePathXnnpackFile =
+    "\\weight\\cache\\path\\model1.tflite.xnnpack_cache";
+constexpr absl::string_view kModel1TfliteCustomSuffix =
+    "\\path\\to\\model1.tflite.custom_suffix";
+#else
+constexpr absl::string_view kPathToModel1 = "/path/to/model1";
+constexpr absl::string_view kPathToModel1Tflite = "/path/to/model1.tflite";
+constexpr absl::string_view kPathToModel1TfliteCache =
+    "/path/to/model1.tflite.cache";
+constexpr absl::string_view kPathToCache = "/path/to/cache";
+constexpr absl::string_view kWeightCachePath = "/weight/cache/path";
+constexpr absl::string_view kWeightCachePathWithSeparator =
+    "/weight/cache/path/";
+constexpr absl::string_view kWeightCachePathFile =
+    "/weight/cache/path/model1.tflite.cache";
+constexpr absl::string_view kWeightCachePathXnnpackFile =
+    "/weight/cache/path/model1.tflite.xnnpack_cache";
+constexpr absl::string_view kModel1TfliteCustomSuffix =
+    "/path/to/model1.tflite.custom_suffix";
+#endif
 
 using absl::StatusCode::kInvalidArgument;
 using ::testing::VariantWith;
@@ -130,13 +164,13 @@ TEST(LlmExecutorConfigTest, FileFormat) {
 }
 
 TEST(LlmExecutorConfigTest, ModelAssets) {
-  auto model_assets = ModelAssets::Create("/path/to/model1");
+  auto model_assets = ModelAssets::Create(kPathToModel1);
   ASSERT_OK(model_assets);
   std::stringstream oss;
   oss << *model_assets;
-  const std::string expected_output = R"(model_path: /path/to/model1
-fake_weights_mode: FAKE_WEIGHTS_NONE
-)";
+  const std::string expected_output =
+      absl::StrCat("model_path: ", kPathToModel1,
+                   "\nfake_weights_mode: FAKE_WEIGHTS_NONE\n");
   EXPECT_EQ(oss.str(), expected_output);
 }
 
@@ -169,7 +203,7 @@ enable_external_embeddings: 0
 }
 
 TEST(LlmExecutorConfigTest, LlmExecutorSettings) {
-  auto model_assets = ModelAssets::Create("/path/to/model1");
+  auto model_assets = ModelAssets::Create(kPathToModel1);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets),
                                                      Backend::GPU_ARTISAN);
@@ -177,11 +211,12 @@ TEST(LlmExecutorConfigTest, LlmExecutorSettings) {
   (*settings).SetMaxNumTokens(1024);
   (*settings).SetActivationDataType(ActivationDataType::FLOAT16);
   (*settings).SetMaxNumImages(1);
-  (*settings).SetCacheDir("/path/to/cache");
+  (*settings).SetCacheDir(std::string(kPathToCache));
 
   std::stringstream oss;
   oss << (*settings);
-  const std::string expected_output = R"(backend: GPU_ARTISAN
+  const std::string expected_output = absl::StrCat(
+      R"(backend: GPU_ARTISAN
 backend_config:
 num_output_candidates: 1
 wait_for_weight_uploads: 1
@@ -195,18 +230,20 @@ enable_external_embeddings: 0
 max_tokens: 1024
 activation_data_type: FLOAT16
 max_num_images: 1
-cache_dir: /path/to/cache
+cache_dir: )",
+      kPathToCache, R"(
 cache_file: Not set
-model_assets: model_path: /path/to/model1
+model_assets: model_path: )",
+      kPathToModel1, R"(
 fake_weights_mode: FAKE_WEIGHTS_NONE
 
 advanced_settings: Not set
-)";
+)");
   EXPECT_EQ(oss.str(), expected_output);
 }
 
 TEST(LlmExecutorConfigTest, LlmExecutorSettingsWithAdvancedSettings) {
-  auto model_assets = ModelAssets::Create("/path/to/model1");
+  auto model_assets = ModelAssets::Create(kPathToModel1);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets),
                                                      Backend::GPU_ARTISAN);
@@ -214,7 +251,7 @@ TEST(LlmExecutorConfigTest, LlmExecutorSettingsWithAdvancedSettings) {
   (*settings).SetMaxNumTokens(1024);
   (*settings).SetActivationDataType(ActivationDataType::FLOAT16);
   (*settings).SetMaxNumImages(1);
-  (*settings).SetCacheDir("/path/to/cache");
+  (*settings).SetCacheDir(std::string(kPathToCache));
   (*settings).SetAdvancedSettings(AdvancedSettings{
       .prefill_batch_sizes = {128, 256},
       .num_output_candidates = 3,
@@ -227,7 +264,8 @@ TEST(LlmExecutorConfigTest, LlmExecutorSettingsWithAdvancedSettings) {
 
   std::stringstream oss;
   oss << (*settings);
-  const std::string expected_output = R"(backend: GPU_ARTISAN
+  const std::string expected_output = absl::StrCat(
+      R"(backend: GPU_ARTISAN
 backend_config:
 num_output_candidates: 1
 wait_for_weight_uploads: 1
@@ -241,9 +279,11 @@ enable_external_embeddings: 0
 max_tokens: 1024
 activation_data_type: FLOAT16
 max_num_images: 1
-cache_dir: /path/to/cache
+cache_dir: )",
+      kPathToCache, R"(
 cache_file: Not set
-model_assets: model_path: /path/to/model1
+model_assets: model_path: )",
+      kPathToModel1, R"(
 fake_weights_mode: FAKE_WEIGHTS_NONE
 
 advanced_settings: prefill_batch_sizes: [128, 256]
@@ -254,61 +294,60 @@ clear_kv_cache_before_prefill: 1
 num_logits_to_print_after_decode: 10
 gpu_madvise_original_shared_tensors: 1
 
-)";
+)");
   EXPECT_EQ(oss.str(), expected_output);
 }
 
 TEST(GetWeightCacheFileTest, CacheDirAndModelPath) {
-  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  auto model_assets = ModelAssets::Create(kPathToModel1Tflite);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
-  settings->SetCacheDir("/weight/cache/path");
+  settings->SetCacheDir(std::string(kWeightCachePath));
 
   ASSERT_OK_AND_ASSIGN(auto weight_cache_file, settings->GetWeightCacheFile());
-  EXPECT_THAT(weight_cache_file, VariantWith<std::string>(
-                                     "/weight/cache/path/model1.tflite.cache"));
+  EXPECT_THAT(weight_cache_file,
+              VariantWith<std::string>(std::string(kWeightCachePathFile)));
 }
 
 TEST(GetWeightCacheFileTest, CacheDirHasTrailingSeparator) {
-  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  auto model_assets = ModelAssets::Create(kPathToModel1Tflite);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
-  settings->SetCacheDir("/weight/cache/path/");
+  settings->SetCacheDir(std::string(kWeightCachePathWithSeparator));
 
   ASSERT_OK_AND_ASSIGN(auto weight_cache_file, settings->GetWeightCacheFile());
-  EXPECT_THAT(weight_cache_file, VariantWith<std::string>(
-                                     "/weight/cache/path/model1.tflite.cache"));
+  EXPECT_THAT(weight_cache_file,
+              VariantWith<std::string>(std::string(kWeightCachePathFile)));
 }
 
 TEST(GetWeightCacheFileTest, CacheDirAndModelPathAndCustomSuffix) {
-  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  auto model_assets = ModelAssets::Create(kPathToModel1Tflite);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
-  settings->SetCacheDir("/weight/cache/path");
+  settings->SetCacheDir(std::string(kWeightCachePath));
 
   ASSERT_OK_AND_ASSIGN(auto weight_cache_file,
                        settings->GetWeightCacheFile(".xnnpack_cache"));
-  EXPECT_THAT(weight_cache_file,
-              VariantWith<std::string>(
-                  "/weight/cache/path/model1.tflite.xnnpack_cache"));
+  EXPECT_THAT(weight_cache_file, VariantWith<std::string>(
+                                     std::string(kWeightCachePathXnnpackFile)));
 }
 
 TEST(LlmExecutorConfigTest, ModelPathOnly) {
-  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  auto model_assets = ModelAssets::Create(kPathToModel1Tflite);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
 
   ASSERT_OK_AND_ASSIGN(auto weight_cache_file, settings->GetWeightCacheFile());
   EXPECT_THAT(weight_cache_file,
-              VariantWith<std::string>("/path/to/model1.tflite.cache"));
+              VariantWith<std::string>(std::string(kPathToModel1TfliteCache)));
 }
 
 TEST(GetWeightCacheFileTest, ModelPathAndSuffix) {
-  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  auto model_assets = ModelAssets::Create(kPathToModel1Tflite);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
@@ -316,7 +355,7 @@ TEST(GetWeightCacheFileTest, ModelPathAndSuffix) {
   ASSERT_OK_AND_ASSIGN(auto weight_cache_file,
                        settings->GetWeightCacheFile(".custom_suffix"));
   EXPECT_THAT(weight_cache_file,
-              VariantWith<std::string>("/path/to/model1.tflite.custom_suffix"));
+              VariantWith<std::string>(std::string(kModel1TfliteCustomSuffix)));
 }
 
 TEST(GetWeightCacheFileTest, PreferScopedCacheFileToCacheDir) {
@@ -327,12 +366,12 @@ TEST(GetWeightCacheFileTest, PreferScopedCacheFileToCacheDir) {
   ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path.string()));
   auto shared_cache_file = std::make_shared<ScopedFile>(std::move(cache_file));
 
-  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  auto model_assets = ModelAssets::Create(kPathToModel1Tflite);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
   settings->SetScopedCacheFile(shared_cache_file);
-  settings->SetCacheDir("/weight/cache/path");
+  settings->SetCacheDir(std::string(kWeightCachePath));
 
   ASSERT_OK_AND_ASSIGN(auto weight_cache_file, settings->GetWeightCacheFile());
   EXPECT_THAT(weight_cache_file,
@@ -368,7 +407,7 @@ TEST(GetWeightCacheFileTest, EmptyModelPath) {
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
-  settings->SetCacheDir("/weight/cache/path");
+  settings->SetCacheDir(std::string(kWeightCachePath));
 
   EXPECT_THAT(settings->GetWeightCacheFile(".xnnpack_cache"),
               StatusIs(kInvalidArgument));
@@ -381,7 +420,7 @@ TEST(GetWeightCacheFileTest, CacheDisabled) {
 
   ASSERT_OK_AND_ASSIGN(auto cache_file, ScopedFile::Open(cache_path.string()));
 
-  auto model_assets = ModelAssets::Create("/path/to/model1.tflite");
+  auto model_assets = ModelAssets::Create(kPathToModel1Tflite);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets));
   EXPECT_OK(settings);
@@ -394,7 +433,7 @@ TEST(GetWeightCacheFileTest, CacheDisabled) {
 }
 
 TEST(LlmExecutorConfigTest, GetBackendConfig) {
-  auto model_assets = ModelAssets::Create("/path/to/model1");
+  auto model_assets = ModelAssets::Create(kPathToModel1);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets),
                                                      Backend::GPU_ARTISAN);
@@ -409,7 +448,7 @@ TEST(LlmExecutorConfigTest, GetBackendConfig) {
 }
 
 TEST(LlmExecutorConfigTest, MutableBackendConfig) {
-  auto model_assets = ModelAssets::Create("/path/to/model1");
+  auto model_assets = ModelAssets::Create(kPathToModel1);
   ASSERT_OK(model_assets);
   auto settings = LlmExecutorSettings::CreateDefault(*std::move(model_assets),
                                                      Backend::GPU_ARTISAN);

@@ -19,9 +19,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
+#include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 
 namespace litert::lm {
 namespace {
+
+#if defined(_WIN32)
+constexpr absl::string_view kPathSeparator = "\\";
+#else
+constexpr absl::string_view kPathSeparator = "/";
+#endif
 
 TEST(FileUtilTest, JoinPath) {
   std::string path1 = "";
@@ -36,17 +44,22 @@ TEST(FileUtilTest, JoinPath) {
 
   path1 = "path1";
   path2 = "path2";
-  EXPECT_THAT(JoinPath(path1, path2), "path1/path2");
+  EXPECT_THAT(JoinPath(path1, path2),
+              absl::StrCat("path1", kPathSeparator, "path2"));
 }
 
 TEST(FileUtilTest, Basename) {
-  std::string model_path = "/path/to/model.tflite";
+  std::string model_path = absl::StrCat(kPathSeparator, "path", kPathSeparator,
+                                        "to", kPathSeparator, "model.tflite");
   EXPECT_THAT(Basename(model_path), "model.tflite");
 }
 
 TEST(FileUtilTest, Dirname) {
-  std::string model_path = "/path/to/model.tflite";
-  EXPECT_THAT(Dirname(model_path), "/path/to/");
+  std::string model_path = absl::StrCat(kPathSeparator, "path", kPathSeparator,
+                                        "to", kPathSeparator, "model.tflite");
+  EXPECT_THAT(Dirname(model_path),
+              absl::StrCat(kPathSeparator, "path", kPathSeparator, "to",
+                           kPathSeparator));
 }
 
 }  // namespace
