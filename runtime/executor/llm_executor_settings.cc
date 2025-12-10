@@ -68,6 +68,7 @@ std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings) {
      << settings.num_logits_to_print_after_decode << "\n";
   os << "gpu_madvise_original_shared_tensors: "
      << settings.gpu_madvise_original_shared_tensors << "\n";
+  os << "is_benchmark: " << settings.is_benchmark << "\n";
   return os;
 }
 

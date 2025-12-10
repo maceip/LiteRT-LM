@@ -147,6 +147,9 @@ struct AdvancedSettings {
   // use.
   bool gpu_madvise_original_shared_tensors = true;
 
+  // If true, the executor is running a benchmark.
+  bool is_benchmark = false;
+
   bool operator==(const AdvancedSettings& other) const {
     return prefill_batch_sizes == other.prefill_batch_sizes &&
            num_output_candidates == other.num_output_candidates &&
@@ -157,7 +160,8 @@ struct AdvancedSettings {
            num_logits_to_print_after_decode ==
                other.num_logits_to_print_after_decode &&
            gpu_madvise_original_shared_tensors ==
-               other.gpu_madvise_original_shared_tensors;
+               other.gpu_madvise_original_shared_tensors &&
+           is_benchmark == other.is_benchmark;
   }
 };
 std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings);

@@ -163,12 +163,12 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
                             TensorBuffer& ids_tensor);
 
   // Prefill internal implementation, for one prefill call to the Interpreter
-  // with a certain length.
+  // with a certain length synchronously or asynchronously.
   absl::Status PrefillInternal(
       absl::string_view prefill_signature,
       absl::flat_hash_map<absl::string_view /*input_name*/,
                           ::litert::TensorBuffer>& prefill_input_buffers,
-      absl::Span<const int> ids);
+      absl::Span<const int> ids, bool async);
 
   // Decode internal implementation. Uses the specified 'token' as the input
   // token and uses the specified 'step' as the current time step.  The

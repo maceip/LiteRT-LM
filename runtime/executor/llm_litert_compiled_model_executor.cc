@@ -474,7 +474,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::PrefillInternal(
     absl::string_view prefill_signature,
     absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
         prefill_input_buffers,
-    Span<const int> ids) {
+    Span<const int> ids, bool async) {
 
   {
     // Fill the input buffers with scoped locks.
@@ -631,11 +631,17 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::PrefillInternal(
   absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer> output_buffers;
   for (const auto& [output_name, output_buffer] : *output_kv_cache_buffers_) {
     LITERT_ASSIGN_OR_RETURN(auto output_buffer_dup, output_buffer.Duplicate());
+    output_buffer_dup.ClearEvent();
     output_buffers[output_name] = std::move(output_buffer_dup);
   }
 
-  LITERT_RETURN_IF_ERROR(
-      compiled_model_.Run(prefill_signature, input_buffers, output_buffers));
+  if (async) {
+    LITERT_RETURN_IF_ERROR(compiled_model_.RunAsync(
+        prefill_signature, input_buffers, output_buffers, async));
+  } else {
+    LITERT_RETURN_IF_ERROR(
+        compiled_model_.Run(prefill_signature, input_buffers, output_buffers));
+  }
 
   std::swap(input_kv_cache_buffers_, output_kv_cache_buffers_);
   return absl::OkStatus();
@@ -782,15 +788,19 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::DecodeInternal(
                                  ? output_logits.Duplicate()
                                  : output_buffer.Duplicate();
     RET_CHECK(output_buffer_dup) << "Failed to duplicate output buffer.";
+    output_buffer_dup->ClearEvent();
     decode_output_buffers[output_name] = std::move(*output_buffer_dup);
   }
   for (const auto& [output_name, output_buffer] : *output_kv_cache_buffers_) {
     LITERT_ASSIGN_OR_RETURN(auto output_buffer_dup, output_buffer.Duplicate());
+    output_buffer_dup.ClearEvent();
     decode_output_buffers[output_name] = std::move(output_buffer_dup);
   }
 
-  LITERT_RETURN_IF_ERROR(compiled_model_.Run(
-      kDecodeSignatureRunner, decode_input_buffers, decode_output_buffers));
+  bool async = true;
+  LITERT_RETURN_IF_ERROR(
+      compiled_model_.RunAsync(kDecodeSignatureRunner, decode_input_buffers,
+                               decode_output_buffers, async));
 
   std::swap(input_kv_cache_buffers_, output_kv_cache_buffers_);
   return absl::OkStatus();
@@ -1053,7 +1063,9 @@ absl::Status LlmLiteRtCompiledModelExecutorStatic::Prefill(
   ids = ids.subspan(kTokenIndexToReduce * input_length, input_length);
   ASSIGN_OR_RETURN(auto work_groups, GetOptimizedPrefillWorkGroups(
                                          prefill_signature_map_, ids.size()));
-  for (const auto& [prefill_signature, prefill_length] : work_groups) {
+  for (int i = 0; i < work_groups.size(); ++i) {
+    const auto& prefill_signature = work_groups[i].first;
+    int prefill_length = work_groups[i].second;
     // Keep track of the signatures that have already had their buffers
     // created only create them once.
     if (!prefill_input_buffers_.contains(prefill_signature)) {
@@ -1062,33 +1074,14 @@ absl::Status LlmLiteRtCompiledModelExecutorStatic::Prefill(
           prefill_signature, prefill_length, prefill_length,
           prefill_input_buffers_[prefill_signature]));
     }
-    RETURN_IF_ERROR(PrefillInternal(prefill_signature,
-                                    prefill_input_buffers_[prefill_signature],
-                                    ids.subspan(/*pos=*/0, prefill_length)));
+    bool async = i < work_groups.size() - 1 || !params.GetWaitForCompletion();
+    RETURN_IF_ERROR(PrefillInternal(
+        prefill_signature, prefill_input_buffers_[prefill_signature],
+        ids.subspan(/*pos=*/0, prefill_length), async));
     ids = ids.subspan(/*pos=*/prefill_length);
   }
   RET_CHECK_EQ(ids.size(), 0).SetCode(absl::StatusCode::kInternal)
       << "Work groups not covering the entire prefill input.";
-
-  // If requested, wait for prefill to complete, for example, by benchmark.
-  if (params.GetWaitForCompletion()) {
-    // A workaround to sync with backend especially for GPU backends is to do
-    // read-lock a small decode buffer, input_positions which most likely
-    // consists only of one value.
-    if (!signatures_.input_positions.empty() &&
-        decode_input_buffers_.contains(signatures_.input_positions)) {
-      ABSL_LOG(INFO) << "Waiting for prefill to complete.";
-      auto lock = ::litert::TensorBufferScopedLock::Create(
-          decode_input_buffers_[signatures_.input_positions],
-          TensorBuffer::LockMode::kRead);
-      if (!lock) {
-        ABSL_LOG(ERROR) << "Failed to lock decode input_positions as a "
-                        << "workaround to sync with backend.";
-      }
-    } else {
-      ABSL_LOG(WARNING) << "Ignore waiting for prefill to complete.";
-    }
-  }
 
   if (embedding_lookup_ != nullptr) {
     RETURN_IF_ERROR(embedding_lookup_->CleanupMultiModalEmbeddings());
@@ -1168,6 +1161,10 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
       if (advanced_settings) {
         gpu_compilation_options.SetMadviseOriginalSharedTensors(
             advanced_settings->gpu_madvise_original_shared_tensors);
+        if (advanced_settings->is_benchmark) {
+          gpu_compilation_options.SetSyncExecutionModeWaitType(
+              GpuOptions::SyncExecutionModeWaitType::kActive);
+        }
       }
       // TODO b/441627719 - Select backend by runtime options.
 #if defined(LITERT_USE_WEBGPU_ACCELERATOR)
@@ -1496,8 +1493,9 @@ absl::Status LlmLiteRtCompiledModelExecutorDynamic::PrefillInternal(
   input_kv_cache_buffers_ = &kv_cache_buffers_1_;
   output_kv_cache_buffers_ = &kv_cache_buffers_1_;
 
+  bool async = !params.GetWaitForCompletion();
   return LlmLiteRtCompiledModelExecutorBase::PrefillInternal(
-      "prefill", prefill_input_buffers, ids);
+      "prefill", prefill_input_buffers, ids, async);
 }
 
 absl::Status LlmLiteRtCompiledModelExecutorDynamic::DecodeInternal(

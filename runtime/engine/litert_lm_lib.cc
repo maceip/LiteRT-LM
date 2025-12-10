@@ -189,6 +189,7 @@ absl::StatusOr<EngineSettings> CreateEngineSettings(
           static_cast<uint32_t>(settings.num_logits_to_print_after_decode),
       .gpu_madvise_original_shared_tensors =
           settings.gpu_madvise_original_shared_tensors,
+      .is_benchmark = settings.benchmark,
   };
   if (advanced_settings != AdvancedSettings()) {
     engine_settings.GetMutableMainExecutorSettings().SetAdvancedSettings(
