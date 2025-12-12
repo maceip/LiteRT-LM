@@ -64,6 +64,31 @@ TEST(ModelResourcesTest, InitializeWithValidLitertLmLoader) {
   ASSERT_OK(tokenizer);
   ASSERT_NE(tokenizer.value(), nullptr);
 }
+
+TEST(ModelResourcesTest, InitializeWithExternalWeights) {
+  const auto model_path =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/runtime/testdata/test_lm_external_weights.litertlm";
+  auto model_file = ScopedFile::Open(model_path.string());
+  ASSERT_TRUE(model_file.ok());
+  LitertLmLoader loader(std::move(model_file.value()));
+  ASSERT_GT(loader.GetSentencePieceTokenizer()->Size(), 0);
+  ASSERT_GT(loader.GetTFLiteModel(ModelType::kTfLitePrefillDecode).Size(), 0);
+  ASSERT_GT(loader.GetTFLiteWeights(ModelType::kTfLitePrefillDecode).Size(), 0);
+
+  auto model_resources = ModelResourcesLitertLm::Create(
+      std::make_unique<LitertLmLoader>(std::move(loader)));
+  ASSERT_OK(model_resources);
+
+  auto tflite_model =
+      model_resources.value()->GetTFLiteModel(ModelType::kTfLitePrefillDecode);
+  ASSERT_OK(tflite_model);
+  ASSERT_GT(tflite_model.value()->GetNumSignatures(), 0);
+
+  auto tokenizer = model_resources.value()->GetTokenizer();
+  ASSERT_OK(tokenizer);
+  ASSERT_NE(tokenizer.value(), nullptr);
+}
 #endif  // ENABLE_SENTENCEPIECE_TOKENIZER
 
 #ifdef ENABLE_HUGGINGFACE_TOKENIZER
