@@ -15,6 +15,7 @@
 #include "runtime/core/session_basic.h"
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -92,6 +93,7 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
     RETURN_IF_ERROR(
         stop_token_detector.AddStopTokenSequence(stop_token_sequence));
   }
+
   return absl::WrapUnique(new SessionBasic(
       executor, tokenizer, vision_executor, audio_executor, std::move(sampler),
       session_config, benchmark_info, worker_thread_pool, stop_token_detector));

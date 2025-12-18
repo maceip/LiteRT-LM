@@ -109,6 +109,7 @@ cc_library(
         ":engine_interface",
         ":engine_settings",
         ":io_types",
+        "@com_google_absl//absl/base:log_severity",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
@@ -123,6 +124,7 @@ cc_library(
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
         "@nlohmann_json//:json",
+        "@litert//litert/cc/internal:scoped_file",
         "//runtime/conversation",
         "//runtime/conversation:io_types",
         "//runtime/executor:executor_settings_base",
@@ -194,14 +196,14 @@ cc_binary(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/time",
         "@nlohmann_json//:json",
-        "@litert//litert/c/internal:litert_logging",
+        "@litert//litert/cc/internal:scoped_file",
         "//runtime/conversation",
         "//runtime/conversation:io_types",
-        "//runtime/core:engine_impl",
         "//runtime/executor:executor_settings_base",
-        "//runtime/executor:llm_executor_settings",
         "//runtime/util:litert_status_util",
-    ],
+    ] + select({
+        "//conditions:default": ["//runtime/core:engine_impl"],
+    }),
 )
 
 cc_binary(
@@ -234,6 +236,7 @@ cc_binary(
         ":shared_flags",
         "@com_google_absl//absl/base:log_severity",
         "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:marshalling",
         "@com_google_absl//absl/flags:parse",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
@@ -242,7 +245,6 @@ cc_binary(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
-        "@litert//litert/c/internal:litert_logging",
         "//runtime/util:litert_status_util",
     ] + select({
         "@platforms//os:windows": [
@@ -258,11 +260,11 @@ cc_library(
     hdrs = ["engine_settings.h"],
     deps = [
         "@com_google_absl//absl/base:nullability",
-        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
+        "@litert//litert/cc/internal:scoped_file",
         "//runtime/components:tokenizer",
         "//runtime/executor:audio_executor_settings",
         "//runtime/executor:executor_settings_base",
@@ -288,6 +290,7 @@ cc_test(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:optional",
+        "@litert//litert/cc/internal:scoped_file",
         "//runtime/components:tokenizer",
         "//runtime/executor:executor_settings_base",
         "//runtime/proto:engine_cc_proto",

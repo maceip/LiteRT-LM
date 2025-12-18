@@ -17,6 +17,7 @@
 #include <atomic>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -57,6 +58,14 @@
 #include "runtime/util/tensor_buffer_util.h"
 
 namespace litert::lm {
+
+// Helper macro to check if the task has been cancelled.
+#define RETURN_IF_CANCELLED(cancelled, task_id, callback)                    \
+  if (cancelled != nullptr && cancelled->load()) {                           \
+    FinishTaskAndLogErrors(task_id, Responses(TaskState::kCancelled),        \
+                           std::move(callback));                             \
+    return;                                                                  \
+  }
 
 absl::StatusOr<SessionId> ExecutionManager::RegisterNewSession(
     SessionConfig session_config, std::optional<BenchmarkInfo> benchmark_info) {
@@ -112,14 +121,9 @@ absl::Status ExecutionManager::ReleaseSession(SessionId session_id) {
     return absl::InvalidArgumentError(
         absl::StrCat("Session ", session_id, " not found in session list."));
   }
-  // TODO b/409401231 - Update to use cancellation of all tasks instead of
-  // directly update to cancelled state.
-  RETURN_IF_ERROR(UpdateAllTasksToState(
-      session_lookup_.at(session_id)->active_tasks, TaskState::kCancelled));
-  session_lookup_.at(session_id)->context_handler = nullptr;
-  session_lookup_.at(session_id)->sampler = nullptr;
-  session_lookup_.at(session_id)->stop_token_detector = nullptr;
-  session_lookup_.at(session_id)->active_tasks.clear();
+  for (TaskId task_id : session_lookup_.at(session_id)->active_tasks) {
+    task_lookup_.at(task_id).cancelled->store(true);
+  }
   return absl::OkStatus();
 }
 
@@ -141,6 +145,7 @@ absl::Status ExecutionManager::CreateTask(
     SessionId session_id, TaskId task_id,
     absl::AnyInvocable<void()> absl_nonnull task,
     absl::flat_hash_set<TaskId> dependent_tasks,
+    std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> absl_nonnull callback) {
   absl::MutexLock lock(session_and_task_lookup_mutex_);
   if (!session_lookup_.contains(session_id)) {
@@ -197,6 +202,7 @@ absl::Status ExecutionManager::CreateTask(
   task_info.task_state = task_state;
   task_info.task = std::move(task);
   task_info.dependent_tasks = std::move(dependent_tasks);
+  task_info.cancelled = cancelled;
   task_info.callback = std::move(callback);
   task_lookup_.insert({task_id, std::move(task_info)});
 
@@ -239,8 +245,9 @@ absl::Status ExecutionManager::QueueTask(TaskId task_id) {
   return absl::OkStatus();
 }
 
-absl::StatusOr<std::pair<std::shared_ptr<SessionInfo>,
-                         absl::AnyInvocable<void(absl::StatusOr<Responses>)>>>
+absl::StatusOr<
+    std::tuple<std::shared_ptr<SessionInfo>, std::shared_ptr<std::atomic<bool>>,
+               absl::AnyInvocable<void(absl::StatusOr<Responses>)>>>
 ExecutionManager::StartTask(TaskId task_id) {
   absl::MutexLock lock(session_and_task_lookup_mutex_);
   if (!task_lookup_.contains(task_id)) {
@@ -249,7 +256,7 @@ ExecutionManager::StartTask(TaskId task_id) {
   }
   // If the task is cancelled, we don't need to start it.
   if (task_lookup_.at(task_id).task_state == TaskState::kCancelled) {
-    return std::make_pair(nullptr, nullptr);
+    return std::make_tuple(nullptr, nullptr, nullptr);
   }
   if (task_lookup_.at(task_id).callback == nullptr) {
     return absl::InvalidArgumentError(
@@ -271,8 +278,8 @@ ExecutionManager::StartTask(TaskId task_id) {
   }
   std::shared_ptr<SessionInfo> session_info =
       session_lookup_.at(task_lookup_.at(task_id).session_id);
-  return std::make_pair(session_info,
-                        std::move(task_lookup_.at(task_id).callback));
+  return std::make_tuple(session_info, task_lookup_.at(task_id).cancelled,
+                         std::move(task_lookup_.at(task_id).callback));
 }
 
 absl::Status ExecutionManager::FinishTask(
@@ -282,12 +289,7 @@ absl::Status ExecutionManager::FinishTask(
       [&](absl::Status status) ABSL_EXCLUSIVE_LOCKS_REQUIRED(
           session_and_task_lookup_mutex_) -> absl::Status {
     callback(status);
-    SessionId session_id = task_lookup_.at(task_id).session_id;
-    if (session_lookup_.contains(session_id) &&
-        session_lookup_.at(session_id)->active_tasks.contains(task_id)) {
-      session_lookup_.at(task_lookup_.at(task_id).session_id)
-          ->active_tasks.erase(task_id);
-    }
+    RETURN_IF_ERROR(UpdateTaskState(task_id, TaskState::kFailed));
     return status;
   };
   {
@@ -362,6 +364,16 @@ absl::Status ExecutionManager::FinishTask(
     }
   }
   return absl::OkStatus();
+}
+
+void ExecutionManager::FinishTaskAndLogErrors(
+    TaskId task_id, absl::StatusOr<Responses> responses,
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> absl_nonnull callback) {
+  auto status = FinishTask(task_id, std::move(responses), std::move(callback));
+  if (!status.ok()) {
+    ABSL_LOG(ERROR) << "Failed to finish task: " << status
+                    << " with task id: " << task_id;
+  }
 }
 
 absl::StatusOr<absl::flat_hash_set<TaskId>>
@@ -553,6 +565,23 @@ absl::Status ExecutionManager::WaitUntilDone(TaskId task_id,
                    absl::FormatDuration(timeout), "."));
 }
 
+absl::Status ExecutionManager::WaitUntilSessionDone(SessionId session_id,
+                                                    absl::Duration timeout) {
+  auto session_done = [this, session_id]() {
+    session_and_task_lookup_mutex_.AssertReaderHeld();
+    return session_lookup_.contains(session_id) &&
+           session_lookup_.at(session_id)->active_tasks.empty();
+  };
+  absl::MutexLock lock(session_and_task_lookup_mutex_);
+  return session_and_task_lookup_mutex_.AwaitWithTimeout(
+             absl::Condition(&session_done), timeout)
+             ? absl::OkStatus()
+             : absl::DeadlineExceededError(
+                   absl::StrCat("Session ", session_id,
+                                " did not complete within the timeout of ",
+                                absl::FormatDuration(timeout), "."));
+}
+
 absl::Status ExecutionManager::WaitUntilAllDone(absl::Duration timeout) {
   return execution_thread_pool_->WaitUntilDone(timeout);
 }
@@ -560,107 +589,120 @@ absl::Status ExecutionManager::WaitUntilAllDone(absl::Duration timeout) {
 absl::Status ExecutionManager::AddPrefillTask(
     SessionId session_id, TaskId task_id, std::vector<InputData> inputs,
     absl::flat_hash_set<TaskId> dep_tasks,
+    std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
   if (callback == nullptr) {
     callback = [](absl::StatusOr<Responses> responses) {};
   }
 
   auto task = [this, task_id, inputs = std::move(inputs)]() mutable -> void {
-    auto session_info_and_callback = StartTask(task_id);
-    if (!session_info_and_callback.ok()) {
-      ABSL_LOG(INFO) << "Failed to start task: "
-                     << session_info_and_callback.status()
-                     << " with task id: " << task_id;
+    auto task_info = StartTask(task_id);
+    if (!task_info.ok()) {
+      FinishTaskAndLogErrors(task_id, task_info.status(),
+                             [](absl::StatusOr<Responses> responses) {});
       return;
     }
-    auto [session_info, callback] =
-        std::move(session_info_and_callback.value());
+    auto [session_info, cancelled, callback] = std::move(task_info.value());
     // If the session info is nullptr, it means the task is cancelled before it
     // is started.
     if (session_info == nullptr) {
       return;
     }
 
+    RETURN_IF_CANCELLED(cancelled, task_id, callback);
+
     auto executor_inputs = ProcessAndCombineContents(inputs);
     if (!executor_inputs.ok()) {
-      callback(executor_inputs.status());
+      FinishTaskAndLogErrors(task_id, executor_inputs.status(),
+                             std::move(callback));
       return;
     }
+
+    RETURN_IF_CANCELLED(cancelled, task_id, callback);
 
     auto llm_executor = resource_manager_->AcquireExecutorWithContextHandler(
         session_info->context_handler);
     if (!llm_executor.ok()) {
-      callback(llm_executor.status());
+      FinishTaskAndLogErrors(task_id, llm_executor.status(),
+                             std::move(callback));
       return;
     }
+
+    RETURN_IF_CANCELLED(cancelled, task_id, callback);
 
     auto responses =
         Tasks::Prefill(*llm_executor.value(), *executor_inputs,
                        /*wait_for_completion=*/true,
                        /*benchmark_info=*/session_info->benchmark_info);
+    if (!responses.ok()) {
+      FinishTaskAndLogErrors(task_id, responses.status(), std::move(callback));
+      return;
+    }
 
-    // Keep track of the last_prefill_token_id after prefill is done.
-    if (responses.ok()) {
+    if (cancelled != nullptr && cancelled->load()) {
+      responses = Responses(TaskState::kCancelled);
+    } else {
+      // Keep track of the last_prefill_token_id after prefill is done.
       auto processed_tokens = llm_executor.value()->GetProcessedTokens();
       if (!processed_tokens.ok()) {
-        responses = processed_tokens.status();
+        FinishTaskAndLogErrors(task_id, processed_tokens.status(),
+                               std::move(callback));
+        return;
       }
       auto current_step = llm_executor.value()->GetCurrentStep();
       if (!current_step.ok()) {
-        responses = current_step.status();
+        FinishTaskAndLogErrors(task_id, current_step.status(),
+                               std::move(callback));
+        return;
       }
-      if (processed_tokens.ok() && current_step.ok()) {
-        session_info->last_prefill_token_id =
-            processed_tokens.value()
-                ->GetTokenAtStep(current_step.value() - 1)
-                .at(0);
-      }
+      session_info->last_prefill_token_id =
+          processed_tokens.value()
+              ->GetTokenAtStep(current_step.value() - 1)
+              .at(0);
     }
 
-    auto status =
-        FinishTask(task_id, std::move(responses), std::move(callback));
-    if (!status.ok()) {
-      ABSL_LOG(ERROR) << "Failed to finish task: " << status
-                      << " with task id: " << task_id;
-    }
+    FinishTaskAndLogErrors(task_id, std::move(responses), std::move(callback));
     return;
   };
 
   return CreateTask(session_id, task_id, std::move(task), std::move(dep_tasks),
-                    std::move(callback));
+                    cancelled, std::move(callback));
 }
 
 absl::Status ExecutionManager::AddDecodeTask(
     SessionId session_id, TaskId task_id, absl::flat_hash_set<TaskId> dep_tasks,
     Constraint* absl_nullable constraint,
-    std::shared_ptr<std::atomic<bool>> cancelled,
+    std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
   if (callback == nullptr) {
     callback = [](absl::StatusOr<Responses> responses) {};
   }
 
   auto task = [this, task_id, constraint, cancelled]() mutable -> void {
-    auto session_info_and_callback = StartTask(task_id);
-    if (!session_info_and_callback.ok()) {
-      ABSL_LOG(ERROR) << "Failed to start task: "
-                      << session_info_and_callback.status()
-                      << " with task id: " << task_id;
+    auto task_info = StartTask(task_id);
+    if (!task_info.ok()) {
+      FinishTaskAndLogErrors(task_id, task_info.status(),
+                             [](absl::StatusOr<Responses> responses) {});
       return;
     }
-    auto [session_info, callback] =
-        std::move(session_info_and_callback.value());
+    auto [session_info, cancelled, callback] = std::move(task_info.value());
     // If the session info is nullptr, it means the task is cancelled before it
     // is started.
     if (session_info == nullptr) {
       return;
     }
 
+    RETURN_IF_CANCELLED(cancelled, task_id, callback);
+
     auto llm_executor = resource_manager_->AcquireExecutorWithContextHandler(
         session_info->context_handler);
     if (!llm_executor.ok()) {
-      callback(llm_executor.status());
+      FinishTaskAndLogErrors(task_id, llm_executor.status(),
+                             std::move(callback));
       return;
     }
+
+    RETURN_IF_CANCELLED(cancelled, task_id, callback);
 
     auto num_output_candidates =
         session_info->session_config.GetNumOutputCandidates();
@@ -688,55 +730,56 @@ absl::Status ExecutionManager::AddDecodeTask(
       responses = Responses(TaskState::kCancelled);
     }
 
-    auto status =
-        FinishTask(task_id, std::move(responses), std::move(callback));
-    if (!status.ok()) {
-      ABSL_LOG(ERROR) << "Failed to finish task: " << status
-                      << " with task id: " << task_id;
+    if (cancelled != nullptr && cancelled->load()) {
+      responses = Responses(TaskState::kCancelled);
     }
+
+    FinishTaskAndLogErrors(task_id, std::move(responses), std::move(callback));
     return;
   };
 
   return CreateTask(session_id, task_id, std::move(task), std::move(dep_tasks),
-                    std::move(callback));
+                    cancelled, std::move(callback));
 }
 
 absl::Status ExecutionManager::AddCloneSessionTask(
     SessionId session_id, TaskId task_id, absl::flat_hash_set<TaskId> dep_tasks,
     SessionId cloned_session_id,
+    std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
   if (callback == nullptr) {
     callback = [](absl::StatusOr<Responses> responses) {};
   }
 
   auto task = [this, task_id, cloned_session_id]() mutable -> void {
-    auto session_info_and_callback = StartTask(task_id);
-    if (!session_info_and_callback.ok()) {
-      ABSL_LOG(ERROR) << "Failed to start task: "
-                      << session_info_and_callback.status()
-                      << " with task id: " << task_id;
+    auto task_info = StartTask(task_id);
+    if (!task_info.ok()) {
+      FinishTaskAndLogErrors(task_id, task_info.status(),
+                             [](absl::StatusOr<Responses> responses) {});
       return;
     }
-    auto [session_info, callback] =
-        std::move(session_info_and_callback.value());
+    auto [session_info, cancelled, callback] = std::move(task_info.value());
     // If the session info is nullptr, it means the task is cancelled before it
     // is started.
     if (session_info == nullptr) {
       return;
     }
 
-    {
+    RETURN_IF_CANCELLED(cancelled, task_id, callback);
+
+    absl::StatusOr<Responses> result = Responses(TaskState::kDone);
+    [&] {
       absl::MutexLock lock(session_and_task_lookup_mutex_);
       if (!session_lookup_.contains(cloned_session_id)) {
-        callback(absl::InvalidArgumentError(
+        result = absl::InvalidArgumentError(
             absl::StrCat("Cloned session ", cloned_session_id,
-                         " not found in session list.")));
+                         " not found in session list."));
         return;
       }
       auto cloned_context_handler =
           resource_manager_->CloneContextHandler(session_info->context_handler);
       if (!cloned_context_handler.ok()) {
-        callback(cloned_context_handler.status());
+        result = cloned_context_handler.status();
         return;
       }
       std::unique_ptr<Sampler> cloned_sampler;
@@ -746,7 +789,7 @@ absl::Status ExecutionManager::AddCloneSessionTask(
                           session_info->session_config.GetNumOutputCandidates(),
                           session_info->session_config.GetSamplerParams());
         if (!sampler.ok()) {
-          callback(sampler.status());
+          result = sampler.status();
           return;
         }
         cloned_sampler = std::move(*sampler);
@@ -757,7 +800,8 @@ absl::Status ExecutionManager::AddCloneSessionTask(
         auto status = cloned_stop_token_detector->AddStopTokenSequence(
             stop_token_sequence);
         if (!status.ok()) {
-          ABSL_LOG(ERROR) << "Failed to add stop token sequence: " << status;
+          result = status;
+          return;
         }
       }
       session_lookup_.at(cloned_session_id)->session_config =
@@ -772,19 +816,18 @@ absl::Status ExecutionManager::AddCloneSessionTask(
           std::move(cloned_stop_token_detector);
       session_lookup_.at(cloned_session_id)->benchmark_info =
           session_info->benchmark_info;
+    }();
+
+    if (cancelled != nullptr && cancelled->load()) {
+      result = Responses(TaskState::kCancelled);
     }
 
-    auto status =
-        FinishTask(task_id, Responses(TaskState::kDone), std::move(callback));
-    if (!status.ok()) {
-      ABSL_LOG(ERROR) << "Failed to finish task: " << status
-                      << " with task id: " << task_id;
-    }
+    FinishTaskAndLogErrors(task_id, result, std::move(callback));
     return;
   };
 
   return CreateTask(session_id, task_id, std::move(task), std::move(dep_tasks),
-                    std::move(callback));
+                    cancelled, std::move(callback));
 }
 
 }  // namespace litert::lm

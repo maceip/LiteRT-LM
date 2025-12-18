@@ -228,6 +228,9 @@ class ExecutorSettingsBase {
   // this field will override the default activation data type, for example,
   // OpenCL backend only support fp32 on Linux.
   std::optional<ActivationDataType> activation_data_type_;
+
+  // Optional LoRA model assets.
+  std::optional<ModelAssets> lora_model_assets_;
 };
 
 }  // namespace litert::lm

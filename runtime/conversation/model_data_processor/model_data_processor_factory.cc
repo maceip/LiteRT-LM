@@ -26,6 +26,8 @@
 #include "runtime/components/tokenizer.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/config_registry.h"
+#include "runtime/conversation/model_data_processor/function_gemma_data_processor.h"
+#include "runtime/conversation/model_data_processor/function_gemma_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/generic_data_processor.h"
@@ -102,6 +104,55 @@ absl::StatusOr<DataProcessorConfig> CreateGemma3DataProcessorConfig(
   return config;
 }
 
+absl::StatusOr<DataProcessorConfig> CreateFunctionGemmaDataProcessorConfig(
+    const proto::LlmModelType& model_type) {
+  if (!model_type.has_function_gemma()) {
+    return absl::InvalidArgumentError(
+        "FunctionGemma LlmModelType is required to create "
+        "FunctionGemmaDataProcessorConfig.");
+  }
+  FunctionGemmaDataProcessorConfig config;
+  proto::FunctionGemma function_gemma = model_type.function_gemma();
+  const auto& default_function_gemma = proto::FunctionGemma::default_instance();
+  if (function_gemma.code_fence_start() !=
+      default_function_gemma.code_fence_start()) {
+    config.code_fence_start = function_gemma.code_fence_start();
+  }
+  if (function_gemma.code_fence_end() !=
+      default_function_gemma.code_fence_end()) {
+    config.code_fence_end = function_gemma.code_fence_end();
+  }
+  if (function_gemma.syntax_type() != default_function_gemma.syntax_type()) {
+    config.syntax_type = function_gemma.syntax_type();
+  }
+  if (function_gemma.escape_fence_strings() !=
+      default_function_gemma.escape_fence_strings()) {
+    config.escape_fence_strings = function_gemma.escape_fence_strings();
+  }
+  if (function_gemma.tool_code_regex() !=
+      default_function_gemma.tool_code_regex()) {
+    config.tool_code_regex = function_gemma.tool_code_regex();
+  }
+  if (function_gemma.use_template_for_fc_format() !=
+      default_function_gemma.use_template_for_fc_format()) {
+    config.use_template_for_fc_format =
+        function_gemma.use_template_for_fc_format();
+  }
+  if (function_gemma.constraint_mode() !=
+      default_function_gemma.constraint_mode()) {
+    switch (function_gemma.constraint_mode()) {
+      case proto::CONSTRAINT_MODE_FUNCTION_CALL_ONLY:
+        config.constraint_mode = ConstraintMode::kFunctionCallOnly;
+        break;
+      case proto::CONSTRAINT_MODE_TEXT_AND_OR:
+      default:
+        config.constraint_mode = ConstraintMode::kTextAndOr;
+        break;
+    }
+  }
+  return config;
+}
+
 absl::StatusOr<DataProcessorConfig> CreateGenericDataProcessorConfig(
     const proto::LlmModelType& model_type) {
   if (!model_type.has_generic_model()) {
@@ -109,7 +160,15 @@ absl::StatusOr<DataProcessorConfig> CreateGenericDataProcessorConfig(
         "GenericModel LlmModelType is required to create "
         "GenericDataProcessorConfig.");
   }
-  return GenericDataProcessorConfig();
+  GenericDataProcessorConfig config;
+  if (model_type.generic_model().has_model_role()) {
+    config.model_role = model_type.generic_model().model_role();
+  }
+  if (model_type.generic_model().has_force_string_content()) {
+    config.force_string_content =
+        model_type.generic_model().force_string_content();
+  }
+  return config;
 }
 
 absl::StatusOr<DataProcessorConfig> CreateQwen3DataProcessorConfig(
@@ -162,6 +221,8 @@ absl::StatusOr<DataProcessorConfig> CreateDataProcessorConfigFromLlmModelType(
       return CreateQwen3DataProcessorConfig(model_type);
     case proto::LlmModelType::kGenericModel:
       return CreateGenericDataProcessorConfig(model_type);
+    case proto::LlmModelType::kFunctionGemma:
+      return CreateFunctionGemmaDataProcessorConfig(model_type);
     default:
       return absl::InvalidArgumentError("Unsupported model type");
   }
@@ -185,6 +246,11 @@ absl::StatusOr<std::unique_ptr<ModelDataProcessor>> CreateModelDataProcessor(
     ABSL_LOG(INFO) << "Creating GenericDataProcessor";
     return GenericDataProcessor::Create(
         std::get<GenericDataProcessorConfig>(config));
+  } else if (std::holds_alternative<FunctionGemmaDataProcessorConfig>(config)) {
+    ABSL_LOG(INFO) << "Creating FunctionGemmaDataProcessor";
+    return FunctionGemmaDataProcessor::Create(
+        std::get<FunctionGemmaDataProcessorConfig>(config), preface, tokenizer,
+        stop_token_ids, enable_constrained_decoding);
   } else {
     return absl::InvalidArgumentError("Unsupported data processor config type");
   }

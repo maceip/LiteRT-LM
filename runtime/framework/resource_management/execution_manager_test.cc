@@ -14,6 +14,7 @@
 
 #include "runtime/framework/resource_management/execution_manager.h"
 
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <string>
@@ -146,7 +147,8 @@ TEST_F(ExecutionManagerTest, AddPrefillTask) {
   ASSERT_OK_AND_ASSIGN(const TaskId task_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
-      session_id, task_id, std::move(inputs), {}, std::move(callback)));
+      session_id, task_id, std::move(inputs), {},
+      std::make_shared<std::atomic<bool>>(false), std::move(callback)));
 
   EXPECT_OK(execution_manager_->WaitUntilDone(task_id, absl::Seconds(3)));
 
@@ -183,8 +185,10 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithInternalSampler) {
   ASSERT_OK_AND_ASSIGN(const TaskId prefill_task_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
-      session_id, prefill_task_id, std::move(inputs), {},
-      [](absl::StatusOr<Responses> responses) {}));
+      session_id, prefill_task_id, std::move(inputs),
+      /*dependency_task_ids=*/{},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/[](absl::StatusOr<Responses> responses) {}));
   ASSERT_OK(
       execution_manager_->WaitUntilDone(prefill_task_id, absl::Seconds(3)));
 
@@ -193,7 +197,9 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithInternalSampler) {
   ASSERT_OK(execution_manager_->AddDecodeTask(
       session_id, decode_task_id,
       /*dependency_task_ids=*/{},
-      /*constraint=*/nullptr, /*cancelled=*/nullptr, std::move(callback)));
+      /*constraint=*/nullptr,
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      std::move(callback)));
 
   EXPECT_OK(
       execution_manager_->WaitUntilDone(decode_task_id, absl::Seconds(3)));
@@ -239,18 +245,21 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithExternalSampler) {
   ASSERT_OK_AND_ASSIGN(const TaskId prefill_task_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
-      session_id, prefill_task_id, std::move(inputs), {},
-      [](absl::StatusOr<Responses> responses) {}));
+      session_id, prefill_task_id, std::move(inputs),
+      /*dependency_task_ids=*/{},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/[](absl::StatusOr<Responses> responses) {}));
   ASSERT_OK(
       execution_manager_->WaitUntilDone(prefill_task_id, absl::Seconds(3)));
 
   ASSERT_OK_AND_ASSIGN(const TaskId decode_task_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddDecodeTask(session_id, decode_task_id,
-                                              /*dependency_task_ids=*/{},
-                                              /*constraint=*/nullptr,
-                                              /*constraint_params=*/nullptr,
-                                              std::move(callback)));
+  ASSERT_OK(execution_manager_->AddDecodeTask(
+      session_id, decode_task_id,
+      /*dependency_task_ids=*/{},
+      /*constraint=*/nullptr,
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      std::move(callback)));
 
   EXPECT_OK(
       execution_manager_->WaitUntilDone(decode_task_id, absl::Seconds(3)));
@@ -278,17 +287,19 @@ TEST_F(ExecutionManagerTest, CreateAndRunDependentTasks) {
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddPrefillTask(session_id, task_a_id,
-                                               std::move(inputs),
-                                               /*dependency_task_ids=*/{},
-                                               /*callback=*/nullptr));
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_a_id, std::move(inputs),
+      /*dependency_task_ids=*/{},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/nullptr));
 
   ASSERT_OK_AND_ASSIGN(const TaskId task_b_id,
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddDecodeTask(
       session_id, task_b_id,
       /*dependency_task_ids=*/{task_a_id},
-      /*constraint=*/nullptr, /*cancelled=*/nullptr,
+      /*constraint=*/nullptr,
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
       /*callback=*/nullptr));
 
   EXPECT_OK(execution_manager_->WaitUntilDone(task_b_id, absl::Seconds(1)));
@@ -309,7 +320,9 @@ TEST_F(ExecutionManagerTest, CreateTaskWithInvalidDependency) {
                        execution_manager_->GetNewTaskId());
   auto add_task_status = execution_manager_->AddPrefillTask(
       session_id, task_id, std::move(inputs),
-      /*dependency_task_ids=*/{12345}, /*callback=*/nullptr);
+      /*dependency_task_ids=*/{12345},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/nullptr);
   EXPECT_FALSE(add_task_status.ok());
   EXPECT_EQ(add_task_status.code(), absl::StatusCode::kInvalidArgument);
 }
@@ -329,10 +342,11 @@ TEST_F(ExecutionManagerTest, CreateTaskWithInvalidDependencyId) {
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddPrefillTask(session_id, task_a_id,
-                                               std::move(inputs),
-                                               /*dependency_task_ids=*/{},
-                                               /*callback=*/nullptr));
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_a_id, std::move(inputs),
+      /*dependency_task_ids=*/{},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/nullptr));
   EXPECT_OK(execution_manager_->WaitUntilDone(task_a_id, absl::Seconds(1)));
 
   // Try to add a task with an invalid dependency.
@@ -344,6 +358,7 @@ TEST_F(ExecutionManagerTest, CreateTaskWithInvalidDependencyId) {
   auto task_status = execution_manager_->AddPrefillTask(
       session_id, invalid_task_id, std::move(inputs_b),
       /*dependency_task_ids=*/{invalid_task_id},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
       /*callback=*/nullptr);
   EXPECT_FALSE(task_status.ok());
   EXPECT_EQ(task_status.code(), absl::StatusCode::kInvalidArgument);
@@ -374,12 +389,13 @@ TEST_F(ExecutionManagerTest, WaitUntilTaskDoneTimeout) {
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddDecodeTask(session_id, task_id,
-                                              /*dependency_task_ids=*/{},
+  ASSERT_OK(execution_manager_->AddDecodeTask(
+      session_id, task_id,
+      /*dependency_task_ids=*/{},
 
-                                              /*constraint=*/nullptr,
-                                              /*cancelled=*/nullptr,
-                                              /*callback=*/nullptr));
+      /*constraint=*/nullptr,
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/nullptr));
 
   EXPECT_EQ(
       execution_manager_->WaitUntilDone(task_id, absl::Milliseconds(100)),
@@ -416,7 +432,9 @@ TEST_F(ExecutionManagerTest, WaitUntilAllDoneTimeout) {
   ASSERT_OK(execution_manager_->AddDecodeTask(
       session_id, task_id,
       /*dependency_task_ids=*/{},
-      /*constraint=*/nullptr, /*cancelled=*/nullptr, /*callback=*/nullptr));
+      /*constraint=*/nullptr,
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/nullptr));
 
   EXPECT_EQ(
       execution_manager_->WaitUntilAllDone(absl::Milliseconds(100)).code(),
@@ -453,6 +471,7 @@ TEST_F(ExecutionManagerTest, TaskReturnsError) {
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
       session_id, task_id, std::move(inputs), {},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
       [&](absl::StatusOr<Responses> responses) {
         if (!responses.ok()) {
           final_status = responses.status();
@@ -494,6 +513,7 @@ TEST_F(ExecutionManagerTest, CreateDependentTaskOnFailedTask) {
                        execution_manager_->GetNewTaskId());
   ASSERT_OK(execution_manager_->AddPrefillTask(
       session_id, task_a_id, std::move(inputs), {},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
       [&](absl::StatusOr<Responses> responses) {
         task_a_status = responses.status();
       }));
@@ -508,7 +528,8 @@ TEST_F(ExecutionManagerTest, CreateDependentTaskOnFailedTask) {
   ASSERT_OK(execution_manager_->AddDecodeTask(
       session_id, task_b_id,
       /*dependency_task_ids=*/{task_a_id},
-      /*constraint=*/nullptr, /*cancelled=*/nullptr,
+      /*constraint=*/nullptr,
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
       [&](absl::StatusOr<Responses> responses) {
         task_b_status = responses.status();
         if (responses.ok()) {
@@ -536,10 +557,11 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithInternalSampler) {
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddPrefillTask(session_id, task_a_id,
-                                               std::move(inputs),
-                                               /*dependency_task_ids=*/{},
-                                               /*callback=*/nullptr));
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_a_id, std::move(inputs),
+      /*dependency_task_ids=*/{},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/nullptr));
 
   ASSERT_OK_AND_ASSIGN(const TaskId task_b_id,
                        execution_manager_->GetNewTaskId());
@@ -560,7 +582,8 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithInternalSampler) {
   ASSERT_OK(execution_manager_->AddDecodeTask(
       session_id, task_b_id,
       /*dependency_task_ids=*/{task_a_id}, decode_config.GetConstraint(),
-      /*cancelled=*/nullptr, std::move(callback)));
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      std::move(callback)));
 
   EXPECT_OK(execution_manager_->WaitUntilDone(task_b_id, absl::Seconds(3)));
 
@@ -593,10 +616,11 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithExternalSampler) {
   std::optional<BenchmarkInfo> benchmark_info = std::nullopt;
   ASSERT_OK_AND_ASSIGN(const TaskId task_a_id,
                        execution_manager_->GetNewTaskId());
-  ASSERT_OK(execution_manager_->AddPrefillTask(session_id, task_a_id,
-                                               std::move(inputs),
-                                               /*dependency_task_ids=*/{},
-                                               /*callback=*/nullptr));
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_a_id, std::move(inputs),
+      /*dependency_task_ids=*/{},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/nullptr));
 
   ASSERT_OK_AND_ASSIGN(const TaskId task_b_id,
                        execution_manager_->GetNewTaskId());
@@ -617,7 +641,8 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithExternalSampler) {
   ASSERT_OK(execution_manager_->AddDecodeTask(
       session_id, task_b_id,
       /*dependency_task_ids=*/{task_a_id}, decode_config.GetConstraint(),
-      /*cancelled=*/nullptr, std::move(callback)));
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      std::move(callback)));
 
   EXPECT_OK(execution_manager_->WaitUntilDone(task_b_id, absl::Seconds(3)));
 

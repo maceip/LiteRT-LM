@@ -15,6 +15,7 @@
 #include "runtime/engine/engine_settings.h"
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -22,7 +23,6 @@
 #include <vector>
 
 #include "absl/base/nullability.h"  // from @com_google_absl
-#include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/match.h"  // from @com_google_absl
@@ -40,6 +40,7 @@
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/proto/token.pb.h"
 #include "runtime/util/model_type_utils.h"
+#include "litert/cc/internal/scoped_file.h"  // from @litert
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
 
 namespace litert::lm {
@@ -228,8 +229,18 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
   }
 
   if (!metadata.has_llm_model_type()) {
-    ASSIGN_OR_RETURN(*metadata.mutable_llm_model_type(),
-                     InferLlmModelType(metadata, tokenizer));
+    const auto& model_assets = main_executor_settings_.GetModelAssets();
+    auto model_path = model_assets.GetPath();
+    // TODO(b/469437188) Remove test_lm_lora hack.
+    if (model_path.ok() && absl::StrContains(*model_path, "test_lm_lora")) {
+      ABSL_LOG(INFO)
+          << "LoRA model detected, skipping InferLlmModelType and using "
+             "generic_model.";
+      metadata.mutable_llm_model_type()->mutable_generic_model();
+    } else {
+      ASSIGN_OR_RETURN(*metadata.mutable_llm_model_type(),
+                       InferLlmModelType(metadata, tokenizer));
+    }
   }
   if (!metadata.has_jinja_prompt_template()) {
     ASSIGN_OR_RETURN(*metadata.mutable_jinja_prompt_template(),
@@ -253,7 +264,7 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
   }
 
   ABSL_LOG(INFO) << "The llm metadata: " << metadata.DebugString();
-  ABSL_LOG(INFO) << "The validated engine settings: " << *this;
+  ABSL_LOG(INFO) << "The validated engine settings: " << this;
   return absl::OkStatus();
 }
 
@@ -518,6 +529,17 @@ std::string& SessionConfig::GetMutableJinjaPromptTemplate() {
   return jinja_prompt_template_;
 }
 
+
+std::shared_ptr<::litert::ScopedFile> SessionConfig::GetScopedLoraFile()
+    const {
+  return scoped_lora_file_;
+}
+
+void SessionConfig::SetScopedLoraFile(
+    std::shared_ptr<::litert::ScopedFile> scoped_lora_file) {
+  scoped_lora_file_ = std::move(scoped_lora_file);
+}
+
 std::ostream& operator<<(std::ostream& os, const SessionConfig& config) {
   os << "SessionConfig: " << std::endl;
   os << "  AudioModalityEnabled: " << config.AudioModalityEnabled()
@@ -542,6 +564,9 @@ std::ostream& operator<<(std::ostream& os, const SessionConfig& config) {
      << std::endl;
   os << "  ApplyPromptTemplatesInSession: "
      << config.GetApplyPromptTemplateInSession() << std::endl;
+  os << "  ScopedLoraFile: "
+     << (config.GetScopedLoraFile() != nullptr ? "Present" : "Not present")
+     << std::endl;
   return os;
 }
 

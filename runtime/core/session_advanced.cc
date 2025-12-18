@@ -113,7 +113,7 @@ SessionAdvanced::RunPrefillAsync(
 
   RETURN_IF_ERROR(execution_manager_lock->AddPrefillTask(
       session_id_, task_id, std::move(preprocessed_contents), last_task_ids_,
-      std::move(callback)));
+      cancelled, std::move(callback)));
 
   last_task_ids_ = {task_id};
 
@@ -248,7 +248,8 @@ absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::Clone(
                                         session_info_->benchmark_info));
 
   RETURN_IF_ERROR(execution_manager_lock->AddCloneSessionTask(
-      session_id_, task_id, last_task_ids_, session_id, std::move(callback)));
+      session_id_, task_id, last_task_ids_, session_id,
+      std::make_shared<std::atomic<bool>>(false), std::move(callback)));
 
   last_task_ids_ = {task_id};
 

@@ -31,10 +31,10 @@ jobs:
       REFRESH_CACHE: ${{ github.event_name == 'schedule' ||
                          (github.event_name == 'workflow_dispatch' && inputs.REFRESH_CACHE) }}
     steps:
-      - name: Checkout code
+      - name: Checkout code.
         uses: actions/checkout@v4
 
-      - name : Set up cache keys
+      - name : Set up cache keys.
         id: cache-keys
         run: |
           CACHE_RESTORE_KEY_2="${{ github.workflow }}"
@@ -68,19 +68,19 @@ jobs:
             ${{ steps.cache-keys.outputs.CACHE_RESTORE_KEY_1 }}-
             ${{ steps.cache-keys.outputs.CACHE_RESTORE_KEY_2 }}-
 
-      - name: Check cache hit
+      - name: Check cache hit.
         run: |
           echo "Cache Hit: ${{ steps.bazel-cache.outputs.cache-hit }}"
           echo "Cache Primary Key: ${{ steps.bazel-cache.outputs.cache-primary-key }}"
           echo "Cache Matched Key: ${{ steps.bazel-cache.outputs.cache-matched-key }}"
 
-      - name: Run bazel build on Linux
+      - name: Run bazel build on Linux.
         run: |
           bazel build --disk_cache=~/.cache/bazel-linux \
             //... \
             //runtime/engine:litert_lm_main
 
-      - name: Check if litert_lm_main doesn't link libLiteRt.so
+      - name: Check if litert_lm_main doesn't link libLiteRt.so.
         # Return exit code 1 if libLiteRt.so is required.
         run: |
           ! readelf -d bazel-bin/runtime/engine/litert_lm_main | grep libLiteRt.so
@@ -91,11 +91,11 @@ jobs:
           cp bazel-bin/runtime/engine/litert_lm_main litert_lm_main.linux_x86_64
           gh release upload ${{ github.ref_name }} litert_lm_main.linux_x86_64 --clobber
 
-      - name: Run bazel test on Linux
+      - name: Run bazel test on Linux.
         run: |
           bazel test --disk_cache=~/.cache/bazel-linux --test_output=errors //...
 
-      - name: Run bazel build on Linux with dynamic linking
+      - name: Run bazel build on Linux with dynamic linking.
         run: |
           bazel build \
             --define=litert_link_capi_so=true \
@@ -112,15 +112,16 @@ jobs:
             | grep -v LiteRtIsSameLayout | grep -v LiteRtGetNumLayoutElements \
             | grep -v LiteRtSetMinLoggerSeverity | grep -v LiteRtGetMinLoggerSeverity \
             | grep -v LiteRtGetLogSeverityName | grep -v LiteRtGetDefaultLogger \
+            | grep -v LiteRtCompareApiVersion | grep -v LiteRtGetStatusString \
             | grep -v OpaqueOptions
-      - name: Setup Android NDK
+      - name: Setup Android NDK.
         uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
           ndk-version: r28b
           add-to-path: false
 
-      - name: Run bazel build for Android
+      - name: Run bazel build for Android.
         run: |
           bazel build --disk_cache=~/.cache/bazel-android --config=android_arm64 \
             //... \

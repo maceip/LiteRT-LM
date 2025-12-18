@@ -17,6 +17,7 @@
 
 #include <variant>
 
+#include "runtime/conversation/model_data_processor/function_gemma_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/generic_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/qwen3_data_processor_config.h"
@@ -28,16 +29,18 @@ namespace litert::lm {
 // ModelDataProcessor.
 using DataProcessorConfig =
     std::variant<Gemma3DataProcessorConfig, GenericDataProcessorConfig,
-                 Qwen3DataProcessorConfig
+                 Qwen3DataProcessorConfig,
+                 FunctionGemmaDataProcessorConfig
                  >;
 
 // DataProcessorArguments is a registry of all the model-specific data processor
 // arguments. The DataProcessorArguments is used to pass arguments of single
 // turn to the ModelDataProcessor during the conversation.
-using DataProcessorArguments = std::variant<
-    std::monostate, GenericDataProcessorArguments, Gemma3DataProcessorArguments,
-    Qwen3DataProcessorArguments
-    >;
+using DataProcessorArguments =
+    std::variant<std::monostate, GenericDataProcessorArguments,
+                 Gemma3DataProcessorArguments, Qwen3DataProcessorArguments,
+                 FunctionGemmaDataProcessorArguments
+                 >;
 
 }  // namespace litert::lm
 

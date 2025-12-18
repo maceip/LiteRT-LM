@@ -15,6 +15,7 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_SETTINGS_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_SETTINGS_H_
 
+#include <memory>
 #include <optional>
 #include <ostream>
 #include <string>
@@ -33,6 +34,7 @@
 #include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/proto/llm_model_type.pb.h"
 #include "runtime/proto/sampler_params.pb.h"
+#include "litert/cc/internal/scoped_file.h"  // from @litert
 
 namespace litert::lm {
 
@@ -229,6 +231,12 @@ class SessionConfig {
     use_external_sampler_ = use_external_sampler;
   }
 
+  // Scoped LoRA file:
+  // Getters for the scoped LoRA file.
+  std::shared_ptr<ScopedFile> GetScopedLoraFile() const;
+  void SetScopedLoraFile(
+      std::shared_ptr<ScopedFile> scoped_lora_file);
+
  private:
   // Private constructor for the SessionConfig. The user should use the
   // CreateDefault() method to create a SessionConfig.
@@ -278,6 +286,9 @@ class SessionConfig {
   // Whether to use external sampler.
   // notice: this is only used in advanced engine.
   bool use_external_sampler_ = false;
+
+  // Scoped file for the LoRA weights.
+  std::shared_ptr<ScopedFile> scoped_lora_file_;
 };
 
 std::ostream& operator<<(std::ostream& os, const SessionConfig& config);

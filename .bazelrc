@@ -43,6 +43,10 @@
 # Shlibs built from the source tree should resolve symbols in the exectuable.
 build --define=resolve_symbols_in_exec=true
 
+# Exclude OpenCL from Linux and Windows builds.
+build:linux --copt=-DLITERT_DISABLE_OPENCL_SUPPORT=1
+build:windows --copt=/DLITERT_DISABLE_OPENCL_SUPPORT=1
+
 build --repo_env=USE_PYWRAP_RULES=True
 build --copt=-DGRPC_BAZEL_BUILD
 build --host_copt=-DGRPC_BAZEL_BUILD

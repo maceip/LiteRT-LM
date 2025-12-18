@@ -22,6 +22,7 @@
 #include <set>
 #include <string>
 
+#include "absl/base/log_severity.h"  // from @com_google_absl
 #include "absl/log/log_entry.h"  // from @com_google_absl
 #include "absl/log/log_sink.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
@@ -60,6 +61,7 @@ struct LiteRtLmSettings {
   std::optional<std::string> expected_output = std::nullopt;
   std::optional<std::string> log_sink_file = std::nullopt;
   int max_num_tokens = 0;
+  absl::LogSeverity min_log_level = absl::LogSeverity::kInfo;
   std::set<int> prefill_batch_sizes;
   int num_output_candidates = 1;
   bool benchmark = false;
@@ -81,7 +83,6 @@ struct LiteRtLmSettings {
   std::optional<std::string> score_target_text = std::nullopt;
   bool gpu_madvise_original_shared_tensors = true;
   bool disable_cache = false;
-  bool run_with_two_sessions = false;
   int prefill_chunk_size = -1;
   std::string preferred_device_substr = "";
   int num_threads_to_upload = -1;

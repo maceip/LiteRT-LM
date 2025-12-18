@@ -54,6 +54,7 @@
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/proto/sampler_params.pb.h"
+#include "litert/cc/internal/scoped_file.h"  // from @litert
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
 #include "re2/re2.h"  // from @com_googlesource_code_re2
 #include "tflite/profiling/memory_info.h"  // from @litert
@@ -558,15 +559,15 @@ absl::Status RunLiteRtLm(const LiteRtLmSettings& settings) {
     mem_monitor->Start();
   }
 
-  // Get the engine settings and create the engine.
   ASSIGN_OR_RETURN(EngineSettings engine_settings,
                    CreateEngineSettings(settings));
+
   ABSL_LOG(INFO) << "Creating engine";
   ASSIGN_OR_RETURN(auto engine,
                    litert::lm::Engine::CreateEngine(std::move(engine_settings),
                                                     settings.input_prompt));
   // Get the session config.
-  const SessionConfig session_config = CreateSessionConfig(settings);
+  SessionConfig session_config = CreateSessionConfig(settings);
 
   // Session and Conversation are mutually exclusive. Only when
   // settings.score_target_text is set, we will create a Session to run the

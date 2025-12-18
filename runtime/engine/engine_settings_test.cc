@@ -14,9 +14,12 @@
 
 #include "runtime/engine/engine_settings.h"
 
+#include <fstream>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gmock/gmock.h>
@@ -31,6 +34,7 @@
 #include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/proto/llm_model_type.pb.h"
 #include "runtime/proto/token.pb.h"
+#include "litert/cc/internal/scoped_file.h"  // from @litert  // IWYU pragma: keep
 #include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
@@ -693,6 +697,25 @@ TEST(SessionConfigTest, SetAndGetLlmModelType) {
   session_config.GetMutableLlmModelType().mutable_gemma3n();
   EXPECT_EQ(session_config.GetLlmModelType().model_type_case(),
             proto::LlmModelType::kGemma3N);
+}
+
+TEST(SessionConfigTest, SetAndGetScopedLoraFile) {
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  EXPECT_EQ(session_config.GetScopedLoraFile(), nullptr);
+  const std::string lora_path =
+      ::testing::TempDir() + "/set_and_get_scoped_lora_file.bin";
+  {
+    // Create an empty file.
+    std::ofstream ofs(lora_path);
+  }
+  ASSERT_OK_AND_ASSIGN(::litert::ScopedFile scoped_file,
+                       ::litert::ScopedFile::Open(lora_path));
+  auto file_ptr =
+      std::make_shared<::litert::ScopedFile>(std::move(scoped_file));
+  session_config.SetScopedLoraFile(file_ptr);
+  EXPECT_EQ(session_config.GetScopedLoraFile(), file_ptr);
+  session_config.SetScopedLoraFile(nullptr);
+  EXPECT_EQ(session_config.GetScopedLoraFile(), nullptr);
 }
 
 TEST(SessionConfigTest, MaybeUpdateAndValidate) {

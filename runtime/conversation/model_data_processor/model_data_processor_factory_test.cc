@@ -27,6 +27,7 @@
 #include "runtime/components/tokenizer.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/config_registry.h"
+#include "runtime/conversation/model_data_processor/function_gemma_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/generic_data_processor_config.h"
 #include "runtime/conversation/model_data_processor/model_data_processor.h"
@@ -156,6 +157,30 @@ TEST_F(ModelDataProcessorFactoryTest, CreateQwen3ModelDataProcessor) {
 
   EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
                                            Gemma3DataProcessorArguments()),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST_F(ModelDataProcessorFactoryTest, CreateFunctionGemmaDataProcessor) {
+  auto tokenizer = SentencePieceTokenizer::CreateFromFile(
+      (std::filesystem::path(::testing::SrcDir()) / kTestdataDir /
+       "function_gemma_sentencepiece.model")
+          .string());
+  ASSERT_OK(tokenizer);
+
+  proto::LlmModelType llm_model_type;
+  llm_model_type.mutable_function_gemma();
+  ASSERT_OK_AND_ASSIGN(
+      auto config, CreateDataProcessorConfigFromLlmModelType(llm_model_type));
+  ASSERT_TRUE(std::holds_alternative<FunctionGemmaDataProcessorConfig>(config));
+  ASSERT_OK_AND_ASSIGN(
+      auto processor,
+      CreateModelDataProcessor(config, /*preface=*/std::nullopt,
+                               (*tokenizer).get(), /*stop_token_ids=*/{},
+                               /*enable_constrained_decoding=*/true));
+  EXPECT_OK(processor->ToInputDataVector(
+      "test prompt", {}, FunctionGemmaDataProcessorArguments()));
+  EXPECT_THAT(processor->ToInputDataVector("test prompt", {},
+                                           GenericDataProcessorArguments()),
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 

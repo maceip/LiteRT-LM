@@ -39,7 +39,6 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
-#include "litert/c/internal/litert_logging.h"  // from @litert
 #include "runtime/conversation/conversation.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/engine/engine.h"
@@ -119,7 +118,7 @@ absl::Status MainHelper(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
   // Overrides the default for FLAGS_minloglevel to error.
   absl::SetMinLogLevel(absl::LogSeverityAtLeast::kError);
-  LiteRtSetMinLoggerSeverity(LiteRtGetDefaultLogger(), LITERT_SILENT);
+  absl::SetStderrThreshold(absl::LogSeverityAtLeast::kFatal);
 
   const std::string model_path = absl::GetFlag(FLAGS_model_path);
   if (model_path.empty()) {
@@ -143,9 +142,10 @@ absl::Status MainHelper(int argc, char** argv) {
 
   // Create the conversation.
   std::unique_ptr<Conversation> conversation;
-  ASSIGN_OR_RETURN(auto conversation_config,
-                   ConversationConfig::CreateFromSessionConfig(
-                       *engine, litert::lm::SessionConfig::CreateDefault()));
+  auto session_config = litert::lm::SessionConfig::CreateDefault();
+  ASSIGN_OR_RETURN(
+      auto conversation_config,
+      ConversationConfig::CreateFromSessionConfig(*engine, session_config));
   ASSIGN_OR_RETURN(conversation,
                    Conversation::Create(*engine, conversation_config));
 

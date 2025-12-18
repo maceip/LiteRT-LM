@@ -79,3 +79,50 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
     ],
 )
+
+alias(
+    name = "gemma_model_constraint_provider_lib",
+    actual = ":gemma_model_constraint_provider_shared_lib",
+)
+
+cc_import(
+    name = "gemma_model_constraint_provider_dll_import",
+    interface_library = "//prebuilt/windows_x86_64:libGemmaModelConstraintProvider.lib",
+    shared_library = "//prebuilt/windows_x86_64:libGemmaModelConstraintProvider.dll",
+    target_compatible_with = ["@platforms//os:windows"],
+)
+
+cc_library(
+    name = "gemma_model_constraint_provider_shared_lib",
+    srcs = select({
+        "@platforms//os:android": ["//prebuilt/android_arm64:libGemmaModelConstraintProvider.so"],
+        "//build_config:linux_x86_64": ["//prebuilt/linux_x86_64:libGemmaModelConstraintProvider.so"],
+        "//build_config:linux_arm64": ["//prebuilt/linux_arm64:libGemmaModelConstraintProvider.so"],
+        "//build_config:ios_sim_arm64": ["//prebuilt/ios_sim_arm64:libGemmaModelConstraintProvider.dylib"],
+        "//build_config:ios_arm64": ["//prebuilt/ios_arm64:libGemmaModelConstraintProvider.dylib"],
+        "@platforms//os:macos": ["//prebuilt/macos_arm64:libGemmaModelConstraintProvider.dylib"],
+        "@platforms//os:windows": [],
+        "//conditions:default": [],
+    }),
+    hdrs = [
+        "gemma_model_constraint_provider.h",
+    ],
+    linkopts = select({
+        "@platforms//os:ios": ["-Wl,-rpath,@loader_path"],
+        "@platforms//os:macos": ["-Wl,-rpath,@loader_path"],
+        "//conditions:default": [],
+    }),
+    linkstatic = 1,
+    deps = [
+        ":constraint",
+        ":constraint_provider",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@nlohmann_json//:json",
+        "@sentencepiece//:sentencepiece_processor",
+    ] + select({
+        "@platforms//os:windows": [":gemma_model_constraint_provider_dll_import"],
+        "//conditions:default": [],
+    }),
+)

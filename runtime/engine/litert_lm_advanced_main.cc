@@ -32,6 +32,7 @@
 
 #include "absl/base/log_severity.h"  // from @com_google_absl
 #include "absl/flags/flag.h"  // from @com_google_absl
+#include "absl/flags/marshalling.h"  // from @com_google_absl
 #include "absl/flags/parse.h"  // from @com_google_absl
 #include "absl/log/absl_check.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -41,7 +42,6 @@
 #include "absl/strings/numbers.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
-#include "litert/c/internal/litert_logging.h"  // from @litert
 #include "runtime/engine/litert_lm_lib.h"
 #include "runtime/engine/shared_flags.h"
 #include "runtime/util/status_macros.h"
@@ -62,28 +62,6 @@ ABSL_FLAG(int, prefill_chunk_size, -1,
           "executor.");
 
 namespace {
-
-// Converts an absl::LogSeverityAtLeast to a LiteRtLogSeverity.
-LiteRtLogSeverity AbslMinLogLevelToLiteRtLogSeverity(
-    absl::LogSeverityAtLeast min_log_level) {
-  int min_log_level_int = static_cast<int>(min_log_level);
-  switch (min_log_level_int) {
-    case -1:
-      // ABSL does not support verbose logging, but passes through -1 as a log
-      // level, which we can use to enable verbose logging in LiteRT.
-      return LITERT_VERBOSE;
-    case static_cast<int>(absl::LogSeverityAtLeast::kInfo):
-      return LITERT_INFO;
-    case static_cast<int>(absl::LogSeverityAtLeast::kWarning):
-      return LITERT_WARNING;
-    case static_cast<int>(absl::LogSeverityAtLeast::kError):
-      return LITERT_ERROR;
-    case static_cast<int>(absl::LogSeverityAtLeast::kFatal):
-      return LITERT_SILENT;
-    default:
-      return LITERT_INFO;
-  }
-}
 
 absl::StatusOr<std::set<int>> ParsePrefillBatchSizes(
     const std::vector<std::string>& prefill_batch_sizes) {
@@ -126,9 +104,6 @@ std::string GetInputPrompt() {
 
 absl::Status MainHelper(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
-  LiteRtSetMinLoggerSeverity(
-      LiteRtGetDefaultLogger(),
-      AbslMinLogLevelToLiteRtLogSeverity(absl::MinLogLevel()));
 
   if (argc <= 1) {
     ABSL_LOG(INFO)

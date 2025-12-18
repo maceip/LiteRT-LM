@@ -47,6 +47,16 @@ antlr(
     listener = True,
     package = "antlr_json_tool_call_parser",
 )
+antlr(
+    name = "antlr_fc_tool_call_parser_source",
+    srcs = [
+        "AntlrFcLexer.g4",
+        "AntlrFcParser.g4",
+    ],
+    language = "Cpp",
+    listener = True,
+    package = "antlr_fc_tool_call_parser",
+)
 cc_library(
     name = "antlr_python_tool_call_parser",
     srcs = [
@@ -66,6 +76,17 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         ":antlr_json_tool_call_parser_source",
+        "@antlr4//:cpp",
+    ],
+)
+cc_library(
+    name = "antlr_fc_tool_call_parser",
+    srcs = [
+        ":antlr_fc_tool_call_parser_source",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":antlr_fc_tool_call_parser_source",
         "@antlr4//:cpp",
     ],
 )

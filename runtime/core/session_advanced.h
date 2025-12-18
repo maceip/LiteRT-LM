@@ -94,15 +94,18 @@ class SessionAdvanced : public Engine::Session {
   ~SessionAdvanced() override {
     CancelProcess();
     auto execution_manager_lock = execution_manager_.lock();
-    if (execution_manager_lock != nullptr) {
-      auto status = execution_manager_lock->ReleaseSession(session_id_);
-      if (!status.ok()) {
-        ABSL_LOG(ERROR) << "Failed to release session: " << status;
-      }
-    } else {
+    if (execution_manager_lock == nullptr) {
       ABSL_LOG(ERROR) << "Execution manager should not be deleted before "
                          "Session is deleted.";
+      return;
     }
+
+    auto status = execution_manager_lock->ReleaseSession(session_id_);
+    if (!status.ok()) {
+      ABSL_LOG(ERROR) << "Failed to release session: " << status;
+    }
+
+    WaitUntilDone().IgnoreError();
   };
 
   absl::StatusOr<Responses> GenerateContent(
@@ -179,7 +182,8 @@ class SessionAdvanced : public Engine::Session {
       return absl::FailedPreconditionError(
           "Execution manager is not available.");
     }
-    return execution_manager_lock->WaitUntilAllDone(Engine::kDefaultTimeout);
+    return execution_manager_lock->WaitUntilSessionDone(
+        session_id_, Engine::kDefaultTimeout);
   }
 
   // TODO b/409401231 - Add unit tests for this function.

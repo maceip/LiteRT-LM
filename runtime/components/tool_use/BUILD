@@ -50,6 +50,32 @@ cc_test(
 )
 
 cc_library(
+    name = "fc_tool_format_utils",
+    srcs = ["fc_tool_format_utils.cc"],
+    hdrs = ["fc_tool_format_utils.h"],
+    deps = [
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@nlohmann_json//:json",
+        "//runtime/util:litert_status_util",
+    ],
+)
+
+cc_test(
+    name = "fc_tool_format_utils_test",
+    srcs = ["fc_tool_format_utils_test.cc"],
+    deps = [
+        ":fc_tool_format_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@nlohmann_json//:json",
+        "//runtime/util:test_utils",
+    ],
+)
+
+cc_library(
     name = "parser_common",
     srcs = ["parser_common.cc"],
     hdrs = ["parser_common.h"],
@@ -124,10 +150,38 @@ cc_test(
 )
 
 cc_library(
+    name = "fc_parser_utils",
+    srcs = ["fc_parser_utils.cc"],
+    hdrs = ["fc_parser_utils.h"],
+    deps = [
+        ":parser_common",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@nlohmann_json//:json",
+        "//runtime/components/tool_use/antlr:antlr_fc_tool_call_parser",
+    ],
+)
+
+cc_test(
+    name = "fc_parser_utils_test",
+    srcs = ["fc_parser_utils_test.cc"],
+    deps = [
+        ":fc_parser_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@nlohmann_json//:json",
+        "//runtime/util:test_utils",
+    ],
+)
+
+cc_library(
     name = "parser_utils",
     srcs = ["parser_utils.cc"],
     hdrs = ["parser_utils.h"],
     deps = [
+        ":fc_parser_utils",
         ":json_parser_utils",
         ":python_parser_utils",
         "@com_google_absl//absl/base:no_destructor",

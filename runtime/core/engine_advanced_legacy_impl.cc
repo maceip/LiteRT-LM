@@ -187,7 +187,7 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
   std::unique_ptr<Tokenizer> task_tokenizer;
   Tokenizer* tokenizer = nullptr;
   if (model_resources->litert_lm_model_resources == nullptr) {
-    // Handle the .task or .tflite file format.
+    // Handle the .task file format.
     ASSIGN_OR_RETURN(auto resources, ModelAssetBundleResources::Create(
                                          /*tag=*/"", scoped_model_file));
     if (benchmark_info.has_value()) {

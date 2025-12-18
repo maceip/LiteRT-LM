@@ -256,6 +256,86 @@ TEST(ParserUtilsTest, ParseTextAndJsonToolCalls) {
               })json")));
 }
 
+TEST(ParserUtilsTest, ParseFcToolCall) {
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  "<start_function_call>call:tool_name{x:1}<end_function_call>",
+                  /*code_fence_start=*/"<start_function_call>",
+                  /*code_fence_end=*/"<end_function_call>",
+                  /*syntax_type=*/SyntaxType::kFc),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json({
+                "tool_calls": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "tool_name",
+                      "arguments": {
+                        "x": 1
+                      }
+                    }
+                  }
+                ]
+              })json")));
+}
+
+TEST(ParserUtilsTest, ParseFcParallelToolCalls) {
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  "<start_function_call>call:tool_1{x:1}<end_function_call>"
+                  "<start_function_call>call:tool_2{y:2}<end_function_call>",
+                  /*code_fence_start=*/"<start_function_call>",
+                  /*code_fence_end=*/"<end_function_call>",
+                  /*syntax_type=*/SyntaxType::kFc),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json({
+                "tool_calls": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "tool_1",
+                      "arguments": {
+                        "x": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "tool_2",
+                      "arguments": {
+                        "y": 2
+                      }
+                    }
+                  }
+                ]
+              })json")));
+}
+
+TEST(ParserUtilsTest, ParseTextAndFcToolCalls) {
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  "This is some text.\n"
+                  "<start_function_call>call:tool_name{x:1}<end_function_call>",
+                  /*code_fence_start=*/"<start_function_call>",
+                  /*code_fence_end=*/"<end_function_call>",
+                  /*syntax_type=*/SyntaxType::kFc),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json({
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "This is some text.\n"
+                  }
+                ],
+                "tool_calls": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "tool_name",
+                      "arguments": {
+                        "x": 1
+                      }
+                    }
+                  }
+                ]
+              })json")));
+}
+
 TEST(ParserUtilsTest, ParseTextThenCodeThenText) {
   EXPECT_THAT(ParseTextAndToolCalls(
                   R"(This is some text.

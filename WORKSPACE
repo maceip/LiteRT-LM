@@ -3,13 +3,13 @@
 workspace(name = "litert_lm")
 
 # UPDATED = 2025-12-16
-LITERT_REF = "ab1506d352970f07d244812873f92181aa8acb0d"
+LITERT_REF = "56c5d116da0c090f7ab94656da28daed91ca897f"
 
-LITERT_SHA256 = "7e61bead8edbe68b5bf1f8fea6f1726e21b6a73ad52719f26931e7cdb456fe48"
+LITERT_SHA256 = "91e6ed29f7e9b43b9ed8f841777c4996d4ef0bcbe2d8ca4b4538c2cb8f7b4837"
 
-TENSORFLOW_REF = "bc72b2ce8d0eb465d783f2bc4127e487e5a229e3"
+TENSORFLOW_REF = "f4c2d0b25fa1bfa1971add1a35c195aeb3945bf0"
 
-TENSORFLOW_SHA256 = "69728e232d3bbb4c26cc846f6d947a94a6d05062cd8fa573964954c30e4f0de6"
+TENSORFLOW_SHA256 = "d3f29a02a8150de77b59ad60b2c5ffa765dc72b0e4d9b2b640f99ddb20821a3e"
 
 # buildifier: disable=load-on-top
 
@@ -317,6 +317,7 @@ http_archive(
         # Replace @//third_party with @litert//third_party in files under third_party/.
         "sed -i -e 's|\"@//third_party/|\"@litert//third_party/|g' third_party/*/*",
     ],
+    patches = ["@//:PATCH.litert"],
     sha256 = LITERT_SHA256,
     strip_prefix = "LiteRT-" + LITERT_REF,
     url = "https://github.com/google-ai-edge/LiteRT/archive/" + LITERT_REF + ".tar.gz",

@@ -51,10 +51,14 @@ absl::StatusOr<Message> GenericDataProcessor::ToMessageImpl(
     const GenericDataProcessorArguments& args) const {
   absl::string_view response_text = responses.GetTexts()[0];
   nlohmann::ordered_json content;
-  content = nlohmann::ordered_json::array(
-      {{{"type", "text"}, {"text", std::string(response_text)}}});
+  if (GetConfig().force_string_content) {
+    content = response_text;
+  } else {
+    content = nlohmann::ordered_json::array(
+        {{{"type", "text"}, {"text", std::string(response_text)}}});
+  }
   return nlohmann::ordered_json::object(
-      {{"role", config_.model_role}, {"content", content}});
+      {{"role", GetConfig().model_role}, {"content", content}});
 }
 
 }  // namespace litert::lm
