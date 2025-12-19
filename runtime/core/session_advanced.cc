@@ -84,7 +84,6 @@ SessionAdvanced::RunPrefillAsync(
   }
 
   auto cancelled = std::make_shared<std::atomic<bool>>(false);
-  cancel_flags_.insert(cancelled);
 
   auto execution_manager_lock = execution_manager_.lock();
   if (execution_manager_lock == nullptr) {
@@ -200,7 +199,6 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionAdvanced::RunDecodeAsync(
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
     const DecodeConfig& decode_config) {
   auto cancelled = std::make_shared<std::atomic<bool>>(false);
-  cancel_flags_.insert(cancelled);
 
   auto execution_manager_lock = execution_manager_.lock();
   if (execution_manager_lock == nullptr) {
@@ -256,9 +254,9 @@ absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::Clone(
   ASSIGN_OR_RETURN(auto session_info,
                    execution_manager_lock->GetSessionInfo(session_id));
 
-  return absl::WrapUnique(new SessionAdvanced(
-      session_id, execution_manager_, tokenizer_, session_info, is_first_turn_,
-      last_task_ids_, cancel_flags_));
+  return absl::WrapUnique(new SessionAdvanced(session_id, execution_manager_,
+                                              tokenizer_, session_info,
+                                              is_first_turn_, last_task_ids_));
 }
 
 }  // namespace litert::lm

@@ -100,7 +100,7 @@ class SessionAdvanced : public Engine::Session {
       return;
     }
 
-    auto status = execution_manager_lock->ReleaseSession(session_id_);
+    auto status = execution_manager_lock->CancelAllTasksInSession(session_id_);
     if (!status.ok()) {
       ABSL_LOG(ERROR) << "Failed to release session: " << status;
     }
@@ -165,8 +165,14 @@ class SessionAdvanced : public Engine::Session {
   // Conversation.
   void CancelProcess() override {
     ABSL_LOG(INFO) << "SessionAdvanced::CancelProcess";
-    for (const auto& cancel_flag : cancel_flags_) {
-      cancel_flag->store(true);
+    auto execution_manager_lock = execution_manager_.lock();
+    if (execution_manager_lock == nullptr) {
+      ABSL_LOG(ERROR) << "Execution manager is not available.";
+      return;
+    }
+    auto status = execution_manager_lock->CancelAllTasksInSession(session_id_);
+    if (!status.ok()) {
+      ABSL_LOG(ERROR) << "Failed to cancel all tasks in session: " << status;
     }
   }
 
@@ -191,19 +197,18 @@ class SessionAdvanced : public Engine::Session {
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) override;
 
  private:
-  explicit SessionAdvanced(
-      SessionId session_id, std::weak_ptr<ExecutionManager> execution_manager,
-      Tokenizer* absl_nonnull tokenizer,
-      std::shared_ptr<const SessionInfo> session_info,
-      bool is_first_turn = true, absl::flat_hash_set<TaskId> last_task_ids = {},
-      absl::flat_hash_set<std::shared_ptr<std::atomic<bool>>> cancel_flags = {})
+  explicit SessionAdvanced(SessionId session_id,
+                           std::weak_ptr<ExecutionManager> execution_manager,
+                           Tokenizer* absl_nonnull tokenizer,
+                           std::shared_ptr<const SessionInfo> session_info,
+                           bool is_first_turn = true,
+                           absl::flat_hash_set<TaskId> last_task_ids = {})
       : session_id_(session_id),
         execution_manager_(execution_manager),
         tokenizer_(tokenizer),
         session_info_(session_info),
         is_first_turn_(is_first_turn),
-        last_task_ids_(last_task_ids),
-        cancel_flags_(cancel_flags) {}
+        last_task_ids_(last_task_ids) {}
 
   // The session ID used for the session.
   SessionId session_id_;
@@ -225,9 +230,6 @@ class SessionAdvanced : public Engine::Session {
 
   // The last task IDs that might be executing in the session.
   absl::flat_hash_set<TaskId> last_task_ids_ = {};
-
-  // An atomic boolean to indicate whether the session is cancelled.
-  absl::flat_hash_set<std::shared_ptr<std::atomic<bool>>> cancel_flags_ = {};
 };
 
 }  // namespace litert::lm

@@ -147,9 +147,8 @@ class ExecutionManager {
       std::optional<BenchmarkInfo> benchmark_info = std::nullopt)
       ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
 
-  // Releases the session with the given session ID.
-  // The session will be removed from the execution manager.
-  absl::Status ReleaseSession(SessionId session_id)
+  // Cancels all tasks in the session with the given session ID.
+  absl::Status CancelAllTasksInSession(SessionId session_id)
       ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
 
   // Returns the session info with the given session ID.
