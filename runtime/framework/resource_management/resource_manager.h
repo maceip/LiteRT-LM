@@ -46,11 +46,11 @@ class ResourceManager {
       std::unique_ptr<LlmExecutor> llm_executor,
       std::unique_ptr<VisionExecutorSettings> vision_executor_settings,
       std::unique_ptr<AudioExecutorSettings> audio_executor_settings,
-      std::unique_ptr<::litert::Environment> litert_env)
+      ::litert::Environment* absl_nullable litert_env)
       : llm_executor_(std::move(llm_executor)),
         vision_executor_settings_(std::move(vision_executor_settings)),
         audio_executor_settings_(std::move(audio_executor_settings)),
-        litert_env_(std::move(litert_env)) {}
+        litert_env_(litert_env) {}
 
   // Creates a ResourceManager with the provided llm_executor.
   static absl::StatusOr<std::unique_ptr<ResourceManager>> Create(
@@ -59,7 +59,7 @@ class ResourceManager {
       vision_executor_settings,
       std::unique_ptr<AudioExecutorSettings> absl_nullable
       audio_executor_settings,
-      std::unique_ptr<::litert::Environment> absl_nullable litert_env);
+      ::litert::Environment* absl_nullable litert_env);
 
   ~ResourceManager() = default;
 
@@ -164,7 +164,12 @@ class ResourceManager {
 
   // The potential litert compiled model environment for the vision and audio
   // executor.
-  std::unique_ptr<::litert::Environment> litert_env_;
+  ::litert::Environment* absl_nullable litert_env_;
+
+  // The backup litert compiled model environment for the vision and audio
+  // executor, created if litert_env is not provided when resource manager is
+  // created.
+  std::unique_ptr<::litert::Environment> backup_litert_env_;
 
   friend class LockedLlmExecutor;
 };

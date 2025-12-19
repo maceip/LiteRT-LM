@@ -17,6 +17,7 @@
 #include <string>
 #include <utility>
 
+#include "absl/base/no_destructor.h"  // from @com_google_absl
 #include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/log/absl_check.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -91,6 +92,18 @@ absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildExecutor(
   }
 
   return std::move(executor);
+}
+
+absl::StatusOr<Environment&> GetEnvironment() {
+  static absl::NoDestructor<absl::StatusOr<Environment>> kEnvironment(
+      [&]() -> absl::StatusOr<Environment> {
+        LITERT_ASSIGN_OR_RETURN(auto env, Environment::Create({}));
+        return std::move(env);
+      }());
+  if (!kEnvironment->ok()) {
+    return kEnvironment->status();
+  }
+  return **kEnvironment;
 }
 
 }  // namespace
@@ -222,7 +235,7 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
   ASSIGN_OR_RETURN(auto executor,
                    BuildExecutor(*model_resources, engine_settings));
 
-  LITERT_ASSIGN_OR_RETURN(auto litert_env, Environment::Create({}));
+  ASSIGN_OR_RETURN(auto& litert_env, GetEnvironment());
 
   std::unique_ptr<VisionExecutorSettings> vision_executor_settings_ptr;
   if (engine_settings.GetVisionExecutorSettings().has_value()) {
@@ -270,8 +283,7 @@ absl::StatusOr<std::unique_ptr<Engine>> Engine::CreateEngine(
                    ExecutionManager::Create(
                        tokenizer, std::move(executor),
                        std::move(vision_executor_settings_ptr),
-                       std::move(audio_executor_settings_ptr),
-                       std::make_unique<Environment>(std::move(litert_env))));
+                       std::move(audio_executor_settings_ptr), &litert_env));
 
   auto llm_impl = std::make_unique<EngineImpl>(
       std::move(engine_settings), std::move(model_resources),

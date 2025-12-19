@@ -411,9 +411,11 @@ absl::Status ResourceManager::MaybeCreateLitertEnv() {
     return absl::OkStatus();
   }
   LITERT_ASSIGN_OR_RETURN(
-      auto env,
+      auto new_litert_env,
       litert::Environment::Create(std::vector<litert::Environment::Option>()));
-  litert_env_ = std::make_unique<litert::Environment>(std::move(env));
+  backup_litert_env_ =
+      std::make_unique<litert::Environment>(std::move(new_litert_env));
+  litert_env_ = backup_litert_env_.get();
   return absl::OkStatus();
 }
 
@@ -681,13 +683,13 @@ absl::StatusOr<std::unique_ptr<ResourceManager>> ResourceManager::Create(
     vision_executor_settings,
     std::unique_ptr<litert::lm::AudioExecutorSettings> absl_nullable
     audio_executor_settings,
-    std::unique_ptr<::litert::Environment> absl_nullable litert_env) {
+    ::litert::Environment* absl_nullable litert_env) {
   if (llm_executor == nullptr) {
     return absl::InvalidArgumentError("Llm executor is null.");
   }
   auto llm_resource_manager = std::make_unique<ResourceManager>(
       std::move(llm_executor), std::move(vision_executor_settings),
-      std::move(audio_executor_settings), std::move(litert_env));
+      std::move(audio_executor_settings), litert_env);
   return llm_resource_manager;
 }
 

@@ -1684,7 +1684,6 @@ TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAndAudioSuccess) {
 
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto env, Environment::Create(std::vector<Environment::Option>()));
-  auto env_ptr = std::make_unique<::litert::Environment>(std::move(env));
 
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
@@ -1692,7 +1691,7 @@ TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAndAudioSuccess) {
           tokenizer_.get(), std::move(executor),
           /*vision_executor_settings=*/nullptr,
           /*audio_executor_settings=*/std::move(audio_executor_settings),
-          /*litert_env=*/std::move(env_ptr)));
+          /*litert_env=*/&env));
   ASSERT_OK_AND_ASSIGN(
       auto session, SessionAdvanced::Create(execution_manager, tokenizer_.get(),
                                             session_config, std::nullopt));
@@ -1752,7 +1751,6 @@ TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAudioTextSuccess) {
 
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto env, Environment::Create(std::vector<Environment::Option>()));
-  auto env_ptr = std::make_unique<::litert::Environment>(std::move(env));
 
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
@@ -1760,7 +1758,7 @@ TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAudioTextSuccess) {
           tokenizer_.get(), std::move(executor),
           /*vision_executor_settings=*/nullptr,
           /*audio_executor_settings=*/std::move(audio_executor_settings),
-          /*litert_env=*/std::move(env_ptr)));
+          /*litert_env=*/&env));
 
   ASSERT_OK_AND_ASSIGN(
       auto session, SessionAdvanced::Create(execution_manager, tokenizer_.get(),

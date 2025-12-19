@@ -116,7 +116,7 @@ class ExecutionManager {
       vision_executor_settings,
       std::unique_ptr<AudioExecutorSettings> absl_nullable
       audio_executor_settings,
-      std::unique_ptr<::litert::Environment> absl_nullable litert_env);
+      ::litert::Environment* absl_nullable litert_env);
 
   ~ExecutionManager() = default;
 
@@ -213,10 +213,13 @@ class ExecutionManager {
 
  private:
   // Private constructor. Use the Create function instead.
-  ExecutionManager(Tokenizer* absl_nonnull tokenizer,
-                   std::unique_ptr<ResourceManager> resource_manager)
+  ExecutionManager(
+      Tokenizer* absl_nonnull tokenizer,
+      std::unique_ptr<ResourceManager> absl_nonnull resource_manager,
+      ::litert::Environment* absl_nullable litert_env = nullptr)
       : tokenizer_(std::move(tokenizer)),
-        resource_manager_(std::move(resource_manager)) {
+        resource_manager_(std::move(resource_manager)),
+        litert_env_(litert_env) {
     execution_thread_pool_ =
         std::make_unique<ThreadPool>(/*name_prefix=*/"execution_thread_pool",
                                      /*max_num_threads=*/1);
@@ -342,6 +345,9 @@ class ExecutionManager {
 
   // The benchmark info for collecting the performance data.
   std::optional<BenchmarkInfo> benchmark_info_;
+
+  // The LIRTER environment used for creating the LLM context.
+  ::litert::Environment* absl_nullable litert_env_;
 
   // The thread pool with a single worker thread used for executing the tasks.
   std::unique_ptr<ThreadPool> absl_nonnull execution_thread_pool_;

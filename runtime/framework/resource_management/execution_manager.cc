@@ -80,7 +80,8 @@ absl::StatusOr<SessionId> ExecutionManager::RegisterNewSession(
     ASSIGN_OR_RETURN(sampler,
                      CreateSampler(session_config.GetSamplerBackend(),
                                    session_config.GetNumOutputCandidates(),
-                                   session_config.GetSamplerParams()));
+                                   session_config.GetSamplerParams(),
+                                   litert_env_ ? litert_env_->Get() : nullptr));
   }
   auto stop_token_detector = std::make_unique<StopTokenDetector>(1);
   for (const auto& stop_token_sequence : session_config.GetStopTokenIds()) {
@@ -538,15 +539,15 @@ absl::StatusOr<std::unique_ptr<ExecutionManager>> ExecutionManager::Create(
     vision_executor_settings,
     std::unique_ptr<AudioExecutorSettings> absl_nullable
     audio_executor_settings,
-    std::unique_ptr<::litert::Environment> absl_nullable litert_env) {
+    ::litert::Environment* absl_nullable litert_env) {
   std::unique_ptr<Sampler> sampler;
-  ASSIGN_OR_RETURN(auto resource_manager,
-                   ResourceManager::Create(std::move(llm_executor),
-                                           std::move(vision_executor_settings),
-                                           std::move(audio_executor_settings),
-                                           std::move(litert_env)));
+  ASSIGN_OR_RETURN(
+      auto resource_manager,
+      ResourceManager::Create(std::move(llm_executor),
+                              std::move(vision_executor_settings),
+                              std::move(audio_executor_settings), litert_env));
   return absl::WrapUnique(
-      new ExecutionManager(tokenizer, std::move(resource_manager)));
+      new ExecutionManager(tokenizer, std::move(resource_manager), litert_env));
 }
 
 absl::Status ExecutionManager::WaitUntilDone(TaskId task_id,
