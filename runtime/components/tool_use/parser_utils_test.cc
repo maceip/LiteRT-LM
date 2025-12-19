@@ -169,6 +169,46 @@ print(tool_name(x=1))
               })json")));
 }
 
+TEST(ParserUtilsTest, ParseMultipleToolCallsOnSeparateLinesWithRegex) {
+  EXPECT_THAT(ParseTextAndToolCalls(
+                  R"(```tool_code
+print(default_api.get_artwork_price(museum_location="Philadelphia", sculpture_material="marble", sculpture_size=[4, 4]))
+print(default_api.get_artwork_price(museum_location="New York", sculpture_material="bronze", sculpture_size=[6, 3]))
+```)",
+                  /*code_fence_start=*/"```tool_code\n",
+                  /*code_fence_end=*/"\n```",
+                  /*syntax_type=*/SyntaxType::kPython,
+                  /*escape_fence_strings=*/false,
+                  /*tool_code_regex=*/
+                  R"regex(print\((?:default_api\.)?(.+\(.*\))\))regex"),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json({
+              "tool_calls": [
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "get_artwork_price",
+                      "arguments": {
+                        "museum_location": "Philadelphia",
+                        "sculpture_material": "marble",
+                        "sculpture_size": [4, 4]
+                      }
+                    }
+                  },
+                  {
+                    "type": "function",
+                    "function": {
+                      "name": "get_artwork_price",
+                      "arguments": {
+                        "museum_location": "New York",
+                        "sculpture_material": "bronze",
+                        "sculpture_size": [6, 3]
+                      }
+                    }
+                  }
+                ]
+              })json")));
+}
+
 TEST(ParserUtilsTest, ParseJsonToolCall) {
   EXPECT_THAT(ParseTextAndToolCalls(R"(```tool_code
 [{"name": "tool_name", "arguments": {"x": 1}}]
