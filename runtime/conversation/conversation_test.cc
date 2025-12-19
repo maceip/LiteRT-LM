@@ -580,7 +580,7 @@ TEST_P(ConversationTest, SendMessageAsync) {
       user_message, CreateTestMessageCallback(expected_message, done)));
   // Wait for the async message to be processed.
   EXPECT_OK(engine->WaitUntilDone(absl::Seconds(100)));
-  done.WaitForNotification();
+  done.WaitForNotificationWithTimeout(absl::Seconds(10));
   EXPECT_THAT(conversation->GetHistory(),
               testing::ElementsAre(user_message, expected_message_for_confirm));
 }
@@ -623,19 +623,25 @@ TEST_P(ConversationTest, SendSingleMessageAsync) {
   absl::string_view expected_input_text =
       "<start_of_turn>user\n"
       "How are you?<end_of_turn>\n";
-  EXPECT_CALL(*mock_session_ptr,
-              GenerateContentStream(
-                  testing::ElementsAre(
-                      testing::VariantWith<InputText>(testing::Property(
-                          &InputText::GetRawTextString, expected_input_text))),
-                  testing::_, testing::_))
+  EXPECT_CALL(
+      *mock_session_ptr,
+      RunPrefillAsync(testing::ElementsAre(testing::VariantWith<InputText>(
+                          testing::Property(&InputText::GetRawTextString,
+                                            expected_input_text))),
+                      testing::_))
+      .WillOnce([](const std::vector<InputData>& contents,
+                   absl::AnyInvocable<void(absl::StatusOr<Responses>)>
+                       user_callback) {
+        user_callback(Responses(TaskState::kDone));
+        return nullptr;
+      });
+  EXPECT_CALL(*mock_session_ptr, RunDecodeAsync(testing::_, testing::_))
       .WillOnce(
-          [](const std::vector<InputData>& contents,
-             absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
+          [](absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
              const DecodeConfig& decode_config) {
             user_callback(Responses(TaskState::kProcessing, {"I am good."}));
             user_callback(Responses(TaskState::kDone));
-            return absl::OkStatus();
+            return nullptr;
           });
 
   Message assistant_message = JsonMessage(nlohmann::ordered_json::parse(R"({
@@ -652,7 +658,7 @@ TEST_P(ConversationTest, SendSingleMessageAsync) {
   auto message_callback = CreateTestMessageCallback(assistant_message, done);
   EXPECT_OK(conversation->SendMessageAsync(user_message,
                                            std::move(message_callback)));
-  done.WaitForNotification();
+  done.WaitForNotificationWithTimeout(absl::Seconds(10));
 
   EXPECT_THAT(
       conversation->GetHistory(),
@@ -714,19 +720,25 @@ TEST_P(ConversationTest, SendMultipleMessagesAsync) {
       "Hello world!<end_of_turn>\n"
       "<start_of_turn>user\n"
       "How are you?<end_of_turn>\n";
-  EXPECT_CALL(*mock_session_ptr,
-              GenerateContentStream(
-                  testing::ElementsAre(
-                      testing::VariantWith<InputText>(testing::Property(
-                          &InputText::GetRawTextString, expected_input_text))),
-                  testing::_, testing::_))
+  EXPECT_CALL(
+      *mock_session_ptr,
+      RunPrefillAsync(testing::ElementsAre(testing::VariantWith<InputText>(
+                          testing::Property(&InputText::GetRawTextString,
+                                            expected_input_text))),
+                      testing::_))
+      .WillOnce([](const std::vector<InputData>& contents,
+                   absl::AnyInvocable<void(absl::StatusOr<Responses>)>
+                       user_callback) {
+        user_callback(Responses(TaskState::kDone));
+        return nullptr;
+      });
+  EXPECT_CALL(*mock_session_ptr, RunDecodeAsync(testing::_, testing::_))
       .WillOnce(
-          [](const std::vector<InputData>& contents,
-             absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
+          [](absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
              const DecodeConfig& decode_config) {
             user_callback(Responses(TaskState::kProcessing, {"I am good."}));
             user_callback(Responses(TaskState::kDone));
-            return absl::OkStatus();
+            return nullptr;
           });
 
   Message assistant_message = JsonMessage(nlohmann::ordered_json::parse(R"json({
@@ -743,7 +755,7 @@ TEST_P(ConversationTest, SendMultipleMessagesAsync) {
   auto message_callback = CreateTestMessageCallback(assistant_message, done);
   EXPECT_OK(conversation->SendMessageAsync(user_messages,
                                            std::move(message_callback)));
-  done.WaitForNotification();
+  done.WaitForNotificationWithTimeout(absl::Seconds(10));
 
   EXPECT_THAT(conversation->GetHistory(),
               testing::ElementsAre(user_messages[0], user_messages[1],
@@ -792,15 +804,28 @@ TEST_P(ConversationTest, SendMultipleMessagesAsyncWithHistory) {
       "content": "How are you?"
     }
   )json");
-  EXPECT_CALL(*mock_session_ptr,
-              GenerateContentStream(testing::_, testing::_, testing::_))
+  absl::string_view expected_input_text1 =
+      "<start_of_turn>user\n"
+      "How are you?<end_of_turn>\n";
+  EXPECT_CALL(
+      *mock_session_ptr,
+      RunPrefillAsync(testing::ElementsAre(testing::VariantWith<InputText>(
+                          testing::Property(&InputText::GetRawTextString,
+                                            expected_input_text1))),
+                      testing::_))
+      .WillOnce([](const std::vector<InputData>& contents,
+                   absl::AnyInvocable<void(absl::StatusOr<Responses>)>
+                       user_callback) {
+        user_callback(Responses(TaskState::kDone));
+        return nullptr;
+      });
+  EXPECT_CALL(*mock_session_ptr, RunDecodeAsync(testing::_, testing::_))
       .WillOnce(
-          [](const std::vector<InputData>& contents,
-             absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
+          [](absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
              const DecodeConfig& decode_config) {
             user_callback(Responses(TaskState::kProcessing, {"I am good."}));
             user_callback(Responses(TaskState::kDone));
-            return absl::OkStatus();
+            return nullptr;
           });
 
   Message assistant_message_1 =
@@ -818,7 +843,7 @@ TEST_P(ConversationTest, SendMultipleMessagesAsyncWithHistory) {
   absl::Notification done_1;
   EXPECT_OK(conversation->SendMessageAsync(
       user_message_1, CreateTestMessageCallback(assistant_message_1, done_1)));
-  done_1.WaitForNotification();
+  done_1.WaitForNotificationWithTimeout(absl::Seconds(10));
   ASSERT_THAT(conversation->GetHistory().size(), testing::Eq(2));
 
   // We will send two consecutive messages when the history is not empty.
@@ -835,24 +860,30 @@ TEST_P(ConversationTest, SendMultipleMessagesAsyncWithHistory) {
     ]
   )json");
 
-  absl::string_view expected_input_text =
+  absl::string_view expected_input_text2 =
       "<start_of_turn>user\n"
       "foo<end_of_turn>\n"
       "<start_of_turn>user\n"
       "bar<end_of_turn>\n";
-  EXPECT_CALL(*mock_session_ptr,
-              GenerateContentStream(
-                  testing::ElementsAre(
-                      testing::VariantWith<InputText>(testing::Property(
-                          &InputText::GetRawTextString, expected_input_text))),
-                  testing::_, testing::_))
+  EXPECT_CALL(
+      *mock_session_ptr,
+      RunPrefillAsync(testing::ElementsAre(testing::VariantWith<InputText>(
+                          testing::Property(&InputText::GetRawTextString,
+                                            expected_input_text2))),
+                      testing::_))
+      .WillOnce([](const std::vector<InputData>& contents,
+                   absl::AnyInvocable<void(absl::StatusOr<Responses>)>
+                       user_callback) {
+        user_callback(Responses(TaskState::kDone));
+        return nullptr;
+      });
+  EXPECT_CALL(*mock_session_ptr, RunDecodeAsync(testing::_, testing::_))
       .WillOnce(
-          [](const std::vector<InputData>& contents,
-             absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
+          [](absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
              const DecodeConfig& decode_config) {
             user_callback(Responses(TaskState::kProcessing, {"baz"}));
             user_callback(Responses(TaskState::kDone));
-            return absl::OkStatus();
+            return nullptr;
           });
 
   Message assistant_message_2 =
@@ -872,7 +903,7 @@ TEST_P(ConversationTest, SendMultipleMessagesAsyncWithHistory) {
       CreateTestMessageCallback(assistant_message_2, done_2);
   EXPECT_OK(conversation->SendMessageAsync(user_messages,
                                            std::move(message_callbacks_2)));
-  done_2.WaitForNotification();
+  done_2.WaitForNotificationWithTimeout(absl::Seconds(10));
 
   EXPECT_THAT(
       conversation->GetHistory(),
@@ -1011,7 +1042,7 @@ TEST(ConversationAccessHistoryTest, AccessHistory) {
   EXPECT_OK(conversation->SendMessageAsync(
       user_message,
       CreateTestMessageCallback(expected_assistant_message, done)));
-  done.WaitForNotification();
+  done.WaitForNotificationWithTimeout(absl::Seconds(10));
 
   // Get the history copy.
   auto history = conversation->GetHistory();
@@ -1068,7 +1099,7 @@ TEST_P(ConversationCancellationTest, CancelProcessWithBenchmarkInfo) {
   absl::SleepFor(absl::Milliseconds(100));
   conversation->CancelProcess();
   // Wait for the callback to be done.
-  done_1.WaitForNotification();
+  done_1.WaitForNotificationWithTimeout(absl::Seconds(10));
   EXPECT_THAT(status, testing::status::StatusIs(absl::StatusCode::kCancelled));
 
   // The history should be empty after cancellation.
@@ -1084,7 +1115,7 @@ TEST_P(ConversationCancellationTest, CancelProcessWithBenchmarkInfo) {
       .IgnoreError();
   EXPECT_OK(status);
   // Wait for the callback to be done.
-  done_2.WaitForNotification();
+  done_2.WaitForNotificationWithTimeout(absl::Seconds(10));
   // Without cancellation, the history should have two messages, user and
   // assistant.
   auto history = conversation->GetHistory();

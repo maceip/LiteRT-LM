@@ -319,8 +319,20 @@ absl::Status Conversation::SendMessageAsync(
           std::move(complete_message_callback));
 
   ASSIGN_OR_RETURN(auto decode_config, CreateDecodeConfig());
-  RETURN_IF_ERROR(session_->GenerateContentStream(
-      session_inputs, std::move(internal_callback), decode_config));
+  ASSIGN_OR_RETURN(
+      std::ignore,
+      session_->RunPrefillAsync(
+          session_inputs,
+          [this, callback = std::move(internal_callback),
+           decode_config](absl::StatusOr<Responses> responses) mutable {
+            if (!responses.ok()) {
+              callback(responses.status());
+            } else if (responses->GetTaskState() == TaskState::kDone) {
+              auto status =
+                  session_->RunDecodeAsync(std::move(callback), decode_config);
+            }
+          }));
+
   return absl::OkStatus();
 };
 

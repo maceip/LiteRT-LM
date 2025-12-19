@@ -275,6 +275,11 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
         absl::Status status = this->PrefillInternal(
             preprocessed_contents, /*wait_for_completion=*/false);
         ABSL_LOG(INFO) << "RunPrefillAsync status: " << status;
+        if (cancelled_.load()) {
+          callback(
+              absl::CancelledError("Session is cancelled during prefill."));
+          return;
+        }
         if (!status.ok()) {
           callback(status);
         } else {
