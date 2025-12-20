@@ -18,16 +18,18 @@
 #include <atomic>
 #include <memory>
 #include <optional>
-#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"  // from @com_google_absl
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/container/flat_hash_set.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "runtime/components/sampler.h"
 #include "runtime/components/stop_token_detector.h"
 #include "runtime/components/tokenizer.h"
@@ -132,7 +134,7 @@ class SessionBasic : public Engine::Session {
 
   // Util function for creating the combined ExecutorInputs from the
   // preprocessed contents.
-  // TODO - b/436674053: Modulize the preprocessing logic into a separate
+  // TODO - b/436674053: Modularize the preprocessing logic into a separate
   // preprocessor class.
   absl::StatusOr<ExecutorInputs> ProcessAndCombineContents(
       const std::vector<InputData>& preprocessed_contents);
@@ -209,6 +211,12 @@ class SessionBasic : public Engine::Session {
 
   // An atomic boolean to indicate whether the session is cancelled.
   std::atomic<bool> cancelled_{false};
+
+  // The set of executors that are already existed in the system. This is used
+  // to avoid creating multiple sessions for the same executor.
+  static absl::flat_hash_set<LlmExecutor*>* occupied_executors_
+      ABSL_GUARDED_BY(occupied_executors_mu_);
+  static absl::Mutex occupied_executors_mu_;
 };
 
 }  // namespace litert::lm

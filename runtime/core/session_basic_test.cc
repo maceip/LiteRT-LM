@@ -255,6 +255,49 @@ absl::AnyInvocable<void(absl::StatusOr<Responses>)> CreateStreamingTestCallback(
   };
 }
 
+TEST_F(SessionBasicTest, SessionCreation) {
+  const std::vector<std::vector<int>> stop_token_ids = {{2294}};
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.GetMutableSamplerParams() = sampler_params_;
+  session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.SetStartTokenId(2);
+  session_config.SetSamplerBackend(Backend::CPU);
+  ASSERT_OK_AND_ASSIGN(
+      auto executor,
+      CreateFakeLlmExecutor(
+          // The prefill tokens are the expected tokens that will be passed in
+          // at each time the Prefill function is called. The values are the
+          // token ids of the input prompt "Hello World!".
+          // The decode tokens are the expected tokens that will be returned
+          // by the Decode function. The values are the token ids of the
+          // output response "How's it going?" followed by the stop token id
+          // (2294).
+          /*prefill_tokens=*/{{2, 90, 547, 58, 735, 210, 466, 2294}},
+          /*decode_tokens=*/{
+              {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
+  auto session = SessionBasic::Create(
+      executor.get(), tokenizer_.get(), /*vision_executor=*/nullptr,
+      /*audio_executor=*/nullptr, session_config, std::nullopt,
+      worker_thread_pool_.get());
+  EXPECT_OK(session);
+
+  // Second session creation should fail because there is already a session.
+  EXPECT_THAT(
+      SessionBasic::Create(executor.get(), tokenizer_.get(),
+                           /*vision_executor=*/nullptr,
+                           /*audio_executor=*/nullptr, session_config,
+                           std::nullopt, worker_thread_pool_.get()),
+      ::testing::status::StatusIs(absl::StatusCode::kFailedPrecondition));
+
+  // After the first session is destroyed, the second session creation should
+  // succeed.
+  session->reset();
+  EXPECT_OK(SessionBasic::Create(executor.get(), tokenizer_.get(),
+                                 /*vision_executor=*/nullptr,
+                                 /*audio_executor=*/nullptr, session_config,
+                                 std::nullopt, worker_thread_pool_.get()));
+}
+
 TEST_F(SessionBasicTest, RunPrefill) {
   const std::vector<std::vector<int>> stop_token_ids = {{2294}};
   SessionConfig session_config = SessionConfig::CreateDefault();
@@ -1430,7 +1473,8 @@ TEST_F(SessionBasicTest,
                                      // "How's it going?"
           /*decode_tokens=*/{{24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   auto session = SessionBasic::Create(
-      executor.get(), tokenizer_.get(), /*vision_executor=*/nullptr,
+      executor.get(), tokenizer_.get(),
+      /*vision_executor=*/nullptr,
       /*audio_executor=*/nullptr, session_config,
       /*benchmark_info=*/std::nullopt, worker_thread_pool_.get());
 

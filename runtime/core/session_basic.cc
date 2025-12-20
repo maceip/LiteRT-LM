@@ -23,14 +23,17 @@
 #include <variant>
 #include <vector>
 
+#include "absl/base/attributes.h"  // from @com_google_absl
+#include "absl/base/const_init.h"  // from @com_google_absl
+#include "absl/container/flat_hash_set.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
-#include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "litert/cc/litert_layout.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
@@ -62,6 +65,11 @@ using TaskController = Engine::Session::TaskController;
 
 }
 
+absl::flat_hash_set<LlmExecutor*>* SessionBasic::occupied_executors_ =
+    new absl::flat_hash_set<LlmExecutor*>();
+ABSL_CONST_INIT absl::Mutex SessionBasic::occupied_executors_mu_(
+    absl::kConstInit);
+
 // static
 absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
     LlmExecutor* executor, Tokenizer* tokenizer,
@@ -69,6 +77,13 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
     const SessionConfig& session_config,
     std::optional<BenchmarkInfo> benchmark_info,
     ThreadPool* worker_thread_pool) {
+  // Check if the session already exists.
+  absl::MutexLock lock(occupied_executors_mu_);  // NOLINT
+  if (occupied_executors_->contains(executor)) {
+    return absl::FailedPreconditionError(
+        "A session already exists. Only one session is supported at a time. "
+        "Please delete the existing session before creating a new one.");
+  }
   auto sampler_backend = session_config.GetSamplerBackend();
   std::unique_ptr<Sampler> sampler;
   // If use CPU sampling, we create it here; For GPU sampling, we let executor
@@ -94,6 +109,7 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
         stop_token_detector.AddStopTokenSequence(stop_token_sequence));
   }
 
+  occupied_executors_->insert(executor);
   return absl::WrapUnique(new SessionBasic(
       executor, tokenizer, vision_executor, audio_executor, std::move(sampler),
       session_config, benchmark_info, worker_thread_pool, stop_token_detector));
@@ -104,6 +120,8 @@ SessionBasic::~SessionBasic() {
   if (!status.ok()) {
     ABSL_LOG(ERROR) << "Failed to reset executor: " << status;
   }
+  absl::MutexLock lock(occupied_executors_mu_);  // NOLINT
+  occupied_executors_->erase(&executor_);
 }
 
 // TODO - b/436674053: Modularize the preprocessing logic into a separate
@@ -123,7 +141,7 @@ absl::StatusOr<ExecutorInputs> SessionBasic::ProcessAndCombineContents(
             "Token IDs is null in preprocessed_contents.");
       }
       LITERT_ASSIGN_OR_RETURN(auto ids_buffer_span,
-                                   ReferTensorBufferAsSpan<int>(*token_ids));
+                              ReferTensorBufferAsSpan<int>(*token_ids));
       combined_token_ids.insert(combined_token_ids.end(),
                                 ids_buffer_span.begin(), ids_buffer_span.end());
     } else if (const auto* input_image =
@@ -411,21 +429,21 @@ absl::StatusOr<Responses> SessionBasic::RunTextScoring(
   absl::StatusOr<Responses> score;
   // Scheduled on the worker thread pool to ensure serialized execution with
   // other engine operations as the function waits for completion.
-  RETURN_IF_ERROR(worker_thread_pool_.Schedule(
-      [this, &score, &target_text, store_token_lengths,
-       &temperature]() mutable {
-        std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
-                               last_prefill_token_id_);
-        auto decoded_ids_buffer = CopyToTensorBuffer<int>(
-            decoded_ids, {session_config_.GetNumOutputCandidates(), 1});
-        if (!decoded_ids_buffer.HasValue()) {
-          score = absl::InternalError(decoded_ids_buffer.Error().Message());
-          return;
-        }
-        score = ScoreCustomSampling(
-            executor_, tokenizer_, target_text, temperature,
-            std::move(decoded_ids_buffer.Value()), store_token_lengths);
-      }));
+  RETURN_IF_ERROR(worker_thread_pool_.Schedule([this, &score, &target_text,
+                                                store_token_lengths,
+                                                &temperature]() mutable {
+    std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
+                                 last_prefill_token_id_);
+    auto decoded_ids_buffer = CopyToTensorBuffer<int>(
+        decoded_ids, {session_config_.GetNumOutputCandidates(), 1});
+    if (!decoded_ids_buffer.HasValue()) {
+      score = absl::InternalError(decoded_ids_buffer.Error().Message());
+      return;
+    }
+    score = ScoreCustomSampling(executor_, tokenizer_, target_text, temperature,
+                                std::move(decoded_ids_buffer.Value()),
+                                store_token_lengths);
+  }));
   RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
   return score;
 }
