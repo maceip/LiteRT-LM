@@ -1229,9 +1229,10 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
 #if defined(LITERT_USE_WEBGPU_ACCELERATOR)
       gpu_compilation_options.SetBackend(GpuOptions::Backend::kWebGpu);
 #endif  // defined(LITERT_USE_WEBGPU_ACCELERATOR)
-      // Prepare WebGPU command buffers ahead to reduce the overhead of command
-      // buffer preparation. 2 steps ahead because KV cache is swapped and the
-      // GPU resource bindings are the same as the previous previous step.
+      // Prepare WebGPU or Vulkan command buffers ahead to reduce the overhead
+      // of command buffer preparation. 2 steps ahead because KV cache is
+      // swapped and the GPU resource bindings are the same as the previous
+      // previous step.
       gpu_compilation_options.SetNumStepsOfCommandBufferPreparations(2);
       gpu_compilation_options.SetNumThreadsToUpload(num_threads_to_upload);
       gpu_compilation_options.SetNumThreadsToCompile(num_threads_to_compile);
