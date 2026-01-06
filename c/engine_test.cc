@@ -580,7 +580,7 @@ TEST(EngineCTest, Benchmark) {
       "litert_lm/runtime/testdata/test_lm_new_metadata.task";
 
   EngineSettingsPtr settings(
-      litert_lm_engine_settings_create(task_path.c_str(), "cpu",
+      litert_lm_engine_settings_create(task_path.string().c_str(), "cpu",
                                        /* vision_backend_str */ nullptr,
                                        /* audio_backend_str */ nullptr),
       &litert_lm_engine_settings_delete);

@@ -79,7 +79,13 @@ cc_test(
         "//runtime/testdata",
     ],
     tags = ["requires-mac-inputs:hard"],
-    target_compatible_with = select({"@platforms//os:ios": [], "@platforms//os:linux": [], "@platforms//os:osx": [], "//conditions:default": ["@platforms//:incompatible"]}),
+    target_compatible_with = select({
+        "@platforms//os:ios": [],
+        "@platforms//os:linux": [],
+        "@platforms//os:osx": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
     deps = [
         ":engine",
         "@com_google_googletest//:gtest_main",
