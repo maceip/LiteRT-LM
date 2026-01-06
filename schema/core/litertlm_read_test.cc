@@ -20,6 +20,7 @@
 #include <ios>
 #include <iterator>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -58,28 +59,22 @@ absl::StatusOr<std::string> ReadFileToString(const std::string& filename) {
   return content;
 }
 
-TEST(LiteRTLMReadTest, IsLiteRTLMFileFileDoesNotExist) {
-  const auto input_filename =
-      std::filesystem::path(::testing::SrcDir()) /
-      "litert_lm/schema/testdata/does_not_exist.litertlm";
-  EXPECT_THAT(IsLiteRTLMFile(input_filename.string()),
-              testing::status::StatusIs(absl::StatusCode::kNotFound));
-}
-
 TEST(LiteRTLMReadTest, IsLiteRTLMFileValidFile) {
-  const auto input_filename =
-      std::filesystem::path(::testing::SrcDir()) /
-      "litert_lm/schema/testdata/test_tok_tfl_llm.litertlm";
-  EXPECT_THAT(IsLiteRTLMFile(input_filename.string()),
-              testing::status::IsOkAndHolds(true));
+  ASSERT_OK_AND_ASSIGN(std::string content,
+                       ReadFileToString("test_tok_tfl_llm.litertlm"));
+  EXPECT_TRUE(IsLiteRTLMFile(content));
+
+  std::istringstream stream(content);
+  EXPECT_TRUE(IsLiteRTLMFile(stream));
 }
 
 TEST(LiteRTLMReadTest, IsLiteRTLMFileInvalidFile) {
-  const auto input_filename =
-      std::filesystem::path(::testing::SrcDir()) /
-      "litert_lm/schema/testdata/attention.tflite";
-  EXPECT_THAT(IsLiteRTLMFile(input_filename.string()),
-              testing::status::IsOkAndHolds(false));
+  ASSERT_OK_AND_ASSIGN(std::string content,
+                       ReadFileToString("attention.tflite"));
+  EXPECT_FALSE(IsLiteRTLMFile(content));
+
+  std::istringstream stream(content);
+  EXPECT_FALSE(IsLiteRTLMFile(stream));
 }
 
 TEST(LiteRTLMReadTest, HeaderReadFile) {

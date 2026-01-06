@@ -38,11 +38,11 @@
 #include "schema/core/litertlm_header.h"
 #include "schema/core/litertlm_header_schema_generated.h"
 #include "schema/core/litertlm_utils.h"
+#include "zconf.h"  // from @zlib
+#include "zlib.h"  // from @zlib
 #include "sentencepiece_processor.h"  // from @sentencepiece
 #include "tflite/model_builder.h"  // from @litert
 #include "tflite/stderr_reporter.h"  // from @litert
-#include "zconf.h"  // from @zlib
-#include "zlib.h"  // from @zlib
 
 namespace litert {
 namespace lm {
@@ -50,22 +50,18 @@ namespace schema {
 
 using litert::lm::proto::LlmMetadata;
 
-absl::StatusOr<bool> IsLiteRTLMFile(const std::string& path) {
-  if (!std::filesystem::exists(path)) {
-    return absl::NotFoundError(
-        absl::StrFormat("File does not exist: %s", path));
+bool IsLiteRTLMFile(absl::string_view content) {
+  if (content.size() < 8) {
+    return false;
   }
 
-  std::ifstream input_file_stream(path, std::ios::binary);
-  if (!input_file_stream.is_open()) {
-    return absl::InternalError(
-        absl::StrFormat("Could not open file: %s", path));
-  }
+  return content.substr(0, 8) == "LITERTLM";
+}
 
+bool IsLiteRTLMFile(std::istream& stream) {
   char magic_number[8];
-  input_file_stream.read(magic_number, 8);
-  if (input_file_stream.gcount() != 8 ||
-      std::string(magic_number, 8) != "LITERTLM") {
+  stream.read(magic_number, 8);
+  if (stream.gcount() != 8 || std::string(magic_number, 8) != "LITERTLM") {
     return false;
   }
   return true;
