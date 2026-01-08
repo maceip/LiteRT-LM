@@ -23,6 +23,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <system_error>  // NOLINT: Required for std::error_code used with std::filesystem.
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -356,15 +357,21 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest, CreateExecutorTest_WithCache) {
 
 TEST(LlmLiteRtCompiledModelExecutorStaticTest,
      CreateExecutorTest_WithFileDescriptorCache) {
-  auto cache_path = std::filesystem::path(::testing::TempDir()) /
-                    absl::StrCat("cache-", std::rand(), ".cache");
-  std::filesystem::remove_all(cache_path);
+  auto cache_path =
+      std::filesystem::path(::testing::TempDir()) /
+      absl::StrCat(
+          ::testing::UnitTest::GetInstance()->current_test_info()->name(),
+          ".cache");
+  std::error_code ec;
+  std::filesystem::remove_all(cache_path, ec);
+  ASSERT_FALSE(ec);
   {
     // Create an empty file - ScopedFile expects the file to exist.
     std::ofstream cache_file(cache_path.string());
   }
   absl::Cleanup remove_cache = [cache_path] {
-    std::filesystem::remove_all(cache_path);
+    std::error_code ec;
+    std::filesystem::remove_all(cache_path, ec);
   };
   ASSERT_OK_AND_ASSIGN(auto scoped_cache_file,
                        ScopedFile::OpenWritable(cache_path.string()));
