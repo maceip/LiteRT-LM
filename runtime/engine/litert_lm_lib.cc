@@ -288,10 +288,13 @@ absl::Status PrintJsonMessage(const JsonMessage& message,
 }
 
 absl::AnyInvocable<void(absl::StatusOr<Message>)> CreatePrintMessageCallback(
-    std::stringstream& captured_output) {
-  return [&captured_output](absl::StatusOr<Message> message) {
+    std::stringstream& captured_output, bool benchmark) {
+  return [&captured_output, benchmark](absl::StatusOr<Message> message) {
     if (!message.ok()) {
       std::cout << message.status().message() << std::endl;
+      return;
+    }
+    if (benchmark) {
       return;
     }
     if (auto json_message = std::get_if<JsonMessage>(&(*message))) {
@@ -385,7 +388,7 @@ absl::Status RunSingleTurnConversation(const std::string& input_prompt,
   if (settings.async) {
     RETURN_IF_ERROR(conversation->SendMessageAsync(
         json::object({{"role", "user"}, {"content", content_list}}),
-        CreatePrintMessageCallback(captured_output)));
+        CreatePrintMessageCallback(captured_output, settings.benchmark)));
     RETURN_IF_ERROR(engine->WaitUntilDone(kWaitUntilDoneTimeout));
   } else {
     ASSIGN_OR_RETURN(auto model_message,
@@ -424,7 +427,7 @@ absl::Status RunMultiTurnConversation(const LiteRtLmSettings& settings,
     if (settings.async) {
       RETURN_IF_ERROR(conversation->SendMessageAsync(
           json::object({{"role", "user"}, {"content", content_list}}),
-          CreatePrintMessageCallback(captured_output)));
+          CreatePrintMessageCallback(captured_output, settings.benchmark)));
       RETURN_IF_ERROR(engine->WaitUntilDone(kWaitUntilDoneTimeout));
     } else {
       ASSIGN_OR_RETURN(auto model_message,
