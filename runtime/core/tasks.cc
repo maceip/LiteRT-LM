@@ -72,7 +72,8 @@ int TryGetMaxNumTokens(const LlmExecutor& executor) {
 
 // Check whether the decoding loop should stop.
 bool ShouldStop(bool hit_stop_tokens, int benchmark_decode_token_count,
-                int num_decoded_steps, int current_step, int max_num_tokens) {
+                int num_decoded_steps, int current_step, int max_num_tokens,
+                int max_output_tokens) {
   // Stopping conditions.
   if (hit_stop_tokens && benchmark_decode_token_count == 0) {
     // Only early stop if no decode step
@@ -85,6 +86,9 @@ bool ShouldStop(bool hit_stop_tokens, int benchmark_decode_token_count,
     return true;
   } else if (current_step >= max_num_tokens) {
     // Reaching maximum number of kv-cache size.
+    return true;
+  } else if (num_decoded_steps >= max_output_tokens) {
+    // Reaching maximum number of output tokens.
     return true;
   }
   return false;
@@ -368,7 +372,7 @@ absl::StatusOr<Responses> Decode(
     std::optional<Sampler*> sampler, Constraint* constraint,
     std::optional<litert::TensorBuffer> decoded_ids,
     absl::AnyInvocable<void(absl::StatusOr<Responses>)>& callback,
-    std::atomic<bool>* cancelled) {
+    std::atomic<bool>* cancelled, int max_output_tokens) {
   const bool is_streaming = callback != nullptr;
   const bool is_custom_sampling = sampler.has_value();
 
@@ -458,7 +462,8 @@ absl::StatusOr<Responses> Decode(
     }
 
     if (ShouldStop(*all_done, benchmark_decode_token_count, num_decode_steps,
-                   executor.GetCurrentStep().value(), max_num_tokens)) {
+                   executor.GetCurrentStep().value(), max_num_tokens,
+                   max_output_tokens)) {
       break;
     }
   }

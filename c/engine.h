@@ -93,6 +93,13 @@ LITERT_LM_C_API_EXPORT
 LiteRtLmSessionConfig* litert_lm_session_config_create(
     const LiteRtLmSamplerParams* sampler_params);
 
+// Sets the maximum number of output tokens per decode step for this session.
+// @param config The config to modify.
+// @param max_output_tokens The maximum number of output tokens.
+LITERT_LM_C_API_EXPORT
+void litert_lm_session_config_set_max_output_tokens(
+    LiteRtLmSessionConfig* config, int max_output_tokens);
+
 // Destroys a LiteRT LM Session Config.
 // @param config The config to destroy.
 LITERT_LM_C_API_EXPORT

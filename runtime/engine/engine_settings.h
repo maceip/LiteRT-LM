@@ -15,6 +15,7 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_SETTINGS_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_SETTINGS_H_
 
+#include <limits>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -237,6 +238,13 @@ class SessionConfig {
   void SetScopedLoraFile(
       std::shared_ptr<ScopedFile> scoped_lora_file);
 
+  // The maximum number of tokens to generate in a single request:
+  // Getters for the max output tokens.
+  int GetMaxOutputTokens() const { return max_output_tokens_; }
+  void SetMaxOutputTokens(int max_output_tokens) {
+    max_output_tokens_ = max_output_tokens;
+  }
+
  private:
   // Private constructor for the SessionConfig. The user should use the
   // CreateDefault() method to create a SessionConfig.
@@ -289,6 +297,13 @@ class SessionConfig {
 
   // Scoped file for the LoRA weights.
   std::shared_ptr<ScopedFile> scoped_lora_file_;
+
+  // The maximum number of tokens to generate in a single request. This limits
+  // the number of decoding steps for a request, as opposed to
+  // LlmExecutorSettings::GetMaxNumTokens(), which limits the total number of
+  // tokens (input + output) stored in the KV cache over the lifetime of a
+  // session.
+  int max_output_tokens_ = std::numeric_limits<int>::max();
 };
 
 std::ostream& operator<<(std::ostream& os, const SessionConfig& config);

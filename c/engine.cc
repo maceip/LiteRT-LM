@@ -171,6 +171,13 @@ LiteRtLmSessionConfig* litert_lm_session_config_create(
   return c_config;
 }
 
+void litert_lm_session_config_set_max_output_tokens(
+    LiteRtLmSessionConfig* config, int max_output_tokens) {
+  if (config && config->config) {
+    config->config->SetMaxOutputTokens(max_output_tokens);
+  }
+}
+
 void litert_lm_session_config_delete(LiteRtLmSessionConfig* config) {
   delete config;
 }

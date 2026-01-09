@@ -320,7 +320,8 @@ absl::StatusOr<Responses> SessionBasic::DecodeInternal(
         auto responses,
         Decode(executor_, tokenizer_, stop_token_detector_,
                session_config_.GetNumOutputCandidates(),
-               decode_config.GetConstraint(), benchmark_info_, &cancelled_));
+               decode_config.GetConstraint(), benchmark_info_, &cancelled_,
+               session_config_.GetMaxOutputTokens()));
     return responses;
   } else {
     std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
@@ -335,7 +336,8 @@ absl::StatusOr<Responses> SessionBasic::DecodeInternal(
                              session_config_.GetNumOutputCandidates(),
                              *sampler_, std::move(decoded_ids_buffer),
                              decode_config.GetConstraint(), benchmark_info_,
-                             &cancelled_));
+                             &cancelled_,
+                            session_config_.GetMaxOutputTokens()));
     return responses;
   }
 }
@@ -347,7 +349,8 @@ absl::Status SessionBasic::DecodeInternalStreaming(
     RETURN_IF_ERROR(DecodeStreaming(
         executor_, tokenizer_, stop_token_detector_,
         session_config_.GetNumOutputCandidates(), decode_config.GetConstraint(),
-        benchmark_info_, std::move(callback), &cancelled_));
+        benchmark_info_, std::move(callback), &cancelled_,
+        session_config_.GetMaxOutputTokens()));
   } else {
     std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
                                  last_prefill_token_id_);
@@ -360,7 +363,8 @@ absl::Status SessionBasic::DecodeInternalStreaming(
         executor_, tokenizer_, stop_token_detector_,
         session_config_.GetNumOutputCandidates(), *sampler_,
         std::move(decoded_ids_buffer), decode_config.GetConstraint(),
-        benchmark_info_, std::move(callback), &cancelled_));
+        benchmark_info_, std::move(callback), &cancelled_,
+        session_config_.GetMaxOutputTokens()));
   }
   return absl::OkStatus();
 }
