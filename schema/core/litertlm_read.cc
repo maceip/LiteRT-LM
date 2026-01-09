@@ -278,7 +278,7 @@ absl::Status ReadSectionIntoLlmMetadata(const std::string& litertlm_path,
     return absl::InternalError(
         absl::StrFormat("Could not read %d bytes from stream.", size));
   }
-  llm_metadata->ParseFromArray(buffer.get(), size);
+  llm_metadata->ParseFromString(absl::string_view(buffer.get(), size));
   return absl::OkStatus();
 }
 
