@@ -89,9 +89,9 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
     ABSL_LOG(INFO) << "Overwrite prompt template is not provided, using the "
                       "default template from the model metadata.";
   }
-  return CreateFromSessionConfig(engine, session_config, preface,
-                                 overwrite_processor_config,
-                                 enable_constrained_decoding);
+  return CreateFromSessionConfig(
+      engine, session_config, preface, overwrite_processor_config,
+      enable_constrained_decoding, prefill_preface_on_init);
 }
 
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
@@ -241,7 +241,9 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
                          single_turn_text,
                          std::get<JsonPreface>(config.GetPreface()).messages,
                          std::monostate()));
-    RETURN_IF_ERROR(conversation->session_->RunPrefill(session_inputs));
+    if (!session_inputs.empty()) {
+      RETURN_IF_ERROR(conversation->session_->RunPrefill(session_inputs));
+    }
   }
 
   if (engine.GetEngineSettings().IsBenchmarkEnabled()) {

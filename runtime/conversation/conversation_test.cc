@@ -933,7 +933,7 @@ TEST_P(ConversationTest, SendMessageWithPreface) {
           /*overwrite_prompt_template=*/std::nullopt,
           /*overwrite_processor_config=*/std::nullopt,
           /*enable_constrained_decoding=*/enable_constrained_decoding_,
-          /*prefill_preface_on_init=*/true));
+          /*prefill_preface_on_init=*/prefill_preface_on_init_));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*engine, config));
   ASSERT_OK_AND_ASSIGN(const Message message,
@@ -941,11 +941,20 @@ TEST_P(ConversationTest, SendMessageWithPreface) {
                            {"role", "user"}, {"content", "Hello world!"}}));
   // The expected message is just some gibberish text, because the test LLM has
   // random weights.
-  JsonMessage expected_message = {
-      {"role", "assistant"},
-      {"content",
-       {{{"type", "text"},
-         {"text", " noses</caption> গ্রাহ<unused5296> ompWr"}}}}};
+  JsonMessage expected_message;
+  if (prefill_preface_on_init_) {
+    expected_message = {
+        {"role", "assistant"},
+        {"content",
+         {{{"type", "text"},
+           {"text", " rupani rupani rupani echoes echoesinicio"}}}}};
+  } else {
+    expected_message = {
+        {"role", "assistant"},
+        {"content",
+         {{{"type", "text"},
+           {"text", " noses</caption> গ্রাহ<unused5296> ompWr"}}}}};
+  }
   const JsonMessage& json_message = std::get<JsonMessage>(message);
   EXPECT_EQ(json_message, expected_message);
 }
@@ -979,14 +988,16 @@ TEST_P(ConversationTest, GetBenchmarkInfo) {
                            {"role", "user"}, {"content", "Hello world!"}}));
   ASSERT_OK_AND_ASSIGN(const BenchmarkInfo benchmark_info_1,
                        conversation->GetBenchmarkInfo());
-  EXPECT_EQ(benchmark_info_1.GetTotalPrefillTurns(), 1);
+  EXPECT_EQ(benchmark_info_1.GetTotalPrefillTurns(),
+            prefill_preface_on_init_ ? 2 : 1);
 
   ASSERT_OK_AND_ASSIGN(const Message message_2,
                        conversation->SendMessage(JsonMessage{
                            {"role", "user"}, {"content", "Hello world!"}}));
   ASSERT_OK_AND_ASSIGN(const BenchmarkInfo benchmark_info_2,
                        conversation->GetBenchmarkInfo());
-  EXPECT_EQ(benchmark_info_2.GetTotalPrefillTurns(), 2);
+  EXPECT_EQ(benchmark_info_2.GetTotalPrefillTurns(),
+            prefill_preface_on_init_ ? 3 : 2);
 }
 
 INSTANTIATE_TEST_SUITE_P(
