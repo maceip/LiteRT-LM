@@ -21,5 +21,8 @@ package(
 
 filegroup(
     name = "testdata",
-    srcs = glob(["*"]),
+    srcs = glob(
+        ["*"],
+        exclude = ["BUILD"],
+    ),
 )
