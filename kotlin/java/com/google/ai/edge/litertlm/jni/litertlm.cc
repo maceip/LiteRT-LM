@@ -702,8 +702,9 @@ LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversation)(
 
   // Create the conversation
   auto conversation_config = ConversationConfig::CreateFromSessionConfig(
-      *engine, session_config, preface, std::nullopt,
-      enable_constrained_decoding);
+      *engine, session_config, preface,
+      /*overwrite_prompt_template=*/std::nullopt,
+      /*overwrite_processor_config=*/std::nullopt, enable_constrained_decoding);
 
   if (!conversation_config.ok()) {
     ThrowLiteRtLmJniException(env, "Failed to create conversation config: " +

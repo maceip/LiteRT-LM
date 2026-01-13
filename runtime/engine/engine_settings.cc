@@ -430,9 +430,6 @@ absl::Status SessionConfig::MaybeUpdateAndValidate(
         proto::LlmModelType::MODEL_TYPE_NOT_SET) {
       llm_model_type_ = llm_metadata.llm_model_type();
     }
-    if (jinja_prompt_template_.empty()) {
-      jinja_prompt_template_ = llm_metadata.jinja_prompt_template();
-    }
   }
 
   // Validating the required fields are set correctly.
@@ -510,15 +507,6 @@ proto::LlmModelType& SessionConfig::GetMutableLlmModelType() {
   return llm_model_type_;
 }
 
-const std::string& SessionConfig::GetJinjaPromptTemplate() const {
-  return jinja_prompt_template_;
-}
-
-std::string& SessionConfig::GetMutableJinjaPromptTemplate() {
-  return jinja_prompt_template_;
-}
-
-
 std::shared_ptr<::litert::ScopedFile> SessionConfig::GetScopedLoraFile()
     const {
   return scoped_lora_file_;
@@ -546,8 +534,6 @@ std::ostream& operator<<(std::ostream& os, const SessionConfig& config) {
   os << "  NumOutputCandidates: " << config.GetNumOutputCandidates()
      << std::endl;
   os << "  LlmModelType: " << config.GetLlmModelType().DebugString()
-     << std::endl;
-  os << "  JinjaPromptTemplate: " << config.GetJinjaPromptTemplate()
      << std::endl;
   os << "  PromptTemplates: " << config.GetPromptTemplates().DebugString()
      << std::endl;

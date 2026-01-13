@@ -57,7 +57,9 @@ class ConversationConfig {
   //     start with an empty Preface.
   // - `overwrite_prompt_template`: Optional PromptTemplate instance to be used
   //     for the conversation. If not provided, the conversation will use the
-  //     template read from the model metadata.
+  //     template read from the model metadata "jinja_prompt_template". If not
+  //     provided, LiteRT-LM will try to generate a default one based on the llm
+  //     model type.
   // - `overwrite_processor_config`: Optional configuration for the model data
   //     processor, if not provided, the default config for the model type's
   //     data processor will be used. Most of the time, the users don't need to
@@ -85,6 +87,11 @@ class ConversationConfig {
   //     the initial background for the conversation, tool uses and extra
   //     context for the conversation. If not provided, the conversation will
   //     start with an empty Preface.
+  // - `overwrite_prompt_template`: Optional PromptTemplate instance to be used
+  //     for the conversation. If not provided, the conversation will use the
+  //     template read from the model metadata "jinja_prompt_template". If not
+  //     provided, LiteRT-LM will try to generate a default one based on the llm
+  //     model type.
   // - `overwrite_processor_config`: Optional configuration for the model data
   //     processor, if not provided, the default config for the model type's
   //     data processor will be used. Most of the time, the users don't need to
@@ -98,6 +105,7 @@ class ConversationConfig {
   static absl::StatusOr<ConversationConfig> CreateFromSessionConfig(
       const Engine& engine, const SessionConfig& session_config,
       std::optional<Preface> preface = std::nullopt,
+      std::optional<PromptTemplate> overwrite_prompt_template = std::nullopt,
       std::optional<DataProcessorConfig> overwrite_processor_config =
           std::nullopt,
       bool enable_constrained_decoding = false,
@@ -189,14 +197,10 @@ class ConversationConfig {
     }
 
     absl::StatusOr<ConversationConfig> Build(const Engine& engine) {
-      if (overwrite_prompt_template_.has_value()) {
-        session_config_.GetMutableJinjaPromptTemplate() =
-            overwrite_prompt_template_->GetTemplateSource();
-      }
-
       return ConversationConfig::CreateFromSessionConfig(
-          engine, session_config_, preface_, overwrite_processor_config_,
-          enable_constrained_decoding_, prefill_preface_on_init_);
+          engine, session_config_, preface_, overwrite_prompt_template_,
+          overwrite_processor_config_, enable_constrained_decoding_,
+          prefill_preface_on_init_);
     }
 
    private:

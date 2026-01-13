@@ -211,11 +211,6 @@ class SessionConfig {
   const proto::LlmModelType& GetLlmModelType() const;
   proto::LlmModelType& GetMutableLlmModelType();
 
-  // Jinja prompt template:
-  // Getters for the jinja prompt template.
-  const std::string& GetJinjaPromptTemplate() const;
-  std::string& GetMutableJinjaPromptTemplate();
-
   // Whether to apply the deprecated prompt templates in the session.
   // TODO - b/453312248: Remove this field once the prompt templates are
   // removed.
@@ -275,9 +270,6 @@ class SessionConfig {
   // Llm model type for the session. This is loaded from the model assets (if
   // present).
   proto::LlmModelType llm_model_type_;
-
-  // Jinja prompt template for the session.
-  std::string jinja_prompt_template_;
 
   // The number of output candidates to generate. Default value is 1 and setting
   // it to a value greater than 1 will require the model to support batching.

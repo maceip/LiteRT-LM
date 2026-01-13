@@ -218,6 +218,7 @@ litert_lm_conversation_config_create(
   auto conversation_config =
       litert::lm::ConversationConfig::CreateFromSessionConfig(
           *engine->engine, session_config, json_preface,
+          /*overwrite_prompt_template=*/std::nullopt,
           /*overwrite_processor_config=*/std::nullopt,
           /*enable_constrained_decoding=*/false);
 

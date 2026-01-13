@@ -100,6 +100,7 @@ cc_library(
         "//runtime/engine:io_types",
         "//runtime/proto:llm_model_type_cc_proto",
         "//runtime/util:litert_status_util",
+        "//runtime/util:model_type_utils",
     ],
 )
 

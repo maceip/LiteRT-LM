@@ -42,6 +42,7 @@
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/proto/llm_model_type.pb.h"
+#include "runtime/util/model_type_utils.h"
 #include "runtime/util/status_macros.h"
 
 namespace litert::lm {
@@ -81,27 +82,22 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
     std::optional<PromptTemplate> overwrite_prompt_template,
     std::optional<DataProcessorConfig> overwrite_processor_config,
     bool enable_constrained_decoding, bool prefill_preface_on_init) {
-  SessionConfig session_config = SessionConfig::CreateDefault();
-  if (overwrite_prompt_template.has_value()) {
-    session_config.GetMutableJinjaPromptTemplate() =
-        overwrite_prompt_template->GetTemplateSource();
-  } else {
-    ABSL_LOG(INFO) << "Overwrite prompt template is not provided, using the "
-                      "default template from the model metadata.";
-  }
   return CreateFromSessionConfig(
-      engine, session_config, preface, overwrite_processor_config,
+      engine, SessionConfig::CreateDefault(), preface,
+      overwrite_prompt_template, overwrite_processor_config,
       enable_constrained_decoding, prefill_preface_on_init);
 }
 
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
     const Engine& engine, const SessionConfig& session_config,
     std::optional<Preface> preface,
+    std::optional<PromptTemplate> overwrite_prompt_template,
     std::optional<DataProcessorConfig> overwrite_processor_config,
     bool enable_constrained_decoding, bool prefill_preface_on_init) {
   if (preface.has_value() && !std::holds_alternative<JsonPreface>(*preface)) {
     return absl::InvalidArgumentError("Only JsonPreface is supported for now.");
   }
+
   SessionConfig session_config_copy = session_config;
   // Disable the deprecated prompt templates in the session.
   // TODO - b/453312248: Remove this once the prompt template is removed from
@@ -109,12 +105,29 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
   session_config_copy.SetApplyPromptTemplateInSession(false);
   RETURN_IF_ERROR(
       session_config_copy.MaybeUpdateAndValidate(engine.GetEngineSettings()));
-  if (session_config_copy.GetJinjaPromptTemplate().empty()) {
+
+  auto metadata = engine.GetEngineSettings().GetLlmMetadata();
+  PromptTemplate prompt_template("");
+  if (overwrite_prompt_template.has_value()) {
+    prompt_template = *overwrite_prompt_template;
+  } else if (metadata.has_value()) {
+    if (metadata->has_jinja_prompt_template()) {
+      prompt_template = PromptTemplate(metadata->jinja_prompt_template());
+    } else if (metadata->has_prompt_templates()) {
+      ASSIGN_OR_RETURN(
+          std::string jinja_source,
+          GetDefaultJinjaPromptTemplate(metadata->prompt_templates(),
+                                        metadata->llm_model_type()));
+      prompt_template = PromptTemplate(jinja_source);
+    } else {
+      return absl::InvalidArgumentError(
+          "Failed to select jinja prompt template from llm metadata.");
+    }
+  } else {
     return absl::InvalidArgumentError(
-        "Jinja prompt template is empty. Either the prompt template is not "
-        "read from model metadata or the prompt template is not set in "
-        "SessionConfig.");
+        "Failed to select jinja prompt template. No llm metadata provided.");
   }
+
   DataProcessorConfig processor_config;
   if (overwrite_processor_config.has_value()) {
     // Use the overwrite processor config if provided.
@@ -125,9 +138,9 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
                      CreateDataProcessorConfigFromLlmModelType(
                          session_config_copy.GetLlmModelType()));
   }
+
   return ConversationConfig(
-      session_config_copy, preface.value_or(JsonPreface()),
-      PromptTemplate(session_config_copy.GetJinjaPromptTemplate()),
+      session_config_copy, preface.value_or(JsonPreface()), prompt_template,
       processor_config, enable_constrained_decoding, prefill_preface_on_init);
 }
 

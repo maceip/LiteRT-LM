@@ -201,7 +201,6 @@ TEST(ConversationConfigTest, CreateFromSessionConfig) {
   ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
 
   auto session_config = SessionConfig::CreateDefault();
-  session_config.GetMutableJinjaPromptTemplate() = "A fixed content";
   session_config.GetMutableLlmModelType().mutable_gemma3n();
 
   ASSERT_OK_AND_ASSIGN(
@@ -212,7 +211,6 @@ TEST(ConversationConfigTest, CreateFromSessionConfig) {
               .messages = {{{"role", "system"},
                             {"content", "You are a helpful assistant."}}}})
           .Build(*engine));
-  EXPECT_EQ(config.GetPromptTemplate().GetTemplateSource(), "A fixed content");
   EXPECT_TRUE(std::holds_alternative<JsonPreface>(config.GetPreface()));
   EXPECT_EQ(
       std::get<JsonPreface>(config.GetPreface()).messages,
@@ -223,6 +221,25 @@ TEST(ConversationConfigTest, CreateFromSessionConfig) {
   EXPECT_TRUE(
       config.GetSessionConfig().GetPromptTemplates().user().prefix().empty());
   EXPECT_OK(Conversation::Create(*engine, config));
+}
+
+TEST(ConversationConfigTest, OverwritePromptTemplate) {
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
+  ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
+                                                 model_assets, Backend::CPU));
+  engine_settings.GetMutableMainExecutorSettings().SetCacheDir(":nocache");
+  engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+
+  ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
+  ASSERT_OK_AND_ASSIGN(auto config, ConversationConfig::CreateDefault(
+                                        *engine,
+                                        /*preface=*/std::nullopt,
+                                        /*overwrite_prompt_template=*/
+                                        PromptTemplate("overwrite template")));
+
+  EXPECT_EQ(config.GetPromptTemplate().GetTemplateSource(),
+            "overwrite template");
 }
 
 struct ConversationTestParams {
@@ -298,7 +315,6 @@ TEST_P(ConversationTest, SendSingleMessage) {
   session_config.SetStartTokenId(0);
   session_config.GetMutableStopTokenIds().push_back({1});
   *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
-  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
   EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
       .WillRepeatedly(testing::ReturnRef(session_config));
   EXPECT_CALL(*mock_session_ptr, GetTokenizer())
@@ -316,10 +332,12 @@ TEST_P(ConversationTest, SendSingleMessage) {
       .WillRepeatedly(testing::ReturnRef(engine_settings));
 
   // Create Conversation.
-  ASSERT_OK_AND_ASSIGN(auto conversation_config,
-                       ConversationConfig::Builder()
-                           .SetSessionConfig(session_config)
-                           .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*mock_engine, conversation_config));
 
@@ -363,7 +381,6 @@ TEST_P(ConversationTest, SendMultipleMessages) {
   session_config.SetStartTokenId(0);
   session_config.GetMutableStopTokenIds().push_back({1});
   *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
-  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
   EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
       .WillRepeatedly(testing::ReturnRef(session_config));
   EXPECT_CALL(*mock_session_ptr, GetTokenizer())
@@ -386,6 +403,7 @@ TEST_P(ConversationTest, SendMultipleMessages) {
       ConversationConfig::Builder()
           .SetSessionConfig(session_config)
           .SetEnableConstrainedDecoding(enable_constrained_decoding_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
           .SetPrefillPrefaceOnInit(prefill_preface_on_init_)
           .Build(*mock_engine));
   ASSERT_OK_AND_ASSIGN(auto conversation,
@@ -445,7 +463,6 @@ TEST_P(ConversationTest, SendMultipleMessagesWithHistory) {
   session_config.SetStartTokenId(0);
   session_config.GetMutableStopTokenIds().push_back({1});
   *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
-  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
   EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
       .WillRepeatedly(testing::ReturnRef(session_config));
   EXPECT_CALL(*mock_session_ptr, GetTokenizer())
@@ -468,6 +485,7 @@ TEST_P(ConversationTest, SendMultipleMessagesWithHistory) {
       ConversationConfig::Builder()
           .SetSessionConfig(session_config)
           .SetEnableConstrainedDecoding(enable_constrained_decoding_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
           .SetPrefillPrefaceOnInit(prefill_preface_on_init_)
           .Build(*mock_engine));
   ASSERT_OK_AND_ASSIGN(auto conversation,
@@ -593,7 +611,6 @@ TEST_P(ConversationTest, SendSingleMessageAsync) {
   session_config.SetStartTokenId(0);
   session_config.GetMutableStopTokenIds().push_back({1});
   *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
-  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
   EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
       .WillRepeatedly(testing::ReturnRef(session_config));
   EXPECT_CALL(*mock_session_ptr, GetTokenizer())
@@ -611,10 +628,12 @@ TEST_P(ConversationTest, SendSingleMessageAsync) {
       .WillRepeatedly(testing::ReturnRef(engine_settings));
 
   // Create Conversation.
-  ASSERT_OK_AND_ASSIGN(auto conversation_config,
-                       ConversationConfig::Builder()
-                           .SetSessionConfig(session_config)
-                           .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*mock_engine, conversation_config));
 
@@ -674,7 +693,6 @@ TEST_P(ConversationTest, SendMultipleMessagesAsync) {
   session_config.SetStartTokenId(0);
   session_config.GetMutableStopTokenIds().push_back({1});
   *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
-  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
   EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
       .WillRepeatedly(testing::ReturnRef(session_config));
   EXPECT_CALL(*mock_session_ptr, GetTokenizer())
@@ -698,6 +716,7 @@ TEST_P(ConversationTest, SendMultipleMessagesAsync) {
           .SetSessionConfig(session_config)
           .SetEnableConstrainedDecoding(enable_constrained_decoding_)
           .SetPrefillPrefaceOnInit(prefill_preface_on_init_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
           .Build(*mock_engine));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*mock_engine, conversation_config));
@@ -771,7 +790,6 @@ TEST_P(ConversationTest, SendMultipleMessagesAsyncWithHistory) {
   session_config.SetStartTokenId(0);
   session_config.GetMutableStopTokenIds().push_back({1});
   *session_config.GetMutableLlmModelType().mutable_gemma3() = {};
-  session_config.GetMutableJinjaPromptTemplate() = kTestJinjaPromptTemplate;
   EXPECT_CALL(*mock_session_ptr, GetSessionConfig())
       .WillRepeatedly(testing::ReturnRef(session_config));
   EXPECT_CALL(*mock_session_ptr, GetTokenizer())
@@ -794,6 +812,7 @@ TEST_P(ConversationTest, SendMultipleMessagesAsyncWithHistory) {
       ConversationConfig::Builder()
           .SetSessionConfig(session_config)
           .SetEnableConstrainedDecoding(enable_constrained_decoding_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
           .Build(*mock_engine));
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*mock_engine, conversation_config));
