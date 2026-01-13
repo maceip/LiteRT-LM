@@ -45,38 +45,12 @@ namespace litert::lm {
 // custom config.
 //
 // TODO(b/474667126): Make CreateFromSessionConfig private.
-// TODO(b/474667126): Remove the argument from CreateDefault().
 class ConversationConfig {
  public:
   // Creates a default ConversationConfig from the given Engine.
   // Args:
   // - `engine`: The Engine instance to be used for creating the default config.
-  // - `preface`: Optional Preface for the conversation. The Preface provides
-  //     the initial background for the conversation, tool uses and extra
-  //     context for the conversation. If not provided, the conversation will
-  //     start with an empty Preface.
-  // - `overwrite_prompt_template`: Optional PromptTemplate instance to be used
-  //     for the conversation. If not provided, the conversation will use the
-  //     template read from the model metadata "jinja_prompt_template". If not
-  //     provided, LiteRT-LM will try to generate a default one based on the llm
-  //     model type.
-  // - `overwrite_processor_config`: Optional configuration for the model data
-  //     processor, if not provided, the default config for the model type's
-  //     data processor will be used. Most of the time, the users don't need to
-  //     provide the data processor config.
-  // - `enable_constrained_decoding`: Whether to enable constrained decoding. If
-  //     true, constrained decoding will be used, primarily for function
-  //     calling.
-  // - `prefill_preface_on_init`: Whether to prefill the preface on init. If
-  //     true, the preface will be prefilled on init, which will make the first
-  //     response faster, but take longer to initialize.
-  static absl::StatusOr<ConversationConfig> CreateDefault(
-      const Engine& engine, std::optional<Preface> preface = std::nullopt,
-      std::optional<PromptTemplate> overwrite_prompt_template = std::nullopt,
-      std::optional<DataProcessorConfig> overwrite_processor_config =
-          std::nullopt,
-      bool enable_constrained_decoding = false,
-      bool prefill_preface_on_init = false);
+  static absl::StatusOr<ConversationConfig> CreateDefault(const Engine& engine);
 
   // Creates a ConversationConfig from the given SessionConfig.
   // Args:

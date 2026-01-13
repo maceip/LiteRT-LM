@@ -232,11 +232,11 @@ TEST(ConversationConfigTest, OverwritePromptTemplate) {
   engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(10);
 
   ASSERT_OK_AND_ASSIGN(auto engine, Engine::CreateEngine(engine_settings));
-  ASSERT_OK_AND_ASSIGN(auto config, ConversationConfig::CreateDefault(
-                                        *engine,
-                                        /*preface=*/std::nullopt,
-                                        /*overwrite_prompt_template=*/
-                                        PromptTemplate("overwrite template")));
+  ASSERT_OK_AND_ASSIGN(
+      auto config,
+      ConversationConfig::Builder()
+          .SetOverwritePromptTemplate(PromptTemplate("overwrite template"))
+          .Build(*engine));
 
   EXPECT_EQ(config.GetPromptTemplate().GetTemplateSource(),
             "overwrite template");

@@ -78,14 +78,8 @@ absl::Status FillPrefaceForPromptTemplateInput(
 }  // namespace
 
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
-    const Engine& engine, std::optional<Preface> preface,
-    std::optional<PromptTemplate> overwrite_prompt_template,
-    std::optional<DataProcessorConfig> overwrite_processor_config,
-    bool enable_constrained_decoding, bool prefill_preface_on_init) {
-  return CreateFromSessionConfig(
-      engine, SessionConfig::CreateDefault(), preface,
-      overwrite_prompt_template, overwrite_processor_config,
-      enable_constrained_decoding, prefill_preface_on_init);
+    const Engine& engine) {
+  return ConversationConfig::Builder().Build(engine);
 }
 
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
