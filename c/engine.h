@@ -179,8 +179,8 @@ void litert_lm_engine_settings_set_max_num_tokens(
 // @param settings The engine settings.
 // @param cache_dir The cache directory.
 LITERT_LM_C_API_EXPORT
-void litert_lm_engine_settings_set_cache_dir(
-  LiteRtLmEngineSettings* settings, const char* cache_dir);
+void litert_lm_engine_settings_set_cache_dir(LiteRtLmEngineSettings* settings,
+                                             const char* cache_dir);
 
 // Enables benchmarking for the engine.
 //
@@ -207,9 +207,12 @@ void litert_lm_engine_delete(LiteRtLmEngine* engine);
 // session using `litert_lm_session_delete`.
 //
 // @param engine The engine to create the session from.
+// @param config The session config of the session. If NULL, use the default
+// session config.
 // @return A pointer to the created session, or NULL on failure.
 LITERT_LM_C_API_EXPORT
-LiteRtLmSession* litert_lm_engine_create_session(LiteRtLmEngine* engine);
+LiteRtLmSession* litert_lm_engine_create_session(LiteRtLmEngine* engine,
+                                                 LiteRtLmSessionConfig* config);
 
 // Destroys a LiteRT LM Session.
 //

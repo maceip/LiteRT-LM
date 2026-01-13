@@ -331,11 +331,17 @@ LiteRtLmEngine* litert_lm_engine_create(
 }
 void litert_lm_engine_delete(LiteRtLmEngine* engine) { delete engine; }
 
-LiteRtLmSession* litert_lm_engine_create_session(LiteRtLmEngine* engine) {
+LiteRtLmSession* litert_lm_engine_create_session(
+    LiteRtLmEngine* engine, LiteRtLmSessionConfig* config) {
   if (!engine || !engine->engine) {
     return nullptr;
   }
-  auto session = engine->engine->CreateSession(SessionConfig::CreateDefault());
+  absl::StatusOr<std::unique_ptr<Engine::Session>> session;
+  if (config && config->config) {
+    session = engine->engine->CreateSession(*config->config);
+  } else {
+    session = engine->engine->CreateSession(SessionConfig::CreateDefault());
+  }
   if (!session.ok()) {
     ABSL_LOG(ERROR) << "Failed to create session: " << session.status();
     return nullptr;
