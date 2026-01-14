@@ -258,15 +258,9 @@ absl::Status SessionBasic::RunPrefill(const std::vector<InputData>& contents) {
                      PreprocessContents(templated_contents, session_config_,
                                         tokenizer_, benchmark_info_));
   }
-  absl::Status status;
-  RETURN_IF_ERROR(worker_thread_pool_.Schedule(
-      [this, preprocessed_contents = std::move(preprocessed_contents),
-       &status]() {
-        status = this->PrefillInternal(preprocessed_contents,
-                                       /*wait_for_completion=*/true);
-      }));
-  RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
-  return status;
+
+  return PrefillInternal(preprocessed_contents,
+                         /*wait_for_completion=*/true);
 }
 
 absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
@@ -316,12 +310,11 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
 absl::StatusOr<Responses> SessionBasic::DecodeInternal(
     const DecodeConfig& decode_config) {
   if (sampler_ == nullptr) {
-    ASSIGN_OR_RETURN(
-        auto responses,
-        Decode(executor_, tokenizer_, stop_token_detector_,
-               session_config_.GetNumOutputCandidates(),
-               decode_config.GetConstraint(), benchmark_info_, &cancelled_,
-               session_config_.GetMaxOutputTokens()));
+    ASSIGN_OR_RETURN(auto responses,
+                     Decode(executor_, tokenizer_, stop_token_detector_,
+                            session_config_.GetNumOutputCandidates(),
+                            decode_config.GetConstraint(), benchmark_info_,
+                            &cancelled_, session_config_.GetMaxOutputTokens()));
     return responses;
   } else {
     std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
@@ -330,14 +323,13 @@ absl::StatusOr<Responses> SessionBasic::DecodeInternal(
         auto decoded_ids_buffer,
         CopyToTensorBuffer<int>(decoded_ids,
                                 {session_config_.GetNumOutputCandidates(), 1}));
-    ASSIGN_OR_RETURN(
-        auto responses,
-        DecodeCustomSampling(executor_, tokenizer_, stop_token_detector_,
-                             session_config_.GetNumOutputCandidates(),
-                             *sampler_, std::move(decoded_ids_buffer),
-                             decode_config.GetConstraint(), benchmark_info_,
-                             &cancelled_,
-                            session_config_.GetMaxOutputTokens()));
+    ASSIGN_OR_RETURN(auto responses,
+                     DecodeCustomSampling(
+                         executor_, tokenizer_, stop_token_detector_,
+                         session_config_.GetNumOutputCandidates(), *sampler_,
+                         std::move(decoded_ids_buffer),
+                         decode_config.GetConstraint(), benchmark_info_,
+                         &cancelled_, session_config_.GetMaxOutputTokens()));
     return responses;
   }
 }
@@ -380,13 +372,7 @@ absl::StatusOr<Responses> SessionBasic::RunDecode(
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
   }
-  absl::StatusOr<Responses> responses;
-  RETURN_IF_ERROR(
-      worker_thread_pool_.Schedule([this, &responses, decode_config]() {
-        responses = this->DecodeInternal(decode_config);
-      }));
-  RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
-  return responses;
+  return DecodeInternal(decode_config);
 }
 
 absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunDecodeAsync(
