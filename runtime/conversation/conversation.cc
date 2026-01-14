@@ -82,7 +82,7 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
   return ConversationConfig::Builder().Build(engine);
 }
 
-absl::StatusOr<ConversationConfig> ConversationConfig::CreateFromSessionConfig(
+absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
     const Engine& engine, const SessionConfig& session_config,
     std::optional<Preface> preface,
     std::optional<PromptTemplate> overwrite_prompt_template,

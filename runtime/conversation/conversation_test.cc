@@ -191,7 +191,7 @@ TEST(ConversationConfigTest, CreateDefaultWithOverwritePromptTemplate) {
   EXPECT_TRUE(config.GetSessionConfig().GetLlmModelType().has_gemma3());
 }
 
-TEST(ConversationConfigTest, CreateFromSessionConfig) {
+TEST(ConversationConfigTest, CreateWithBuilder) {
   ASSERT_OK_AND_ASSIGN(auto model_assets,
                        ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
   ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(

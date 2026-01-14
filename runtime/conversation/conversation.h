@@ -37,53 +37,21 @@
 
 namespace litert::lm {
 
-// Configuration for the Conversation instance. This class is used to
-// initialize the Conversation instance.
+// Configuration for the Conversation instance. This class is used to initialize
+// the Conversation instance.
 //
 // To create a ConversationConfig, use ConversationConfig::CreateDefault() to
 // create a default config, or use the ConversationConfig::Builder() to build a
 // custom config.
 //
-// TODO(b/474667126): Make CreateFromSessionConfig private.
+// Note: Consider to remove ConversationConfig and use ConversationBuilder to
+// build Conversation.
 class ConversationConfig {
  public:
   // Creates a default ConversationConfig from the given Engine.
   // Args:
   // - `engine`: The Engine instance to be used for creating the default config.
   static absl::StatusOr<ConversationConfig> CreateDefault(const Engine& engine);
-
-  // Creates a ConversationConfig from the given SessionConfig.
-  // Args:
-  // - `engine`: The Engine instance to be used to validate the SessionConfig.
-  // - `session_config`: The SessionConfig to be used for creating the
-  //     ConversationConfig.
-  // - `preface`: Optional Preface for the conversation. The Preface provides
-  //     the initial background for the conversation, tool uses and extra
-  //     context for the conversation. If not provided, the conversation will
-  //     start with an empty Preface.
-  // - `overwrite_prompt_template`: Optional PromptTemplate instance to be used
-  //     for the conversation. If not provided, the conversation will use the
-  //     template read from the model metadata "jinja_prompt_template". If not
-  //     provided, LiteRT-LM will try to generate a default one based on the llm
-  //     model type.
-  // - `overwrite_processor_config`: Optional configuration for the model data
-  //     processor, if not provided, the default config for the model type's
-  //     data processor will be used. Most of the time, the users don't need to
-  //     provide the data processor config.
-  // - `enable_constrained_decoding`: Whether to enable constrained decoding. If
-  //     true, constrained decoding will be used, primarily for function
-  //     calling.
-  // - `prefill_preface_on_init`: Whether to prefill the preface on init. If
-  //     true, the preface will be prefilled on init, which will make the first
-  //     response faster, but take longer to initialize.
-  static absl::StatusOr<ConversationConfig> CreateFromSessionConfig(
-      const Engine& engine, const SessionConfig& session_config,
-      std::optional<Preface> preface = std::nullopt,
-      std::optional<PromptTemplate> overwrite_prompt_template = std::nullopt,
-      std::optional<DataProcessorConfig> overwrite_processor_config =
-          std::nullopt,
-      bool enable_constrained_decoding = false,
-      bool prefill_preface_on_init = false);
 
   // Returns the SessionConfig used for creating the ConversationConfig.
   const SessionConfig& GetSessionConfig() const { return session_config_; }
@@ -171,7 +139,7 @@ class ConversationConfig {
     }
 
     absl::StatusOr<ConversationConfig> Build(const Engine& engine) {
-      return ConversationConfig::CreateFromSessionConfig(
+      return ConversationConfig::CreateInternal(
           engine, session_config_, preface_, overwrite_prompt_template_,
           overwrite_processor_config_, enable_constrained_decoding_,
           prefill_preface_on_init_);
@@ -187,6 +155,39 @@ class ConversationConfig {
   };
 
  private:
+  // Creates a ConversationConfig.
+  // Args:
+  // - `engine`: The Engine instance to be used to validate the SessionConfig.
+  // - `session_config`: The SessionConfig to be used for creating the
+  //     ConversationConfig.
+  // - `preface`: Optional Preface for the conversation. The Preface provides
+  //     the initial background for the conversation, tool uses and extra
+  //     context for the conversation. If not provided, the conversation will
+  //     start with an empty Preface.
+  // - `overwrite_prompt_template`: Optional PromptTemplate instance to be used
+  //     for the conversation. If not provided, the conversation will use the
+  //     template read from the model metadata "jinja_prompt_template". If not
+  //     provided, LiteRT-LM will try to generate a default one based on the llm
+  //     model type.
+  // - `overwrite_processor_config`: Optional configuration for the model data
+  //     processor, if not provided, the default config for the model type's
+  //     data processor will be used. Most of the time, the users don't need to
+  //     provide the data processor config.
+  // - `enable_constrained_decoding`: Whether to enable constrained decoding. If
+  //     true, constrained decoding will be used, primarily for function
+  //     calling.
+  // - `prefill_preface_on_init`: Whether to prefill the preface on init. If
+  //     true, the preface will be prefilled on init, which will make the first
+  //     response faster, but take longer to initialize.
+  static absl::StatusOr<ConversationConfig> CreateInternal(
+      const Engine& engine, const SessionConfig& session_config,
+      std::optional<Preface> preface = std::nullopt,
+      std::optional<PromptTemplate> overwrite_prompt_template = std::nullopt,
+      std::optional<DataProcessorConfig> overwrite_processor_config =
+          std::nullopt,
+      bool enable_constrained_decoding = false,
+      bool prefill_preface_on_init = false);
+
   explicit ConversationConfig(SessionConfig session_config, Preface preface,
                               PromptTemplate prompt_template,
                               DataProcessorConfig processor_config,
