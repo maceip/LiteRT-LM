@@ -109,13 +109,13 @@ void litert_lm_session_config_delete(LiteRtLmSessionConfig* config);
 // The caller is responsible for destroying the config using
 // `litert_lm_conversation_config_delete`.
 // @param engine The engine to use.
-// @param sampler_params The sampler parameters to use. If NULL, default
-// sampler parameters will be used.
+// @param session_config The session config to use. If NULL, default
+// session config will be used.
 // @param system_message_json The system message in JSON format.
 // @return A pointer to the created config, or NULL on failure.
 LITERT_LM_C_API_EXPORT
 LiteRtLmConversationConfig* litert_lm_conversation_config_create(
-    LiteRtLmEngine* engine, const LiteRtLmSamplerParams* sampler_params,
+    LiteRtLmEngine* engine, const LiteRtLmSessionConfig* session_config,
     const char* system_message_json);
 
 // Destroys a LiteRT LM Conversation Config.

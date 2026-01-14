@@ -167,13 +167,17 @@ TEST(EngineCTest, CreateConversationConfig) {
   sampler_params.top_p = 0.5f;
   sampler_params.temperature = 0.1f;
   sampler_params.seed = 1234;
+  SessionConfigPtr session_config(
+      litert_lm_session_config_create(&sampler_params),
+      &litert_lm_session_config_delete);
+  ASSERT_NE(session_config, nullptr);
 
-  // 3. Create a Conversation Config with the Engine Handle, Sampler Params
+  // 3. Create a Conversation Config with the Engine Handle, Session Config
   // and System Message.
   const std::string system_message =
       R"({"type":"text","text":"You are a helpful assistant."})";
   ConversationConfigPtr conversation_config(
-      litert_lm_conversation_config_create(engine.get(), &sampler_params,
+      litert_lm_conversation_config_create(engine.get(), session_config.get(),
                                            system_message.c_str()),
       &litert_lm_conversation_config_delete);
   ASSERT_NE(conversation_config, nullptr);
@@ -217,9 +221,12 @@ TEST(EngineCTest, CreateConversationConfigWithNoSamplerParams) {
   // 2. Create a Conversation Config with the Engine Handle and System Message.
   const std::string system_message =
       R"({"type":"text","text":"You are a helpful assistant."})";
+  SessionConfigPtr session_config(litert_lm_session_config_create(nullptr),
+                                  &litert_lm_session_config_delete);
+  ASSERT_NE(session_config, nullptr);
   ConversationConfigPtr conversation_config(
-      litert_lm_conversation_config_create(
-          engine.get(), /*sampler_params=*/nullptr, system_message.c_str()),
+      litert_lm_conversation_config_create(engine.get(), session_config.get(),
+                                           system_message.c_str()),
       &litert_lm_conversation_config_delete);
   ASSERT_NE(conversation_config, nullptr);
 
@@ -252,9 +259,11 @@ TEST(EngineCTest, CreateConversationConfigWithNoSamplerParamsNoSystemMessage) {
   ASSERT_NE(engine, nullptr);
 
   // 2. Create a Conversation Config with the Engine Handle and System Message.
+  SessionConfigPtr session_config(litert_lm_session_config_create(nullptr),
+                                  &litert_lm_session_config_delete);
+  ASSERT_NE(session_config, nullptr);
   ConversationConfigPtr conversation_config(
-      litert_lm_conversation_config_create(engine.get(),
-                                           /*sampler_params=*/nullptr,
+      litert_lm_conversation_config_create(engine.get(), session_config.get(),
                                            /*system_message_json=*/nullptr),
       &litert_lm_conversation_config_delete);
   ASSERT_NE(conversation_config, nullptr);
@@ -289,10 +298,14 @@ TEST(EngineCTest, CreateConversationConfigWithNoSystemMessage) {
   sampler_params.top_p = 0.5f;
   sampler_params.temperature = 0.1f;
   sampler_params.seed = 1234;
+  SessionConfigPtr session_config(
+      litert_lm_session_config_create(&sampler_params),
+      &litert_lm_session_config_delete);
+  ASSERT_NE(session_config, nullptr);
 
-  // 3. Create a Conversation Config with the Engine Handle and Sampler Params.
+  // 3. Create a Conversation Config with the Engine Handle and Session Config.
   ConversationConfigPtr conversation_config(
-      litert_lm_conversation_config_create(engine.get(), &sampler_params,
+      litert_lm_conversation_config_create(engine.get(), session_config.get(),
                                            /*system_message_json=*/nullptr),
       &litert_lm_conversation_config_delete);
   ASSERT_NE(conversation_config, nullptr);
@@ -482,13 +495,17 @@ TEST(EngineCTest, ConversationSendMessageWithConfig) {
   sampler_params.top_p = 0.5f;
   sampler_params.temperature = 0.1f;
   sampler_params.seed = 1234;
+  SessionConfigPtr session_config(
+      litert_lm_session_config_create(&sampler_params),
+      &litert_lm_session_config_delete);
+  ASSERT_NE(session_config, nullptr);
 
-  // 3. Create a Conversation Config with the Engine Handle, Sampler Params
+  // 3. Create a Conversation Config with the Engine Handle, Session Config
   // and System Message.
   const std::string system_message =
       R"({"type":"text","text":"You are a helpful assistant."})";
   ConversationConfigPtr conversation_config(
-      litert_lm_conversation_config_create(engine.get(), &sampler_params,
+      litert_lm_conversation_config_create(engine.get(), session_config.get(),
                                            system_message.c_str()),
       &litert_lm_conversation_config_delete);
   ASSERT_NE(conversation_config, nullptr);

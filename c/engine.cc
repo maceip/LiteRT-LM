@@ -183,20 +183,10 @@ void litert_lm_session_config_delete(LiteRtLmSessionConfig* config) {
 }
 
 LiteRtLmConversationConfig* litert_lm_conversation_config_create(
-    LiteRtLmEngine* engine, const LiteRtLmSamplerParams* sampler_params,
+    LiteRtLmEngine* engine, const LiteRtLmSessionConfig* session_config,
     const char* system_message_json) {
   if (!engine || !engine->engine) {
     return nullptr;
-  }
-
-  SessionConfig session_config = SessionConfig::CreateDefault();
-  if (sampler_params) {
-    SamplerParameters& params = session_config.GetMutableSamplerParams();
-    params.set_type(ToSamplerParametersType(sampler_params->type));
-    params.set_k(sampler_params->top_k);
-    params.set_p(sampler_params->top_p);
-    params.set_temperature(sampler_params->temperature);
-    params.set_seed(sampler_params->seed);
   }
 
   litert::lm::JsonPreface json_preface;
@@ -214,8 +204,19 @@ LiteRtLmConversationConfig* litert_lm_conversation_config_create(
     json_preface.messages = nlohmann::ordered_json::array({system_message});
   }
 
+  std::unique_ptr<SessionConfig> default_session_config;
+  const SessionConfig* config_to_use;
+
+  if (session_config && session_config->config) {
+    config_to_use = session_config->config.get();
+  } else {
+    default_session_config =
+        std::make_unique<SessionConfig>(SessionConfig::CreateDefault());
+    config_to_use = default_session_config.get();
+  }
+
   auto conversation_config = litert::lm::ConversationConfig::Builder()
-                                 .SetSessionConfig(session_config)
+                                 .SetSessionConfig(*config_to_use)
                                  .SetPreface(json_preface)
                                  .Build(*engine->engine);
 
