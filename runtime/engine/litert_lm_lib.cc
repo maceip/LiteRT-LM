@@ -174,6 +174,10 @@ absl::StatusOr<EngineSettings> CreateEngineSettings(
     gpu_settings.external_tensor_mode = settings.gpu_external_tensor_mode;
     executor_settings.SetBackendConfig(gpu_settings);
   }
+  if (backend == Backend::GPU_ARTISAN) {
+    auto& executor_settings = engine_settings.GetMutableMainExecutorSettings();
+    executor_settings.SetMaxNumImages(settings.max_num_images);
+  }
   const std::optional<Backend> sampler_backend = GetSamplerBackend(settings);
   if (sampler_backend.has_value()) {
     engine_settings.GetMutableMainExecutorSettings().SetSamplerBackend(
