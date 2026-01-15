@@ -85,5 +85,12 @@ absl::Status ExpandBuffer(const uint8_t* src_data,
                           absl::Span<const int> src_shape, uint8_t* dst_data,
                           absl::Span<const int> dst_shape, size_t element_size);
 
+// Function to zero the tensor buffer.
+// Args:
+//   tensor_buffer: The tensor buffer to zero.
+// Returns:
+//   Status of the zeroing.
+absl::Status ZeroTensorBuffer(TensorBuffer& tensor_buffer);
+
 }  // namespace litert::lm
 #endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_LLM_LITERT_COMPILED_MODEL_CACHE_UTILS_H_

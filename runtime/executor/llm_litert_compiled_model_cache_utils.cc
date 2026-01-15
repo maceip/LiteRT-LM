@@ -187,4 +187,13 @@ absl::Status ExpandBuffer(const uint8_t* src_data,
   return absl::OkStatus();
 };
 
+absl::Status ZeroTensorBuffer(TensorBuffer& tensor_buffer) {
+  LITERT_ASSIGN_OR_RETURN(auto src_buffer_lock_and_addr,
+                          TensorBufferScopedLock::Create(
+                              tensor_buffer, TensorBuffer::LockMode::kWrite));
+  LITERT_ASSIGN_OR_RETURN(size_t size, tensor_buffer.PackedSize());
+  memset(src_buffer_lock_and_addr.second, 0, size);
+  return absl::OkStatus();
+}
+
 }  // namespace litert::lm
