@@ -28,10 +28,12 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "litert/cc/litert_environment.h"  // from @litert
+#include "runtime/components/model_resources.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/executor/audio_executor.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/llm_executor.h"
+#include "runtime/executor/llm_executor_settings.h"
 #include "runtime/executor/vision_executor.h"
 #include "runtime/executor/vision_executor_settings.h"
 #include "runtime/framework/resource_management/context_handler/context_handler.h"
@@ -43,17 +45,20 @@ namespace litert::lm {
 class ResourceManager {
  public:
   explicit ResourceManager(
+      ModelResources* absl_nullable model_resources,
       std::unique_ptr<LlmExecutor> llm_executor,
       std::unique_ptr<VisionExecutorSettings> vision_executor_settings,
       std::unique_ptr<AudioExecutorSettings> audio_executor_settings,
       ::litert::Environment* absl_nullable litert_env)
-      : llm_executor_(std::move(llm_executor)),
+      : model_resources_(model_resources),
+        llm_executor_(std::move(llm_executor)),
         vision_executor_settings_(std::move(vision_executor_settings)),
         audio_executor_settings_(std::move(audio_executor_settings)),
         litert_env_(litert_env) {}
 
   // Creates a ResourceManager with the provided llm_executor.
   static absl::StatusOr<std::unique_ptr<ResourceManager>> Create(
+      ModelResources* absl_nullable model_resources,
       std::unique_ptr<LlmExecutor> absl_nonnull llm_executor,
       std::unique_ptr<VisionExecutorSettings> absl_nullable
       vision_executor_settings,
@@ -129,6 +134,8 @@ class ResourceManager {
  private:
   // Creates the litert environment if it is not created yet.
   absl::Status MaybeCreateLitertEnv();
+
+  ModelResources* model_resources_;
 
   // Guards the llm_executor_.
   absl::Mutex executor_mutex_;

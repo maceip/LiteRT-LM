@@ -33,6 +33,7 @@
 #include "absl/time/time.h"  // from @com_google_absl
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "runtime/components/constrained_decoding/constraint.h"
+#include "runtime/components/model_resources.h"
 #include "runtime/components/sampler.h"
 #include "runtime/components/stop_token_detector.h"
 #include "runtime/components/tokenizer.h"
@@ -111,6 +112,7 @@ class ExecutionManager {
   //   This can be null if no LLM context is needed.
   static absl::StatusOr<std::unique_ptr<ExecutionManager>> Create(
       Tokenizer* absl_nonnull tokenizer,
+      ModelResources* absl_nullable model_resources,
       std::unique_ptr<LlmExecutor> absl_nonnull llm_executor,
       std::unique_ptr<VisionExecutorSettings> absl_nullable
       vision_executor_settings,

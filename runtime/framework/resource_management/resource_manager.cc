@@ -29,6 +29,7 @@
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/model_resources.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/executor/audio_executor.h"
 #include "runtime/executor/audio_executor_settings.h"
@@ -118,6 +119,8 @@ class LockedAudioExecutor : public AudioExecutor {
     return audio_executor_->Encode(input_image_tensor);
   }
 
+  absl::Status Reset() override { return audio_executor_->Reset(); }
+
  private:
   std::shared_ptr<AudioExecutor> audio_executor_;
   // The mutex lock.
@@ -166,7 +169,7 @@ class LockedLlmExecutor : public LlmExecutor {
     // prefill.
     ASSIGN_OR_RETURN(auto token_ids, inputs.GetTextTokenIdsPtr());
     LITERT_ASSIGN_OR_RETURN(auto token_ids_tensor_type,
-                                 token_ids->TensorType());
+                            token_ids->TensorType());
     RET_CHECK_EQ(token_ids_tensor_type.Layout().Dimensions()[0], 1);
     if (token_ids_tensor_type.Layout().Dimensions()[1] == 0) {
       return absl::OkStatus();
@@ -477,10 +480,9 @@ ResourceManager::CreateContextHandler(const SessionConfig& session_config) {
   // If lora is used and not loaded, load the lora.
   if (lora_id.has_value() && !lora_is_loaded) {
     RET_CHECK(session_config.GetScopedLoraFile() != nullptr);
-    ASSIGN_OR_RETURN(
-        ModelAssets model_assets,
-        ModelAssets::Create(session_config.GetScopedLoraFile(),
-                          /*model_path=*/""));
+    ASSIGN_OR_RETURN(ModelAssets model_assets,
+                     ModelAssets::Create(session_config.GetScopedLoraFile(),
+                                         /*model_path=*/""));
     MovableMutexLock lock(&executor_mutex_);
     RETURN_IF_ERROR(llm_executor_->LoadLoRA(lora_id.value(), model_assets));
   }
@@ -693,8 +695,11 @@ absl::Status ResourceManager::TryLoadingAudioExecutor() {
   if (!audio_executor_settings_) {
     return absl::InvalidArgumentError("Audio options should not be null.");
   }
-  if (audio_executor_settings_->GetBackend() ==
-             litert::lm::Backend::CPU) {
+  if (audio_executor_settings_->GetBackend() == litert::lm::Backend::CPU) {
+    return absl::InvalidArgumentError(
+        "Audio executor backend is not supported.");
+  } else if (audio_executor_settings_->GetBackend() ==
+             litert::lm::Backend::GPU_ARTISAN) {
     return absl::InvalidArgumentError(
         "Audio executor backend is not supported.");
   } else {
@@ -717,6 +722,7 @@ ResourceManager::AcquireAudioExecutor() {
 }
 
 absl::StatusOr<std::unique_ptr<ResourceManager>> ResourceManager::Create(
+    ModelResources* absl_nullable model_resources,
     std::unique_ptr<LlmExecutor> absl_nonnull llm_executor,
     std::unique_ptr<VisionExecutorSettings> absl_nullable
     vision_executor_settings,
@@ -727,8 +733,9 @@ absl::StatusOr<std::unique_ptr<ResourceManager>> ResourceManager::Create(
     return absl::InvalidArgumentError("Llm executor is null.");
   }
   auto llm_resource_manager = std::make_unique<ResourceManager>(
-      std::move(llm_executor), std::move(vision_executor_settings),
-      std::move(audio_executor_settings), litert_env);
+      model_resources, std::move(llm_executor),
+      std::move(vision_executor_settings), std::move(audio_executor_settings),
+      litert_env);
   return llm_resource_manager;
 }
 

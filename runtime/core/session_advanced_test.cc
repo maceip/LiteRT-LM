@@ -39,6 +39,7 @@
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/test/matchers.h"  // from @litert
 #include "runtime/components/constrained_decoding/fake_constraint.h"
+#include "runtime/components/model_resources.h"
 #include "runtime/components/sentencepiece_tokenizer.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/engine/engine_settings.h"
@@ -179,10 +180,12 @@ class SessionAdvancedTest : public testing::Test {
     ASSERT_OK(tokenizer);
     tokenizer.value()->SetExtendedToken(256000, "<start_of_audio>");
     tokenizer_ = std::move(*tokenizer);
+    model_resources_ = std::unique_ptr<ModelResources>();
     sampler_params_.set_type(proto::SamplerParameters::TYPE_UNSPECIFIED);
   }
 
   std::unique_ptr<Tokenizer> tokenizer_;
+  std::unique_ptr<ModelResources> model_resources_;
   proto::SamplerParameters sampler_params_;
 };
 
@@ -248,7 +251,8 @@ TEST_F(SessionAdvancedTest, RunPrefill) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -277,7 +281,8 @@ TEST_F(SessionAdvancedTest, RunDecodeWithInternalSampler) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -315,7 +320,8 @@ TEST_F(SessionAdvancedTest, RunDecodeWithExternalSampler) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -359,7 +365,8 @@ TEST_F(SessionAdvancedTest,
                              {2294, 0, 2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -406,7 +413,8 @@ TEST_F(SessionAdvancedTest,
                              {2294, 0, 2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -458,7 +466,8 @@ TEST_F(SessionAdvancedTest,
           /*decode_tokens=*/{{24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -511,7 +520,8 @@ TEST_F(SessionAdvancedTest,
           /*decode_tokens=*/{{24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -557,7 +567,8 @@ TEST_F(SessionAdvancedTest, RunPrefillAsync) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -592,7 +603,8 @@ TEST_F(SessionAdvancedTest, RunDecodeAsyncWithInternalSampler) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -630,7 +642,8 @@ TEST_F(SessionAdvancedTest, RunDecodeAsyncWithExternalSampler) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -681,7 +694,8 @@ TEST_F(SessionAdvancedTest,
           /*decode_tokens=*/{{24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -745,7 +759,8 @@ TEST_F(SessionAdvancedTest,
           /*decode_tokens=*/{{24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -792,7 +807,8 @@ TEST_F(SessionAdvancedTest, RunPrefillAndDecodeAsyncWithInternalSampler) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -837,7 +853,8 @@ TEST_F(SessionAdvancedTest, RunPrefillAndDecodeAsyncWithExternalSampler) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -880,7 +897,8 @@ TEST_F(SessionAdvancedTest, GenerateContentStream) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -923,7 +941,8 @@ TEST_F(SessionAdvancedTest, RunPrefillEmptyInput) {
               {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -963,7 +982,8 @@ TEST_F(SessionAdvancedTest, RunPrefillAsyncFailed) {
   session_config.SetSamplerBackend(Backend::CPU);
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1009,7 +1029,8 @@ TEST_F(SessionAdvancedTest, RunDecodeAsyncFailed) {
   session_config.SetSamplerBackend(Backend::CPU);
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1054,7 +1075,8 @@ TEST_F(SessionAdvancedTest, RunDecodeAsyncWithCancellationWithInternalSampler) {
   session_config.SetStartTokenId(2);
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(fake_executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(fake_executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1108,7 +1130,8 @@ TEST_F(SessionAdvancedTest, RunDecodeAsyncWithCancellationWithExternalSampler) {
   session_config.SetSamplerBackend(Backend::CPU);
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(fake_executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(fake_executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1161,7 +1184,8 @@ TEST_F(SessionAdvancedTest,
   session_config.SetStartTokenId(2);
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(fake_executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(fake_executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1218,7 +1242,8 @@ TEST_F(SessionAdvancedTest,
   session_config.SetSamplerBackend(Backend::CPU);
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(fake_executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(fake_executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1263,6 +1288,7 @@ class SessionAdvancedCancellationTest : public testing::TestWithParam<bool> {
     ASSERT_OK(tokenizer);
     tokenizer.value()->SetExtendedToken(256000, "<start_of_audio>");
     tokenizer_ = std::move(*tokenizer);
+    model_resources_ = std::unique_ptr<ModelResources>();
     sampler_params_.set_type(proto::SamplerParameters::TYPE_UNSPECIFIED);
     // Creating the thread pool of a single thread to execute the works.
     worker_thread_pool_ = std::make_unique<ThreadPool>(/*name_prefix=*/"engine",
@@ -1270,6 +1296,7 @@ class SessionAdvancedCancellationTest : public testing::TestWithParam<bool> {
   }
   bool use_benchmark_info_ = GetParam();
   std::unique_ptr<Tokenizer> tokenizer_;
+  std::unique_ptr<ModelResources> model_resources_;
   proto::SamplerParameters sampler_params_;
   std::unique_ptr<ThreadPool> worker_thread_pool_;
 };
@@ -1303,7 +1330,8 @@ TEST_P(SessionAdvancedCancellationTest,
 
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(fake_executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(fake_executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1378,7 +1406,8 @@ TEST_P(SessionAdvancedCancellationTest,
 
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(fake_executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(fake_executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1443,7 +1472,8 @@ TEST_F(SessionAdvancedTest, RunPrefillAsyncOnCancelledSession) {
   session_config.SetSamplerBackend(Backend::CPU);
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(fake_executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(fake_executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1500,7 +1530,8 @@ TEST_F(SessionAdvancedTest,
 
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1543,7 +1574,8 @@ TEST_F(SessionAdvancedTest,
 
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1590,7 +1622,8 @@ TEST_F(SessionAdvancedTest,
 
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1655,7 +1688,8 @@ TEST_F(SessionAdvancedTest,
 
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
-      ExecutionManager::Create(tokenizer_.get(), std::move(executor),
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
                                /*vision_executor_settings=*/nullptr,
                                /*audio_executor_settings=*/nullptr,
                                /*litert_env=*/nullptr));
@@ -1730,7 +1764,7 @@ TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAndAudioSuccess) {
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
       ExecutionManager::Create(
-          tokenizer_.get(), std::move(executor),
+          tokenizer_.get(), model_resources_.get(), std::move(executor),
           /*vision_executor_settings=*/nullptr,
           /*audio_executor_settings=*/std::move(audio_executor_settings),
           /*litert_env=*/&env));
@@ -1798,7 +1832,7 @@ TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAudioTextSuccess) {
   ASSERT_OK_AND_ASSIGN(
       std::shared_ptr<ExecutionManager> execution_manager,
       ExecutionManager::Create(
-          tokenizer_.get(), std::move(executor),
+          tokenizer_.get(), model_resources_.get(), std::move(executor),
           /*vision_executor_settings=*/nullptr,
           /*audio_executor_settings=*/std::move(audio_executor_settings),
           /*litert_env=*/&env));

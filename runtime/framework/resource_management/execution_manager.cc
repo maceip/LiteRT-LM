@@ -38,6 +38,7 @@
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/constrained_decoding/constraint.h"
+#include "runtime/components/model_resources.h"
 #include "runtime/components/sampler.h"
 #include "runtime/components/sampler_factory.h"
 #include "runtime/components/stop_token_detector.h"
@@ -554,6 +555,7 @@ absl::StatusOr<ExecutorInputs> ExecutionManager::ProcessAndCombineContents(
 
 absl::StatusOr<std::unique_ptr<ExecutionManager>> ExecutionManager::Create(
     Tokenizer* absl_nonnull tokenizer,
+    ModelResources* absl_nullable model_resources,
     std::unique_ptr<LlmExecutor> absl_nonnull llm_executor,
     std::unique_ptr<VisionExecutorSettings> absl_nullable
     vision_executor_settings,
@@ -563,7 +565,7 @@ absl::StatusOr<std::unique_ptr<ExecutionManager>> ExecutionManager::Create(
   std::unique_ptr<Sampler> sampler;
   ASSIGN_OR_RETURN(
       auto resource_manager,
-      ResourceManager::Create(std::move(llm_executor),
+      ResourceManager::Create(model_resources, std::move(llm_executor),
                               std::move(vision_executor_settings),
                               std::move(audio_executor_settings), litert_env));
   return absl::WrapUnique(

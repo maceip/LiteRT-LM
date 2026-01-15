@@ -30,6 +30,7 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "runtime/components/constrained_decoding/fake_constraint.h"
+#include "runtime/components/model_resources.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
@@ -93,7 +94,7 @@ class ExecutionManagerTest : public ::testing::Test {
     SessionConfig session_config = SessionConfig::CreateDefault();
     EXPECT_OK(session_config.MaybeUpdateAndValidate(settings));
     session_config.SetUseExternalSampler(use_external_sampler);
-
+    model_resources_ = std::unique_ptr<ModelResources>();
     return session_config;
   };
 
@@ -104,6 +105,7 @@ class ExecutionManagerTest : public ::testing::Test {
     ASSERT_OK_AND_ASSIGN(execution_manager_,
                          ExecutionManager::Create(
                              /*tokenizer=*/tokenizer_.get(),
+                             /*model_resources=*/model_resources_.get(),
                              /*llm_executor=*/std::move(fake_llm_executor),
                              /*vision_executor_settings=*/nullptr,
                              /*audio_executor_settings=*/nullptr,
@@ -125,6 +127,8 @@ class ExecutionManagerTest : public ::testing::Test {
   }
 
   std::unique_ptr<MockTokenizer> tokenizer_;
+
+  std::unique_ptr<ModelResources> model_resources_;
 
   std::unique_ptr<ExecutionManager> execution_manager_;
 };

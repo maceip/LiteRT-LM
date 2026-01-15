@@ -288,11 +288,12 @@ absl::StatusOr<std::unique_ptr<Engine>> CreateEngineAdvancedLegacy(
   runtime_config.output_heads = 1;
   RETURN_IF_ERROR(executor->UpdateRuntimeConfig(runtime_config));
 
-  ASSIGN_OR_RETURN(auto execution_manager,
-                   ExecutionManager::Create(
-                       tokenizer, std::move(executor),
-                       std::move(vision_executor_settings_ptr),
-                       std::move(audio_executor_settings_ptr), &litert_env));
+  ASSIGN_OR_RETURN(
+      auto execution_manager,
+      ExecutionManager::Create(
+          tokenizer, model_resources->litert_lm_model_resources.get(),
+          std::move(executor), std::move(vision_executor_settings_ptr),
+          std::move(audio_executor_settings_ptr), &litert_env));
 
   auto llm_impl = absl::WrapUnique(new EngineAdvancedLegacyImpl(
       std::move(engine_settings), std::move(model_resources),
