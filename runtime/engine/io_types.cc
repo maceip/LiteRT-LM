@@ -280,7 +280,14 @@ absl::Status BenchmarkInfo::TimePrefillTurnEnd(uint64_t num_prefill_tokens) {
   return absl::OkStatus();
 }
 
-const BenchmarkTurnData& BenchmarkInfo::GetPrefillTurn(int turn_index) const {
+absl::StatusOr<BenchmarkTurnData> BenchmarkInfo::GetPrefillTurn(
+    int turn_index) const {
+  if (turn_index < 0 ||
+      static_cast<size_t>(turn_index) >= prefill_turns_.size()) {
+    return absl::OutOfRangeError(absl::StrCat(
+        "Prefill turn index ", turn_index,
+        " is out of bounds. Total prefill turns: ", prefill_turns_.size()));
+  }
   return prefill_turns_[turn_index];
 }
 
@@ -306,7 +313,14 @@ absl::Status BenchmarkInfo::TimeDecodeTurnEnd(uint64_t num_decode_tokens) {
   return absl::OkStatus();
 }
 
-const BenchmarkTurnData& BenchmarkInfo::GetDecodeTurn(int turn_index) const {
+absl::StatusOr<BenchmarkTurnData> BenchmarkInfo::GetDecodeTurn(
+    int turn_index) const {
+  if (turn_index < 0 ||
+      static_cast<size_t>(turn_index) >= decode_turns_.size()) {
+    return absl::OutOfRangeError(absl::StrCat(
+        "Decode turn index ", turn_index,
+        " is out of bounds. Total decode turns: ", decode_turns_.size()));
+  }
   return decode_turns_[turn_index];
 }
 
@@ -428,7 +442,7 @@ std::ostream& operator<<(std::ostream& os, const BenchmarkInfo& info) {
     os << "    No prefill turns recorded." << std::endl;
   } else {
     for (uint64_t i = 0; i < info.GetTotalPrefillTurns(); ++i) {
-      os << "    Prefill Turn " << i + 1 << ": " << info.GetPrefillTurn(i);
+      os << "    Prefill Turn " << i + 1 << ": " << *info.GetPrefillTurn(i);
       os << "      Prefill Speed: "
          << info.GetPrefillTokensPerSec(static_cast<int>(i)) << " tokens/sec."
          << std::endl;
@@ -442,7 +456,7 @@ std::ostream& operator<<(std::ostream& os, const BenchmarkInfo& info) {
     os << "    No decode turns recorded." << std::endl;
   } else {
     for (uint64_t i = 0; i < info.GetTotalDecodeTurns(); ++i) {
-      os << "    Decode Turn " << i + 1 << ": " << info.GetDecodeTurn(i);
+      os << "    Decode Turn " << i + 1 << ": " << *info.GetDecodeTurn(i);
       os << "      Decode Speed: "
          << info.GetDecodeTokensPerSec(static_cast<int>(i)) << " tokens/sec."
          << std::endl;

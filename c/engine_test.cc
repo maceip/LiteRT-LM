@@ -712,6 +712,10 @@ TEST(EngineCTest, Benchmark) {
       litert_lm_benchmark_info_get_num_prefill_turns(benchmark_info.get());
   EXPECT_GT(num_prefill_turns, 0);
   for (int i = 0; i < num_prefill_turns; ++i) {
+    EXPECT_GT(litert_lm_benchmark_info_get_prefill_token_count_at(
+                  benchmark_info.get(), i),
+              0);
+
     EXPECT_GT(litert_lm_benchmark_info_get_prefill_tokens_per_sec_at(
                   benchmark_info.get(), i),
               0.0);
@@ -720,6 +724,10 @@ TEST(EngineCTest, Benchmark) {
       litert_lm_benchmark_info_get_num_decode_turns(benchmark_info.get());
   EXPECT_GT(num_decode_turns, 0);
   for (int i = 0; i < num_decode_turns; ++i) {
+    EXPECT_GT(litert_lm_benchmark_info_get_decode_token_count_at(
+                  benchmark_info.get(), i),
+              0);
+
     EXPECT_GT(litert_lm_benchmark_info_get_decode_tokens_per_sec_at(
                   benchmark_info.get(), i),
               0.0);

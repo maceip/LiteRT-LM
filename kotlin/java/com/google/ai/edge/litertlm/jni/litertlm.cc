@@ -127,16 +127,20 @@ jobject CreateBenchmarkInfoJni(
     JNIEnv* env, const litert::lm::BenchmarkInfo& benchmark_info) {
   int last_prefill_token_count = 0;
   if (benchmark_info.GetTotalPrefillTurns() > 0) {
-    last_prefill_token_count =
-        benchmark_info.GetPrefillTurn(benchmark_info.GetTotalPrefillTurns() - 1)
-            .num_tokens;
+    auto turn = benchmark_info.GetPrefillTurn(
+        benchmark_info.GetTotalPrefillTurns() - 1);
+    if (turn.ok()) {
+      last_prefill_token_count = turn->num_tokens;
+    }
   }
 
   int last_decode_token_count = 0;
   if (benchmark_info.GetTotalDecodeTurns() > 0) {
-    last_decode_token_count =
-        benchmark_info.GetDecodeTurn(benchmark_info.GetTotalDecodeTurns() - 1)
-            .num_tokens;
+    auto turn =
+        benchmark_info.GetDecodeTurn(benchmark_info.GetTotalDecodeTurns() - 1);
+    if (turn.ok()) {
+      last_decode_token_count = turn->num_tokens;
+    }
   }
 
   jclass benchmark_info_cls =

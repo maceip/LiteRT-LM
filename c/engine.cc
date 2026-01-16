@@ -500,6 +500,34 @@ int litert_lm_benchmark_info_get_num_decode_turns(
   return benchmark_info->benchmark_info.GetTotalDecodeTurns();
 }
 
+int litert_lm_benchmark_info_get_prefill_token_count_at(
+    const LiteRtLmBenchmarkInfo* benchmark_info, int index) {
+  if (!benchmark_info) {
+    return 0;
+  }
+  auto turn = benchmark_info->benchmark_info.GetPrefillTurn(index);
+  if (!turn.ok()) {
+    return 0;
+  }
+  return static_cast<int>(turn->num_tokens);
+}
+
+
+
+int litert_lm_benchmark_info_get_decode_token_count_at(
+    const LiteRtLmBenchmarkInfo* benchmark_info, int index) {
+  if (!benchmark_info) {
+    return 0;
+  }
+  auto turn = benchmark_info->benchmark_info.GetDecodeTurn(index);
+  if (!turn.ok()) {
+    return 0;
+  }
+  return static_cast<int>(turn->num_tokens);
+}
+
+
+
 double litert_lm_benchmark_info_get_prefill_tokens_per_sec_at(
     const LiteRtLmBenchmarkInfo* benchmark_info, int index) {
   if (!benchmark_info) {

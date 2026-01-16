@@ -274,6 +274,10 @@ void litert_lm_benchmark_info_delete(LiteRtLmBenchmarkInfo* benchmark_info);
 
 // Returns the time to the first token in seconds.
 //
+// Note that the first time to token doesn't include the time for
+// initialization. It is the sum of the prefill time for the first turn and
+// the time spent for decoding the first token.
+//
 // @param benchmark_info The benchmark info object.
 // @return The time to the first token in seconds.
 LITERT_LM_C_API_EXPORT
@@ -295,6 +299,26 @@ int litert_lm_benchmark_info_get_num_prefill_turns(
 LITERT_LM_C_API_EXPORT
 int litert_lm_benchmark_info_get_num_decode_turns(
     const LiteRtLmBenchmarkInfo* benchmark_info);
+
+// Returns the prefill token count at a given turn index.
+//
+// @param benchmark_info The benchmark info object.
+// @param index The index of the prefill turn.
+// @return The prefill token count.
+LITERT_LM_C_API_EXPORT
+int litert_lm_benchmark_info_get_prefill_token_count_at(
+    const LiteRtLmBenchmarkInfo* benchmark_info, int index);
+
+
+// Returns the decode token count at a given turn index.
+//
+// @param benchmark_info The benchmark info object.
+// @param index The index of the decode turn.
+// @return The decode token count.
+LITERT_LM_C_API_EXPORT
+int litert_lm_benchmark_info_get_decode_token_count_at(
+    const LiteRtLmBenchmarkInfo* benchmark_info, int index);
+
 
 // Returns the prefill tokens per second at a given turn index.
 //
