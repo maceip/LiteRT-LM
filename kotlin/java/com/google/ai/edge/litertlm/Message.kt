@@ -20,41 +20,80 @@ import com.google.gson.JsonObject
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
-/** Represents a message in the conversation. A message can contain multiple [Content]. */
-class Message private constructor(val contents: List<Content>) {
+/** The role of the message in a conversation. */
+enum class Role(val value: String) {
+  SYSTEM("system"), // represent the system
+  USER("user"), // represent the user
+  MODEL("model"), // represent the model
+}
 
+/** Represents a message in the conversation. A message contain a [Content] list and a [Role]. */
+class Message internal constructor(val contents: Contents, val role: Role) {
+
+  /** Convert to [JsonObject]. Used internally. */
+  internal fun toJson() =
+    JsonObject().apply {
+      addProperty("role", role.value)
+      add("content", contents.toJson())
+    }
+
+  /** Convert the message to a string. */
+  override fun toString() = contents.toString()
+
+  companion object {
+
+    /** Creates a user [Message] from the given text. */
+    fun user(text: String) = user(Contents.of(text))
+
+    /** Creates a user [Message] from the given contents. */
+    fun user(contents: Contents) = Message(contents, Role.USER)
+
+    /** Creates a model [Message] from the given text. */
+    fun model(text: String) = model(Contents.of(text))
+
+    /** Creates a model [Message] from the given contents. */
+    fun model(contents: Contents) = Message(contents, Role.MODEL)
+
+    /** Creates a user [Message] from a text string. */
+    @Deprecated("Use factory methods like user(), model() or Contents.of().")
+    fun of(text: String) = user(text)
+
+    /** Creates a user [Message] from the array of [Content]. */
+    @Deprecated("Use factory methods like user(), model() or Contents.of().")
+    fun of(vararg contents: Content) = user(Contents.of(contents.toList()))
+
+    /** Creates a user [Message] from a list of [Content]. */
+    @Deprecated("Use factory methods like user(), model() or Contents.of().")
+    fun of(contents: List<Content>) = user(Contents.of(contents))
+  }
+}
+
+class Contents private constructor(val contents: List<Content>) {
   fun init() {
     check(contents.isNotEmpty()) { "Contents should not be empty." }
   }
 
-  /** Convert to [JsonArray]. Used internally. */
-  internal fun toJson(): JsonArray {
-    return JsonArray().apply {
+  /** Convert to [JsonObject]. Used internally. */
+  internal fun toJson() =
+    JsonArray().apply {
       for (content in contents) {
         this.add(content.toJson())
       }
     }
-  }
 
-  override fun toString(): String {
-    return contents.joinToString("")
-  }
+  /** Convert the Contents to a string. */
+  override fun toString() = contents.joinToString("")
 
   companion object {
-    /** Creates a [Message] from a text string. */
-    fun of(text: String): Message {
-      return Message(listOf(Content.Text(text)))
-    }
 
-    /** Creates a [Message] from the array of [Content]. */
-    fun of(vararg contents: Content): Message {
-      return Message(contents.toList())
-    }
+    /** Creates a [Contents] from a text string. */
+    fun of(text: String) = Contents.of(Content.Text(text))
 
-    /** Creates a [Message] from a list of [Content]. */
-    fun of(contents: List<Content>): Message {
-      return Message(contents)
-    }
+    /** Creates a [Contents] from the array of [Content]. */
+    fun of(vararg contents: Content) = Contents.of(contents.toList())
+
+    /** Creates a [Contents] from a list of [Content]. */
+    fun of(contents: List<Content>) = Contents(contents)
   }
 }
 
@@ -65,57 +104,50 @@ sealed class Content {
 
   /** Text. */
   data class Text(val text: String) : Content() {
-    override fun toJson(): JsonObject {
-      return JsonObject().apply {
+    override fun toJson() =
+      JsonObject().apply {
         addProperty("type", "text")
         addProperty("text", text)
       }
-    }
 
-    override fun toString(): String {
-      return text
-    }
+    override fun toString() = text
   }
 
   /** Image provided as raw bytes. */
   @OptIn(ExperimentalEncodingApi::class)
   data class ImageBytes(val bytes: ByteArray) : Content() {
-    override fun toJson(): JsonObject {
-      return JsonObject().apply {
+    override fun toJson() =
+      JsonObject().apply {
         addProperty("type", "image")
         addProperty("blob", Base64.encode(bytes))
       }
-    }
   }
 
   /** Image provided by a file. */
   data class ImageFile(val absolutePath: String) : Content() {
-    override fun toJson(): JsonObject {
-      return JsonObject().apply {
+    override fun toJson() =
+      JsonObject().apply {
         addProperty("type", "image")
         addProperty("path", absolutePath)
       }
-    }
   }
 
   /** Audio provided as raw bytes. */
   @OptIn(ExperimentalEncodingApi::class)
   data class AudioBytes(val bytes: ByteArray) : Content() {
-    override fun toJson(): JsonObject {
-      return JsonObject().apply {
+    override fun toJson() =
+      JsonObject().apply {
         addProperty("type", "audio")
         addProperty("blob", Base64.encode(bytes))
       }
-    }
   }
 
   /** Audio provided by a file. */
   data class AudioFile(val absolutePath: String) : Content() {
-    override fun toJson(): JsonObject {
-      return JsonObject().apply {
+    override fun toJson() =
+      JsonObject().apply {
         addProperty("type", "audio")
         addProperty("path", absolutePath)
       }
-    }
   }
 }

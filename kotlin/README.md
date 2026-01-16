@@ -21,7 +21,7 @@ suspend fun main() {
     engine.createConversation().use { conversation ->
       while (true) {
         print("\n>>> ")
-        conversation.sendMessageAsync(Message.of(readln())).collect { print(it) }
+        conversation.sendMessageAsync(readln()).collect { print(it) }
       }
     }
   }
@@ -118,9 +118,14 @@ import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Message
 import com.google.ai.edge.litertlm.SamplerConfig
 
-// Optional: Configure system message and sampling parameters
+// Optional: Configure the system instruction, initial messages, sampling
+// parameters, etc.
 val conversationConfig = ConversationConfig(
-    systemMessage = Message.of("You are a helpful assistant."),
+    systemInstruction = Contents.of("You are a helpful assistant."),
+    initialMessages = listOf(
+        Message.user("What is the capital city of the United States?"),
+        Message.model("Washington, D.C."),
+    ),
     samplerConfig = SamplerConfig(topK = 10, topP = 0.95, temperature = 0.8),
 )
 
@@ -163,8 +168,7 @@ There are three ways to send messages:
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Message
 
-val userMessage = Message.of("What is the capital of France?")
-print(conversation.sendMessage(userMessage))
+print(conversation.sendMessage("What is the capital of France?"))
 ```
 
 **Asynchronous Example with callback:**
@@ -193,8 +197,7 @@ val callback = object : MessageCallback {
     }
 }
 
-val userMessage = Message.of("What is the capital of France?")
-conversation.sendMessageAsync(userMessage, callback)
+conversation.sendMessageAsync("What is the capital of France?", callback)
 ```
 
 **Asynchronous Example with Flow:**
@@ -208,8 +211,7 @@ import com.google.ai.edge.litertlm.Message
 import kotlinx.coroutines.launch
 
 // Within a coroutine scope
-val userMessage = Message.of("What is the capital of France?")
-conversation.sendMessageAsync(userMessage)
+conversation.sendMessageAsync("What is the capital of France?")
     .catch { ... } // error during streaming
     .collect{ print(it.toString()) }
 ```
@@ -231,12 +233,13 @@ val engineConfig = EngineConfig(
     audioBackend = Backend.CPU,
 )
 
+// Sends a message with multi-modality.
 // See the Content class for other variants.
-val multiModalMessage = Message.of(
+conversation.sendMessage(Contents.of(
     Content.ImageFile("/path/to/image"),
     Content.AudioBytes(audioBytes), // ByteArray of the audio
     Content.Text("Describe this image and audio."),
-)
+))
 ```
 
 ### 6. Defining and Using Tools
@@ -315,8 +318,7 @@ val conversation = engine.createConversation(
 )
 
 // Send messages that might trigger the tool
-val userMessage = Message.of("What's the weather like in London?")
-conversation.sendMessageAsync(userMessage, callback)
+conversation.sendMessageAsync("What's the weather like in London?", callback)
 ```
 
 The model will decide when to call the tool based on the conversation. The

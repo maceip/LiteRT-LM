@@ -15,6 +15,7 @@
  */
 package com.google.ai.edge.litertlm
 
+import com.google.gson.JsonArray
 import kotlin.jvm.Volatile
 
 /**
@@ -105,13 +106,26 @@ class Engine(val engineConfig: EngineConfig) : AutoCloseable {
       checkInitialized()
 
       val toolManager = ToolManager(conversationConfig.tools)
+      val messagesJson: JsonArray =
+        JsonArray().apply {
+          conversationConfig.systemMessage?.let {
+            // Convert the message's role to Role.SYSTEM for backward compatibility.
+            this.add(Message(it.contents, Role.SYSTEM).toJson())
+          }
+
+          conversationConfig.systemInstruction?.let { this.add(Message(it, Role.SYSTEM).toJson()) }
+
+          for (message in conversationConfig.initialMessages) {
+            this.add(message.toJson())
+          }
+        }
 
       @OptIn(ExperimentalApi::class) // opt-in experimental flags
       return Conversation(
         LiteRtLmJni.nativeCreateConversation(
           handle!!, // Using !! is okay. Checked initialization already.
           conversationConfig.samplerConfig,
-          conversationConfig.systemMessage?.toJson()?.toString() ?: "",
+          messagesJson.toString(),
           toolManager.getToolsDescription().toString(),
           ExperimentalFlags.enableConversationConstrainedDecoding,
         ),

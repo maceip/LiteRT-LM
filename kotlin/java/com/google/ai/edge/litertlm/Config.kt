@@ -58,15 +58,21 @@ data class EngineConfig(
 /**
  * Configuration for a LiteRT-LM [Conversation].
  *
- * @property systemMessage The system message to be used in the conversation.
+ * @property systemInstruction The system instruction for the conversation.
+ * @property initialMessages The initial messages for the conversation.
  * @property tools A list of tool objects to be used in the conversation.
  * @property samplerConfig Configuration for the sampling process. If `null`, then uses the engine's
  *   default values.
+ * @property systemMessage The system message to be used in the conversation. If set, it will
+ *   prepend to [initialMessages].
  */
 data class ConversationConfig(
-  val systemMessage: Message? = null,
+  val systemInstruction: Contents? = null,
+  val initialMessages: List<Message> = listOf(),
   val tools: List<Any> = listOf(),
   val samplerConfig: SamplerConfig? = null,
+  @Deprecated("Use systemInstruction instead. e.g., systemInstrction = Contents.of(\"Be helpful\")")
+  val systemMessage: Message? = null,
 )
 
 /**

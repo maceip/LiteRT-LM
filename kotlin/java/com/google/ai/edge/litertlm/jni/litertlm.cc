@@ -657,7 +657,7 @@ JNI_METHOD(nativeConversationGetBenchmarkInfo)(JNIEnv* env, jclass thiz,
 
 LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversation)(
     JNIEnv* env, jclass thiz, jlong engine_pointer, jobject sampler_config_obj,
-    jstring system_message_json_string, jstring tools_description_json_string,
+    jstring messages_json_string, jstring tools_description_json_string,
     jboolean enable_constrained_decoding) {
   Engine* engine = reinterpret_cast<Engine*>(engine_pointer);
 
@@ -671,20 +671,11 @@ LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversation)(
   // Create the Preface from the system instruction and tools.
   JsonPreface json_preface;
 
-  const char* system_message_chars =
-      env->GetStringUTFChars(system_message_json_string, nullptr);
-  std::string system_message_json_str(system_message_chars);
-  env->ReleaseStringUTFChars(system_message_json_string, system_message_chars);
-  if (!system_message_json_str.empty()) {
-    nlohmann::ordered_json system_message;
-    system_message["role"] = "system";
-    system_message["content"] =
-        nlohmann::ordered_json::parse(system_message_json_str);
-
-    nlohmann::ordered_json::array_t messages;
-    messages.push_back(system_message);
-    json_preface.messages = messages;
-  }
+  const char* messages_chars =
+      env->GetStringUTFChars(messages_json_string, nullptr);
+  std::string messages_json_str(messages_chars);
+  env->ReleaseStringUTFChars(messages_json_string, messages_chars);
+  json_preface.messages = nlohmann::ordered_json::parse(messages_json_str);
 
   const char* tools_description_chars =
       env->GetStringUTFChars(tools_description_json_string, nullptr);

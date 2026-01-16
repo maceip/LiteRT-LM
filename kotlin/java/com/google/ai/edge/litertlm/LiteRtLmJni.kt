@@ -162,7 +162,7 @@ internal object LiteRtLmJni {
   external fun nativeCreateConversation(
     enginePointer: Long,
     samplerConfig: SamplerConfig?,
-    systemMessageJsonString: String,
+    messageJsonString: String,
     toolsDescriptionJsonString: String,
     enableConversationConstrainedDecoding: Boolean,
   ): Long
