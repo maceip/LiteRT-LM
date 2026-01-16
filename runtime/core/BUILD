@@ -32,6 +32,7 @@ package_group(
     packages = [
         # for ":engine_impl_selected".
         "//runtime/engine",
+        "//third_party/odml/litert_lm/js/packages/core/src/cpp",
     ],
 )
 
