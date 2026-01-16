@@ -152,13 +152,13 @@ engine.createConversation(conversationConfig).use { conversation ->
 
 There are three ways to send messages:
 
--   **`sendMessage(message: Message): Message`**: Synchronous call that blocks
+-   **`sendMessage(contents): Message`**: Synchronous call that blocks
     until the model returns a complete response. This is simpler for basic
     request/response interactions.
--   **`sendMessageAsync(message: Message, callback: MessageCallback)`**:
+-   **`sendMessageAsync(contents, callback)`**:
     Asynchronous call for streaming responses. This is better for long-running
     requests or when you want to display the response as it's being generated.
--   **`sendMessageAsync(message: Message): Flow<Message>`**: Asynchronous call
+-   **`sendMessageAsync(contents): Flow<Message>`**: Asynchronous call
     that returns a Kotlin Flow for streaming responses. This is the recommended
     approach for Coroutine users.
 
@@ -244,7 +244,8 @@ conversation.sendMessage(Contents.of(
 
 ### 6. Defining and Using Tools
 
-Note: this only works with models with tool support.
+Note: this only works with models with tool support. e.g., the
+[FunctionGemma](https://huggingface.co/google/functiongemma-270m-it).
 
 You can define custom Kotlin functions as tools that the model can call to
 perform actions or fetch information.
