@@ -115,3 +115,7 @@ ABSL_FLAG(bool, share_constant_tensors, true,
           "If true, the executor will enable constant tensor sharing.");
 ABSL_FLAG(int, num_iterations, 1,
           "Number of iterations to run the model. By default, it's 1.");
+ABSL_FLAG(std::string, litert_dispatch_lib_dir, "",
+          "Directory of the LiteRT dispatch library. If not set, the runtime "
+          "will look for the library in the path defined as the environment "
+          "variables.");

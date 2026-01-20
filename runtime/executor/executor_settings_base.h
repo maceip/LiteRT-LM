@@ -195,10 +195,16 @@ class ExecutorSettingsBase {
   std::shared_ptr<litert::lm::ScopedFile> GetScopedCacheFile() const {
     return scoped_cache_file_;
   }
+  const std::string& GetLitertDispatchLibDir() const {
+    return litert_dispatch_lib_dir_;
+  }
   // Setter APIs.
   void SetCacheDir(const std::string& cache_dir) { cache_dir_ = cache_dir; }
   void SetScopedCacheFile(std::shared_ptr<litert::lm::ScopedFile> cache_file) {
     scoped_cache_file_ = std::move(cache_file);
+  }
+  void SetLitertDispatchLibDir(const std::string& litert_dispatch_lib_dir) {
+    litert_dispatch_lib_dir_ = litert_dispatch_lib_dir;
   }
 
  protected:
@@ -231,6 +237,10 @@ class ExecutorSettingsBase {
 
   // Optional LoRA model assets.
   std::optional<ModelAssets> lora_model_assets_;
+
+  // LiteRT dispatch library directory. If not set, the runtime will look for
+  // the library in the path defined as the environment variables.
+  std::string litert_dispatch_lib_dir_;
 };
 
 }  // namespace litert::lm

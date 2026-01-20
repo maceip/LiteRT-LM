@@ -95,6 +95,7 @@ struct LiteRtLmSettings {
   // Note that session does not add necessary prompt templates.
   bool use_session = false;
   int num_iterations = 1;
+  std::string litert_dispatch_lib_dir = "";
 };
 
 // Runs the LLM inference with the given settings.

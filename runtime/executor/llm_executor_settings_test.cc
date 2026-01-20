@@ -234,6 +234,7 @@ lora_rank: 0
 cache_dir: )",
       kPathToCache, R"(
 cache_file: Not set
+litert_dispatch_lib_dir: Not set
 model_assets: model_path: )",
       kPathToModel1, R"(
 fake_weights_mode: FAKE_WEIGHTS_NONE
@@ -291,6 +292,7 @@ lora_rank: 0
 cache_dir: )",
       kPathToCache, R"(
 cache_file: Not set
+litert_dispatch_lib_dir: Not set
 model_assets: model_path: )",
       kPathToModel1, R"(
 fake_weights_mode: FAKE_WEIGHTS_NONE

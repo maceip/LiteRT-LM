@@ -96,6 +96,12 @@ std::ostream& operator<<(std::ostream& os, const LlmExecutorSettings& config) {
   } else {
     os << "cache_file: Not set\n";
   }
+  if (config.GetLitertDispatchLibDir().empty()) {
+    os << "litert_dispatch_lib_dir: Not set\n";
+  } else {
+    os << "litert_dispatch_lib_dir: " << config.GetLitertDispatchLibDir()
+       << "\n";
+  }
   os << "model_assets: " << config.GetModelAssets() << "\n";
   if (config.GetAdvancedSettings().has_value()) {
     os << "advanced_settings: " << *config.GetAdvancedSettings() << "\n";

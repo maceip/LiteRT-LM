@@ -155,6 +155,10 @@ absl::StatusOr<EngineSettings> CreateEngineSettings(
           ":nocache");
     }
   }
+  if (!settings.litert_dispatch_lib_dir.empty()) {
+    engine_settings.GetMutableMainExecutorSettings().SetLitertDispatchLibDir(
+        settings.litert_dispatch_lib_dir);
+  }
   if (backend == Backend::CPU) {
     auto& executor_settings = engine_settings.GetMutableMainExecutorSettings();
     ASSIGN_OR_RETURN(
