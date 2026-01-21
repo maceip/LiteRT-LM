@@ -188,9 +188,38 @@ class SessionAdvancedTest : public testing::Test {
     sampler_params_.set_type(proto::SamplerParameters::TYPE_UNSPECIFIED);
   }
 
+  absl::StatusOr<std::unique_ptr<SessionAdvanced>> CreateTestSession() {
+    const std::vector<std::vector<int>> stop_token_ids = {{2294}};
+    SessionConfig session_config = SessionConfig::CreateDefault();
+    session_config.GetMutableSamplerParams() = sampler_params_;
+    session_config.GetMutableStopTokenIds() = stop_token_ids;
+    session_config.SetStartTokenId(2);
+    session_config.SetSamplerBackend(Backend::CPU);
+
+    ASSIGN_OR_RETURN(
+        auto executor,
+        CreateFakeLlmExecutor(
+            // "Hello World!"
+            /*prefill_tokens=*/{{2, 90, 547, 58, 735, 210, 466, 2294}},
+            // "How's it going?"
+            /*decode_tokens=*/{{224}, {24}, {8}, {66}, {246}, {18}, {2295},
+                               {2294}}));
+    ASSIGN_OR_RETURN(
+        execution_manager_,
+        ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                                 std::move(executor),
+                                 /*vision_executor_settings=*/nullptr,
+                                 /*audio_executor_settings=*/nullptr,
+                                 /*litert_env=*/nullptr));
+
+    return SessionAdvanced::Create(execution_manager_, tokenizer_.get(),
+                                   session_config, std::nullopt);
+  }
+
   std::unique_ptr<Tokenizer> tokenizer_;
   std::unique_ptr<ModelResources> model_resources_;
   proto::SamplerParameters sampler_params_;
+  std::shared_ptr<ExecutionManager> execution_manager_;
 };
 
 absl::StatusOr<std::unique_ptr<AudioExecutorSettings>>
@@ -1860,6 +1889,60 @@ TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAudioTextSuccess) {
 }
 #endif  // !defined(WIN32) && !defined(_WIN32) && !defined(__WIN32__) && \
         // !defined(__NT__) && !defined(_WIN64)
+
+TEST_F(SessionAdvancedTest, RunTextScoringEmptyTargetTextFailure) {
+  ASSERT_OK_AND_ASSIGN(auto session, CreateTestSession());
+  std::vector<absl::string_view> target_text;
+  EXPECT_THAT(session->RunTextScoring(target_text,
+                                         /*store_token_lengths=*/false),
+              testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
+                                        "Target text size should be 1."));
+}
+
+TEST_F(SessionAdvancedTest, RunTextScoringMultipleTargetTextFailure) {
+  ASSERT_OK_AND_ASSIGN(auto session, CreateTestSession());
+  std::vector<absl::string_view> target_text;
+  target_text.push_back("How's it going?");
+  target_text.push_back("How are you?");
+  EXPECT_THAT(
+      session->RunTextScoring(target_text, /*store_token_lengths=*/false),
+      testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
+                                "Target text size should be 1."));
+}
+
+TEST_F(SessionAdvancedTest, RunTextScoringWithoutTokenLengthsSuccess) {
+  ASSERT_OK_AND_ASSIGN(auto session, CreateTestSession());
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("Hello World!"));
+  EXPECT_OK(session->RunPrefill(inputs));
+  std::vector<absl::string_view> target_texts;
+  target_texts.push_back("How's it going?");
+  const auto responses = session->RunTextScoring(target_texts,
+                                                 /*store_token_lengths=*/false);
+  EXPECT_OK(responses);
+  // Expect a single output candidate with score 0.0f.
+  EXPECT_EQ(responses->GetScores().size(), 1);
+  EXPECT_EQ(responses->GetScores()[0], 0.0f);
+  EXPECT_FALSE(responses->GetTokenLengths().has_value());
+}
+
+TEST_F(SessionAdvancedTest, RunTextScoringWithTokenLengthsSuccess) {
+  ASSERT_OK_AND_ASSIGN(auto session, CreateTestSession());
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("Hello World!"));
+  EXPECT_OK(session->RunPrefill(inputs));
+  std::vector<absl::string_view> target_texts;
+  target_texts.push_back("How's it going?");
+  const auto responses = session->RunTextScoring(target_texts,
+                                                 /*store_token_lengths=*/true);
+  EXPECT_OK(responses);
+  // Expect a single output candidate with score 0.0f and token length 7.
+  EXPECT_EQ(responses->GetScores().size(), 1);
+  EXPECT_EQ(responses->GetScores()[0], 0.0f);
+  EXPECT_TRUE(responses->GetTokenLengths().has_value());
+  EXPECT_EQ(responses->GetTokenLengths()->size(), 1);
+  EXPECT_EQ((*responses->GetTokenLengths())[0], 7);
+}
 
 }  // namespace
 }  // namespace litert::lm

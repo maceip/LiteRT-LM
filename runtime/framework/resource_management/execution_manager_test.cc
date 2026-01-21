@@ -764,5 +764,66 @@ TEST_F(ExecutionManagerTest, AddDecodeTaskWithConstraintWithExternalSampler) {
   EXPECT_THAT(response_texts, ElementsAre("4"));
 }
 
+TEST_F(ExecutionManagerTest, AddTextScoringTask) {
+  CreateExecutionManager(CreateDefaultFakeLlmExecutor());
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
+  std::vector<TaskState> task_states;
+  std::vector<float> scores;
+  absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback =
+      [&task_states, &scores](absl::StatusOr<Responses> responses) {
+        ASSERT_OK(responses);
+        task_states.push_back(responses->GetTaskState());
+        if (!responses->GetScores().empty()) {
+          scores.push_back(responses->GetScores()[0]);
+        }
+      };
+
+  std::vector<InputData> inputs;
+  ASSERT_OK_AND_ASSIGN(auto input_text,
+                       tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
+  inputs.push_back(InputText(std::move(input_text)));
+  ASSERT_OK_AND_ASSIGN(const TaskId prefill_task_id,
+                       execution_manager_->GetNewTaskId());
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, prefill_task_id, std::move(inputs),
+      /*dependency_task_ids=*/{},
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      /*callback=*/[](absl::StatusOr<Responses> responses) {}));
+  ASSERT_OK(
+      execution_manager_->WaitUntilDone(prefill_task_id, absl::Seconds(3)));
+
+  ASSERT_OK_AND_ASSIGN(const TaskId scoring_task_id,
+                       execution_manager_->GetNewTaskId());
+  const std::vector<absl::string_view> target_text = {"45"};
+  EXPECT_CALL(*tokenizer_, TextToTokenIds("45"))
+      .WillOnce(Return(std::vector<int>({4, 5})));
+
+  ASSERT_OK(execution_manager_->AddTextScoringTask(
+      session_id, scoring_task_id,
+      /*dep_tasks=*/{}, target_text,
+      /*store_token_lengths=*/false,
+      /*cancelled=*/std::make_shared<std::atomic<bool>>(false),
+      std::move(callback)));
+
+  EXPECT_OK(
+      execution_manager_->WaitUntilDone(scoring_task_id, absl::Seconds(3)));
+
+  EXPECT_THAT(task_states,
+              ElementsAre(TaskState::kCreated, TaskState::kQueued,
+                          TaskState::kProcessing, TaskState::kDone));
+
+  // The FakeLlmExecutor is set up to expect tokens 4, 5, 6.
+  // The target text "45" corresponds to tokens 4, 5.
+  // The fake executor will produce logits that give prob 1 to the next
+  // expected token. So for the first token '4', the expected is '4', prob is 1,
+  // log-prob is 0. For the second token '5', the expected is '5', prob is 1,
+  // log-prob is 0. Total score is 0.
+  ASSERT_EQ(scores.size(), 1);
+  EXPECT_FLOAT_EQ(scores[0], 0.0f);
+}
+
 }  // namespace
 }  // namespace litert::lm

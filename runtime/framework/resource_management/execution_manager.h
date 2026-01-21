@@ -29,6 +29,7 @@
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "litert/cc/litert_environment.h"  // from @litert
@@ -218,6 +219,26 @@ class ExecutionManager {
   absl::Status AddCloneSessionTask(
       SessionId session_id, TaskId task_id,
       absl::flat_hash_set<TaskId> dep_tasks, SessionId cloned_session_id,
+      std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
+      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback)
+      ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
+
+  // Adds a text scoring task to the execution manager.
+  // - session_id: The ID of the session that created the task.
+  // - task_id: The task ID of the task.
+  // - dep_tasks: The dependent tasks that should be done before the text
+  //   scoring task starts.
+  // - target_text: The target text to be scored.
+  // - store_token_lengths: Whether to store the token lengths in the
+  //   responses.
+  // - cancelled: The cancelled flag for the text scoring task.
+  // - callback: The callback function.
+  // Note: AddTextScoringTask will acquire the task lookup mutex.
+  absl::Status AddTextScoringTask(
+      SessionId session_id, TaskId task_id,
+      absl::flat_hash_set<TaskId> dep_tasks,
+      const std::vector<absl::string_view>& target_text,
+      bool store_token_lengths,
       std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback)
       ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);

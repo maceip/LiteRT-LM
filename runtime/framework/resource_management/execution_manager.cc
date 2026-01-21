@@ -871,4 +871,76 @@ absl::Status ExecutionManager::AddCloneSessionTask(
                     cancelled, std::move(callback));
 }
 
+absl::Status ExecutionManager::AddTextScoringTask(
+    SessionId session_id, TaskId task_id,
+    absl::flat_hash_set<TaskId> dep_tasks,
+    const std::vector<absl::string_view>& target_text,
+    bool store_token_lengths,
+    std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
+  if (callback == nullptr) {
+    callback = [](absl::StatusOr<Responses> responses) {};
+  }
+
+  auto task = [this, task_id, target_text,
+               store_token_lengths]() mutable -> void {
+    auto task_info = StartTask(task_id);
+    if (!task_info.ok()) {
+      FinishTaskAndLogErrors(task_id, task_info.status(),
+                             [](absl::StatusOr<Responses> responses) {});
+      return;
+    }
+    auto [session_info, cancelled, callback] = std::move(task_info.value());
+    // If the session info is nullptr, it means the task is cancelled before it
+    // is started.
+    if (session_info == nullptr) {
+      return;
+    }
+
+    RETURN_IF_CANCELLED(cancelled, task_id, callback);
+
+    auto llm_executor = resource_manager_->AcquireExecutorWithContextHandler(
+        session_info->context_handler);
+    if (!llm_executor.ok()) {
+      FinishTaskAndLogErrors(task_id, llm_executor.status(),
+                             std::move(callback));
+      return;
+    }
+
+    RETURN_IF_CANCELLED(cancelled, task_id, callback);
+
+    const int num_output_candidates =
+        session_info->session_config.GetNumOutputCandidates();
+    std::vector<int> decoded_ids(num_output_candidates,
+                                 session_info->last_prefill_token_id);
+    auto decoded_ids_buffer =
+        CopyToTensorBuffer<int>(decoded_ids, {num_output_candidates, 1});
+    if (!decoded_ids_buffer.HasValue()) {
+      FinishTaskAndLogErrors(
+          task_id, absl::InternalError(decoded_ids_buffer.Error().Message()),
+          std::move(callback));
+      return;
+    }
+
+    // TODO(b/435040163): Handle the temperature. Should it be calculated from
+    // the sampler or the sampler parameters? For now, hardcode it to 1.0f for
+    // testing.
+    auto temperature = 1.0f;
+    auto responses =
+        Tasks::Score(*llm_executor.value(), *tokenizer_, target_text,
+                     temperature, std::move(decoded_ids_buffer.Value()),
+                     store_token_lengths);
+
+    if (cancelled != nullptr && cancelled->load()) {
+      responses = Responses(TaskState::kCancelled);
+    }
+
+    FinishTaskAndLogErrors(task_id, std::move(responses), std::move(callback));
+    return;
+  };
+
+  return CreateTask(session_id, task_id, std::move(task), std::move(dep_tasks),
+                    cancelled, std::move(callback));
+}
+
 }  // namespace litert::lm
