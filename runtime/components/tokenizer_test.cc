@@ -43,6 +43,7 @@ class MockTokenizer : public Tokenizer {
   MOCK_METHOD(absl::StatusOr<std::string>, TokenIdsToText,
               (const std::vector<int>& token_ids), (override));
   MOCK_METHOD(TokenizerType, GetTokenizerType, (), (const, override));
+  MOCK_METHOD(std::vector<std::string>, GetTokens, (), (const, override));
 };
 
 TEST(TokenizerTest, TextToTensorBuffer) {

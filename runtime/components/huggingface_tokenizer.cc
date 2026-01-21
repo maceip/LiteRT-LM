@@ -97,4 +97,15 @@ absl::StatusOr<std::string> HuggingFaceTokenizer::TokenIdsToText(
   }
 }
 
+std::vector<std::string> HuggingFaceTokenizer::GetTokens() const {
+  std::vector<std::string> tokens;
+  int vocab_size = tokenizer_->GetVocabSize();
+  tokens.reserve(vocab_size);
+  for (int i = 0; i < vocab_size; ++i) {
+    std::string token = tokenizer_->IdToToken(i);
+    tokens.push_back(token);
+  }
+  return tokens;
+}
+
 }  // namespace litert::lm

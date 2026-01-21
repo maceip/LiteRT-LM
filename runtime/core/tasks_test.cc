@@ -61,6 +61,7 @@ class BytePairEncodingTokenizer : public Tokenizer {
   MOCK_METHOD(absl::StatusOr<int>, TokenToId, (absl::string_view token),
               (override));
   MOCK_METHOD(TokenizerType, GetTokenizerType, (), (const, override));
+  MOCK_METHOD(std::vector<std::string>, GetTokens, (), (const, override));
 };
 
 absl::AnyInvocable<void(absl::StatusOr<Responses>)> CreateTestCallback(

@@ -55,6 +55,9 @@ class SentencePieceTokenizer : public Tokenizer {
   absl::StatusOr<std::string> TokenIdsToText(
       const std::vector<int>& token_ids) override;
 
+  // Returns the tokens in the SentencePiece model.
+  std::vector<std::string> GetTokens() const override;
+
   const sentencepiece::SentencePieceProcessor& GetProcessor() const {
     return *processor_;
   }

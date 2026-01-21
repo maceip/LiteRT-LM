@@ -82,13 +82,13 @@ absl::StatusOr<std::string> GetContents(absl::string_view path) {
   return std::move(contents);
 }
 
-TEST(SentencePieceTokenizerTtest, CreateFromFile) {
+TEST(SentencePieceTokenizerTest, CreateFromFile) {
   auto tokenizer_or =
       SentencePieceTokenizer::CreateFromFile(GetSentencePieceModelPath());
   EXPECT_TRUE(tokenizer_or.ok());
 }
 
-TEST(SentencePieceTokenizerTtest, CreateFromBuffer) {
+TEST(SentencePieceTokenizerTest, CreateFromBuffer) {
   auto model_buffer_or = GetContents(GetSentencePieceModelPath());
   EXPECT_TRUE(model_buffer_or.ok());
   auto tokenizer_or =
@@ -96,13 +96,13 @@ TEST(SentencePieceTokenizerTtest, CreateFromBuffer) {
   EXPECT_TRUE(tokenizer_or.ok());
 }
 
-TEST(SentencePieceTokenizerTtest, Create) {
+TEST(SentencePieceTokenizerTest, Create) {
   auto tokenizer_or =
       SentencePieceTokenizer::CreateFromFile(GetSentencePieceModelPath());
   EXPECT_TRUE(tokenizer_or.ok());
 }
 
-TEST(SentencePieceTokenizerTtest, GetTokenizerType) {
+TEST(SentencePieceTokenizerTest, GetTokenizerType) {
   auto tokenizer_or =
       SentencePieceTokenizer::CreateFromFile(GetSentencePieceModelPath());
   EXPECT_EQ(tokenizer_or.value()->GetTokenizerType(),
@@ -148,6 +148,20 @@ TEST(SentencePieceTokenizerTest, TokenIdsToText) {
   EXPECT_TRUE(text_or.ok());
 
   EXPECT_EQ(text_or.value(), "▁Hello▁World!");
+}
+
+TEST(SentencePieceTokenizerTest, GetTokens) {
+  ASSERT_OK_AND_ASSIGN(auto tokenizer, SentencePieceTokenizer::CreateFromFile(
+                                           GetSentencePieceModelPath()));
+  std::vector<std::string> tokens = tokenizer->GetTokens();
+  EXPECT_EQ(tokens.size(), 4000);
+
+  // Verify 5 different tokens.
+  EXPECT_EQ(tokens[0], "<unk>");
+  EXPECT_EQ(tokens[1], "<s>");
+  EXPECT_EQ(tokens[2], "</s>");
+  EXPECT_EQ(tokens[224], "▁How");
+  EXPECT_EQ(tokens[2295], "?");
 }
 
 }  // namespace

@@ -70,6 +70,9 @@ class Tokenizer {
   virtual absl::StatusOr<std::string> TokenIdsToText(
       const TokenIds& token_ids) = 0;
 
+  // Returns the list of tokens in the tokenizer.
+  virtual std::vector<std::string> GetTokens() const = 0;
+
   // Converts a tensor buffer of token ids into a vector of token ids. The input
   // is a 2D litert::TensorBuffer shape [batch_size, decode_steps].
   static absl::StatusOr<std::vector<TokenIds>> TensorBufferToTokenIds(

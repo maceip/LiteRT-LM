@@ -54,6 +54,8 @@ class HuggingFaceTokenizer : public Tokenizer {
   absl::StatusOr<std::string> TokenIdsToText(
       const std::vector<int>& token_ids) override;
 
+  std::vector<std::string> GetTokens() const override;
+
  private:
   // Constructor.
   explicit HuggingFaceTokenizer(

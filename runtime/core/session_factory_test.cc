@@ -53,6 +53,10 @@ class FakeTokenizer : public Tokenizer {
   TokenizerType GetTokenizerType() const override {
     return TokenizerType::kUnspecified;
   }
+
+  std::vector<std::string> GetTokens() const override {
+    return {"token1", "token2", "token3"};
+  }
 };
 
 TEST(SessionFactoryTest, InitializeSessionBasic) {
