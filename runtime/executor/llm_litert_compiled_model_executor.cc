@@ -1050,15 +1050,10 @@ LlmLiteRtCompiledModelExecutorBase::DecodeLogits(
   return output_logits;
 }
 
-absl::Status LlmLiteRtCompiledModelExecutorBase::InitializeSampler(
-    std::optional<ActivationDataType> logits_data_type) {
+absl::Status LlmLiteRtCompiledModelExecutorBase::InitializeSampler() {
   if (sampler_ != nullptr) {
     return absl::OkStatus();
   }
-
-  // Use the provided activation data type if available, otherwise fallback to
-  // the member variable.
-  auto data_type = logits_data_type.value_or(logits_data_type_);
 
   ASSIGN_OR_RETURN(auto vocab_size, GetVocabSize());
   ASSIGN_OR_RETURN(auto sampler_backend, GetSamplerBackend(executor_settings_));
@@ -1068,9 +1063,10 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::InitializeSampler(
   sampler_params.set_p(0.0f);
   sampler_params.set_temperature(1.0f);
   sampler_params.set_seed(0);
-  ASSIGN_OR_RETURN(sampler_, CreateSampler(sampler_backend, output_batch_size_,
-                                           std::move(sampler_params),
-                                           env_.Get(), vocab_size, data_type));
+  ASSIGN_OR_RETURN(
+      sampler_, CreateSampler(sampler_backend, output_batch_size_,
+                              std::move(sampler_params), env_.Get(), vocab_size,
+                              logits_data_type_));
 
   // If the sampler can handle input, prepare the input tensors for it.
   if (sampler_->CanHandleInput() && !signatures_.input_tokens.empty()) {
@@ -1127,12 +1123,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SetSamplerInputHandling(
 absl::Status LlmLiteRtCompiledModelExecutorBase::SampleLogits(
     const TensorBuffer& logits, TensorBuffer& ids_tensor) {
   if (sampler_ == nullptr) {
-    LITERT_ASSIGN_OR_RETURN(auto tensor_type, logits.TensorType());
-    ActivationDataType data_type = ActivationDataType::FLOAT16;
-    if (tensor_type.ElementType() == ::litert::ElementType::Float32) {
-      data_type = ActivationDataType::FLOAT32;
-    }
-    RETURN_IF_ERROR(InitializeSampler(data_type));
+    RETURN_IF_ERROR(InitializeSampler());
   }
 
   if (sampler_->CanHandleInput() && !signatures_.input_tokens.empty()) {
@@ -1243,10 +1234,8 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
   if (executor_settings.GetActivationDataType().has_value()) {
     activation_data_type = executor_settings.GetActivationDataType().value();
   }
-  auto logits_data_type = activation_data_type;
   const Backend backend = executor_settings.GetBackend();
-  bool use_fp16_precision =
-      (activation_data_type != ActivationDataType::FLOAT32);
+  bool use_fp16_precision = true;
   bool gpu_optimized_single_buffer_cache = false;
 
   if (!litert_model || !*litert_model) {
@@ -1564,7 +1553,7 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
       std::move(decode_output_kv_cache_buffers), std::move(prefill_runner_set),
       signatures, batch_size, std::move(weight_cache_path),
       std::move(embedding_lookup), std::move(per_layer_embedding_lookup),
-      use_fp16_precision, logits_data_type));
+      use_fp16_precision, activation_data_type));
 }
 
 /* ===========================================================================*/
