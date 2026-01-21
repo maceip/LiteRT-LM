@@ -12,7 +12,7 @@ Here is a sample terminal chat app built with the Kotlin API:
 import com.google.ai.edge.litertlm.*
 
 suspend fun main() {
-  Engine.setNativeMinLogSeverity(LogSeverity.ERROR) // hide log for TUI app
+  Engine.setNativeMinLogSeverity(LogSeverity.ERROR) // Hide log for TUI app
 
   val engineConfig = EngineConfig(modelPath = "/path/to/model.litertlm")
   Engine(engineConfig).use { engine ->
@@ -66,7 +66,7 @@ You can find the available versions on Google Maven in
 and
 [litertlm-jvm](https://maven.google.com/web/index.html#com.google.ai.edge.litertlm:litertlm-jvm).
 
-`latest.release` could be used to get the latest release.
+`latest.release` can be used to get the latest release.
 
 ### 2. Initialize the Engine
 
@@ -85,21 +85,21 @@ import com.google.ai.edge.litertlm.EngineConfig
 val engineConfig = EngineConfig(
     modelPath = "/path/to/your/model.litertlm", // Replace with your model path
     backend = Backend.CPU, // Or Backend.GPU
-    // optional: Pick a writable dir. This can improve 2nd load time.
+    // Optional: Pick a writable dir. This can improve 2nd load time.
     // cacheDir = "/tmp/" or context.cacheDir.path (for Android)
 )
 
 val engine = Engine(engineConfig)
 engine.initialize()
-// ... Use the engine to create conversation ...
+// ... Use the engine to create a conversation ...
 
 // Close the engine when done
 engine.close()
 ```
 
-On Android, to use the GPU backend, the app needs to request explicitly by
-adding the following to your `AndroidManifest.xml` inside the `<application>`
-tag:
+On Android, to use the GPU backend, the app needs to request the depending
+native libraries explicitly by adding the following to your
+`AndroidManifest.xml` inside the `<application>` tag:
 
 ```xml
   <application>
@@ -140,7 +140,7 @@ conversation.close()
 ```
 
 `Conversation` implements `AutoCloseable`, so you can use the `use` block for
-automatic resource management for one-shot or short-lived conversation:
+automatic resource management for one-shot or short-lived conversations:
 
 ```kotlin
 engine.createConversation(conversationConfig).use { conversation ->
@@ -174,7 +174,7 @@ print(conversation.sendMessage("What is the capital of France?"))
 **Asynchronous Example with callback:**
 
 Use `sendMessageAsync` to send a message to the model and receive responses
-through callback.
+through a callback.
 
 ```kotlin
 import com.google.ai.edge.litertlm.Content
@@ -208,17 +208,18 @@ and receive responses through a Kotlin Flow.
 ```kotlin
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Message
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 // Within a coroutine scope
-conversation.sendMessageAsync("What is the capital of France?")
-    .catch { ... } // error during streaming
-    .collect{ print(it.toString()) }
+conversation.sendMessageAsync(Contents.of("What is the capital of France?"))
+    .catch { ... } // Error during streaming
+    .collect { print(it.toString()) }
 ```
 
 ### 5. Multi-Modality
 
-Note: this only works with models with multi-modality support. e.g., the
+Note: This only works with models with multi-modality support, e.g., the
 [Gemma3n](https://huggingface.co/google/gemma-3n-E2B-it-litert-lm).
 
 `Message` objects can contain different types of `Content`, including `Text`,
@@ -244,22 +245,27 @@ conversation.sendMessage(Contents.of(
 
 ### 6. Defining and Using Tools
 
-Note: this only works with models with tool support. e.g., the
+Note: This only works with models with tool support, e.g., the
 [FunctionGemma](https://huggingface.co/google/functiongemma-270m-it).
+
+There are two ways to define tools:
+
+1.  With Kotlin functions (recommended for most cases)
+2.  With Open API specification (full control of the tool spec and execution)
+
+#### Defining Tools with Kotlin Functions
 
 You can define custom Kotlin functions as tools that the model can call to
 perform actions or fetch information.
 
-#### Defining a ToolSet
-
-Create a class and annotate methods with `@Tool` and parameters with
-`@ToolParam`.
+Create a class extending `ToolSet` and annotate methods with `@Tool` and
+parameters with `@ToolParam`.
 
 ```kotlin
 import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 
-class SampleToolSet {
+class SampleToolSet: ToolSet() {
     @Tool(description = "Get the current weather for a city")
     fun getCurrentWeather(
         @ToolParam(description = "The city name, e.g., San Francisco") city: String,
@@ -297,23 +303,70 @@ default value in the description in `@ToolParam`.
 The return type of your tool function can be any Kotlin type. The result will be
 converted to a JSON element before being sent back to the model.
 
--   `List` types are converted to JSON array.
--   `Map` types are converted to JSON object.
+-   `List` types are converted to JSON arrays.
+-   `Map` types are converted to JSON objects.
 -   Primitive types (`String`, `Number`, `Boolean`) are converted to the
     corresponding JSON primitive.
--   Other types are converted to string with the `toString()` method.
+-   Other types are converted to strings with the `toString()` method.
 
 For structured data, returning `Map` or a data class that will be converted to a
 JSON object is recommended.
 
+#### Defining Tools with OpenAPI Specification
+
+Alternatively, you can define a tool by extending the `OpenApiTool` class and
+providing the tool's description as a JSON string conforming to the Open API
+specification. This method is useful if you already have an OpenAPI schema for
+your tool or if you need fine-grained control over the tool's definition.
+
+```kotlin
+import com.google.ai.edge.litertlm.OpenApiTool
+
+class SampleOpenApiTool : OpenApiTool() {
+
+    override fun getToolDescriptionJsonString(): String {
+        return """
+        {
+          "name": "addition",
+          "description": "Add all numbers.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "description": "The list of numbers to sum."
+            },
+            "required": [
+              "numbers"
+            ]
+          }
+        }
+        """.trimIndent() // Tip: trim to save tokens
+    }
+
+    override fun execute(paramsJsonString: String): String {
+        // Parse paramsJsonString with your choice of parser/deserializer and
+        // execute the tool.
+
+        // Return the result as a JSON string
+        return """{"result": 1.4142}"""
+    }
+}
+```
+
+
 #### Registering Tools
 
-Include instances of your tool sets in the `ConversationConfig`.
+Include instances of your tools in the `ConversationConfig`.
 
 ```kotlin
 val conversation = engine.createConversation(
     ConversationConfig(
-        tools = listOf(SampleToolSet())
+        tools = listOf(SampleToolSet(), SampleOpenApiTool()),
         // ... other configs
     )
 )
