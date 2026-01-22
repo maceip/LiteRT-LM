@@ -141,7 +141,8 @@ absl::Status MainHelper(int argc, char** argv) {
            "[--optimize_shader_compilation=<true|false>]"
            "[--share_constant_tensors=<true|false>]"
            "[--num_iterations=<num_iterations>]"
-           "[--litert_dispatch_lib_dir=<litert_dispatch_lib_dir>]";
+           "[--litert_dispatch_lib_dir=<litert_dispatch_lib_dir>]"
+           "[--sampler_handles_input=<true|false>]";
     ABSL_LOG(INFO)
         << "To provide data for multimodality, use [image:/path/to/image.jpg] "
            "or [audio:/path/to/audio.wav] in the input prompt. e.g. \"Describe "
@@ -203,6 +204,7 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.num_iterations = absl::GetFlag(FLAGS_num_iterations);
   settings.litert_dispatch_lib_dir =
       absl::GetFlag(FLAGS_litert_dispatch_lib_dir);
+  settings.sampler_handles_input = absl::GetFlag(FLAGS_sampler_handles_input);
 
   // Adjust max_num_tokens and prefill_batch_size if not set on benchmark mode.
   if (settings.benchmark && settings.benchmark_prefill_tokens > 0) {

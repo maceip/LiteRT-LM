@@ -269,6 +269,7 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
   // Sampler for sampling logits.
   // For now, only CPU sampler is supported.
   std::unique_ptr<Sampler> sampler_;
+  bool sampler_handles_input_ = true;
   // Extra input tensors to swap for decode when sampler handles input tensors.
   ::litert::TensorBuffer decode_prev_input_pos_;
   ::litert::TensorBuffer decode_prev_mask_;

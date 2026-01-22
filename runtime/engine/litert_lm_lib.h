@@ -96,6 +96,7 @@ struct LiteRtLmSettings {
   bool use_session = false;
   int num_iterations = 1;
   std::string litert_dispatch_lib_dir = "";
+  bool sampler_handles_input = true;
 };
 
 // Runs the LLM inference with the given settings.

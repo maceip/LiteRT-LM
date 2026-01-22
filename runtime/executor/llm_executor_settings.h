@@ -186,6 +186,10 @@ struct AdvancedSettings {
   // tensor sharing is enabled.
   bool share_constant_tensors = true;
 
+  // If true and the sampler supports, the sampler manipulates decode input
+  // tensors including tokens, positions, and mask.
+  bool sampler_handles_input = true;
+
   bool operator==(const AdvancedSettings& other) const {
     return prefill_batch_sizes == other.prefill_batch_sizes &&
            num_output_candidates == other.num_output_candidates &&
@@ -203,7 +207,8 @@ struct AdvancedSettings {
            num_threads_to_compile == other.num_threads_to_compile &&
            convert_weights_on_gpu == other.convert_weights_on_gpu &&
            optimize_shader_compilation == other.optimize_shader_compilation &&
-           share_constant_tensors == other.share_constant_tensors;
+           share_constant_tensors == other.share_constant_tensors &&
+           sampler_handles_input == other.sampler_handles_input;
   }
 };
 std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings);

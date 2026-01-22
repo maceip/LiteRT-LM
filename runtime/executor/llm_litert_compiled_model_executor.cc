@@ -1069,7 +1069,12 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::InitializeSampler() {
                               logits_data_type_));
 
   // If the sampler can handle input, prepare the input tensors for it.
-  if (sampler_->CanHandleInput() && !signatures_.input_tokens.empty()) {
+  sampler_handles_input_ =
+      (!executor_settings_.GetAdvancedSettings().has_value() ||
+       executor_settings_.GetAdvancedSettings()->sampler_handles_input) &&
+      sampler_->CanHandleInput() && !signatures_.input_tokens.empty();
+  if (sampler_handles_input_) {
+    ABSL_LOG(INFO) << "Sampler will handle decode input tensors.";
     if (!decode_prev_input_pos_) {
       LITERT_ASSIGN_OR_RETURN(
           decode_prev_input_pos_,
@@ -1126,7 +1131,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SampleLogits(
     RETURN_IF_ERROR(InitializeSampler());
   }
 
-  if (sampler_->CanHandleInput() && !signatures_.input_tokens.empty()) {
+  if (sampler_handles_input_) {
     RETURN_IF_ERROR(SwapSamplerInputTensors());
   }
 

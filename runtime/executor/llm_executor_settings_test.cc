@@ -269,6 +269,7 @@ TEST(LlmExecutorConfigTest, LlmExecutorSettingsWithAdvancedSettings) {
       .convert_weights_on_gpu = true,
       .optimize_shader_compilation = false,
       .share_constant_tensors = false,
+      .sampler_handles_input = false,
   });
 
   std::stringstream oss;
@@ -311,6 +312,7 @@ num_threads_to_compile: 2
 convert_weights_on_gpu: 1
 optimize_shader_compilation: 0
 share_constant_tensors: 0
+sampler_handles_input: 0
 
 )");
   EXPECT_EQ(oss.str(), expected_output);

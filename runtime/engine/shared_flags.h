@@ -58,5 +58,6 @@ ABSL_DECLARE_FLAG(bool, optimize_shader_compilation);
 ABSL_DECLARE_FLAG(bool, share_constant_tensors);
 ABSL_DECLARE_FLAG(int, num_iterations);
 ABSL_DECLARE_FLAG(std::string, litert_dispatch_lib_dir);
+ABSL_DECLARE_FLAG(bool, sampler_handles_input);
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_SHARED_FLAGS_H_

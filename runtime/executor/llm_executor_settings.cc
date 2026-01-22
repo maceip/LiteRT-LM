@@ -76,6 +76,7 @@ std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings) {
   os << "optimize_shader_compilation: "
      << settings.optimize_shader_compilation << "\n";
   os << "share_constant_tensors: " << settings.share_constant_tensors << "\n";
+  os << "sampler_handles_input: " << settings.sampler_handles_input << "\n";
   return os;
 }
 

@@ -205,6 +205,7 @@ absl::StatusOr<EngineSettings> CreateEngineSettings(
       .convert_weights_on_gpu = settings.convert_weights_on_gpu,
       .optimize_shader_compilation = settings.optimize_shader_compilation,
       .share_constant_tensors = settings.share_constant_tensors,
+      .sampler_handles_input = settings.sampler_handles_input,
   };
   if (advanced_settings != AdvancedSettings()) {
     engine_settings.GetMutableMainExecutorSettings().SetAdvancedSettings(
