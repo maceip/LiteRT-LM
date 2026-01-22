@@ -259,7 +259,7 @@ TEST(LlmExecutorConfigTest, LlmExecutorSettingsWithAdvancedSettings) {
       .num_output_candidates = 3,
       .configure_magic_numbers = true,
       .verify_magic_numbers = true,
-      .clear_kv_cache_before_prefill = true,
+      .clear_kv_cache_before_prefill = false,
       .num_logits_to_print_after_decode = 10,
       .gpu_madvise_original_shared_tensors = true,
       .is_benchmark = true,
@@ -301,7 +301,7 @@ advanced_settings: prefill_batch_sizes: [128, 256]
 num_output_candidates: 3
 configure_magic_numbers: 1
 verify_magic_numbers: 1
-clear_kv_cache_before_prefill: 1
+clear_kv_cache_before_prefill: 0
 num_logits_to_print_after_decode: 10
 gpu_madvise_original_shared_tensors: 1
 is_benchmark: 1

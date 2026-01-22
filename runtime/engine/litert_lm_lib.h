@@ -79,7 +79,7 @@ struct LiteRtLmSettings {
   bool gpu_external_tensor_mode = false;
   bool configure_magic_numbers = true;
   bool verify_magic_numbers = false;
-  bool clear_kv_cache_before_prefill = false;
+  bool clear_kv_cache_before_prefill = true;
   int num_logits_to_print_after_decode = 0;
   std::optional<std::string> score_target_text = std::nullopt;
   bool gpu_madvise_original_shared_tensors = true;

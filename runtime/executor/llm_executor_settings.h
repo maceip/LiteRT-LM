@@ -136,9 +136,14 @@ struct AdvancedSettings {
   // dimensions.
   bool verify_magic_numbers = false;
 
-  // For debugging purpose, whether to clear kv cache before the first prefill
-  // step which may help to disclose any issues related to kv cache.
-  bool clear_kv_cache_before_prefill = false;
+  // Whether to clear kv cache before the first prefill step which may help to
+  // disclose any issues related to kv cache.
+  // When mask is in floating point and KV cache is not cleared, some
+  // uninitialized values in KV cache, .e.g. NaN, may disrupt calculations
+  // improperly.
+  // Disable it if it's safe to keep the KV cache uninitialized, e.g. quantized,
+  // so, they can't be NaN.
+  bool clear_kv_cache_before_prefill = true;
 
   // For debugging purpose, the number of values at the beginning of logits, in
   // the middle of logits, and at the end of logits to print after each decode

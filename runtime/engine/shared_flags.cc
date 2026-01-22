@@ -83,7 +83,7 @@ ABSL_FLAG(bool, verify_magic_numbers, false,
           "If true and the model contains magic numbers and test signatures, "
           "verify magic number configs when the real dimensions that replaced "
           "magic numbers match with ones of test signatures.");
-ABSL_FLAG(bool, clear_kv_cache_before_prefill, false,
+ABSL_FLAG(bool, clear_kv_cache_before_prefill, true,
           "If true, clear kv cache before the first prefill step. This may "
           "help to disclose any issues related to kv cache.");
 ABSL_FLAG(int, num_logits_to_print_after_decode, 0,
