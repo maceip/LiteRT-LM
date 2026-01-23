@@ -450,6 +450,7 @@ cc_library(
     hdrs = ["llm_executor_base.h"],
     deps = [
         ":llm_executor_io_types",
+        ":llm_executor_processed_tokens",
         ":llm_executor_settings",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -572,6 +573,8 @@ cc_library(
     srcs = ["llm_executor_io_types.cc"],
     hdrs = ["llm_executor_io_types.h"],
     deps = [
+        ":llm_executor_processed_tokens",
+        ":llm_executor_settings",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

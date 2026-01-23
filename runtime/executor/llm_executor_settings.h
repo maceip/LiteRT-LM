@@ -319,6 +319,20 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
 };
 std::ostream& operator<<(std::ostream& os, const LlmExecutorSettings& config);
 
+// Struct to host the runtime settings for the executor.
+// Settings will not be changed by the executor while executing task.
+// TODO: b/404279705 - Set default values in LLM Executor RuntimeConfig
+struct RuntimeConfig {
+
+  // The number of output heads.
+  // Multiple output heads might be supported in the future. For now, it is
+  // always 1.
+  std::optional<int> output_heads;
+
+  // The number of tokens per decode function call.
+  std::optional<int> tokens_per_decode;
+};
+
 }  // namespace litert::lm
 
 #endif  // THIRD_PARTY_ODML_LITE_RT_LLM_EXECUTOR_LLM_EXECUTOR_SETTINGS_H_

@@ -22,7 +22,7 @@
 
 #include "absl/log/absl_check.h"  // from @com_google_absl
 #include "third_party/odml/infra/genai/inference/utils/tflite_utils/litert_kv_cache.h"
-#include "runtime/executor/llm_executor_google.h"
+#include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/executor/llm_executor_processed_tokens.h"
 
 namespace litert::lm {
