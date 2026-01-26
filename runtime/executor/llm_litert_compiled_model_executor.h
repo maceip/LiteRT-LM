@@ -110,7 +110,11 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
   absl::StatusOr<int> GetVocabSize() override;
 
   // Initializes the sampler.
-  absl::Status InitializeSampler();
+  // `logits_data_type` is optional because the executor usually knows the
+  // logits data type from initialization. If it is not provided, the executor
+  // uses the internally stored `logits_data_type_`.
+  absl::Status InitializeSampler(
+      std::optional<ActivationDataType> logits_data_type = std::nullopt);
 
   using LogitsDataType = ActivationDataType;
 
