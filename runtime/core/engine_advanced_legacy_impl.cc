@@ -16,6 +16,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/base/no_destructor.h"  // from @com_google_absl
 #include "absl/base/nullability.h"  // from @com_google_absl
@@ -95,9 +96,10 @@ class EngineAdvancedLegacyImpl : public Engine {
 absl::StatusOr<std::unique_ptr<LlmExecutor>> BuildExecutor(
     const oi::ExecutorModelResources& model_resources,
     const EngineSettings& engine_settings) {
+  bool has_model = model_resources.model;
   if ((engine_settings.GetMainExecutorSettings().GetBackend() !=
        Backend::GPU_ARTISAN) &&
-      (!model_resources.model)) {
+      !has_model) {
     return absl::InternalError(
         "TF_LITE_PREFILL_DECODE model is expected to exist when not using "
         "GPU_ARTISAN backend. But it is null.");

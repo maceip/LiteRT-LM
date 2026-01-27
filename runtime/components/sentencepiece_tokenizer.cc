@@ -49,6 +49,17 @@ SentencePieceTokenizer::CreateFromBuffer(absl::string_view model_buffer) {
   return absl::WrapUnique(new SentencePieceTokenizer(std::move(processor)));
 }
 
+absl::StatusOr<std::unique_ptr<SentencePieceTokenizer>>
+SentencePieceTokenizer::CreateFromProto(
+    std::unique_ptr<sentencepiece::ModelProto> model_proto) {
+  auto processor = std::make_unique<sentencepiece::SentencePieceProcessor>();
+  auto status = processor->Load(std::move(model_proto));
+  if (!status.ok()) {
+    return status;
+  }
+  return absl::WrapUnique(new SentencePieceTokenizer(std::move(processor)));
+}
+
 // Encodes the given text into a TensorBuffer of token ids.
 absl::StatusOr<std::vector<int>> SentencePieceTokenizer::TextToTokenIds(
     absl::string_view text) {
