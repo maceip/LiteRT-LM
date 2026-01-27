@@ -68,7 +68,7 @@ annotation class ToolParam(val description: String)
 /**
  * Tool provider for Conversation.
  *
- * Known implementations are [ToolSet] and [OpenApiTool].
+ * Use [tool] function to convert the supported tool types to this [ToolProvider].
  */
 abstract class ToolProvider {
 
@@ -90,7 +90,7 @@ abstract class ToolProvider {
  * - The return type of your tool can be any Kotlin type.
  *
  * ```kotlin
- * class MyToolSet: ToolSet() {
+ * class MyToolSet: ToolSet {
  *   @Tool(description = "Get the current weather")
  *   fun getCurrentWeather(
  *     @ToolParam(description = "The city and state, e.g. San Francisco, CA") location: String,
@@ -104,22 +104,7 @@ abstract class ToolProvider {
  * }
  * ```
  */
-abstract class ToolSet : ToolProvider() {
-
-  @OptIn(ExperimentalApi::class)
-  private val useSnakeCase = ExperimentalFlags.convertCamelToSnakeCaseInToolDescription
-
-  override fun provideTools(): Map<String, InternalJsonTool> {
-    val toolClass = this.javaClass.kotlin
-    return toolClass.functions
-      .filter { function -> function.annotations.any { annotation -> annotation is Tool } }
-      .map { function ->
-        (if (useSnakeCase) function.name.camelToSnakeCase() else function.name) to
-          ReflectionTool(this, function, useSnakeCase)
-      }
-      .toMap()
-  }
-}
+interface ToolSet {}
 
 /**
  * An abstract class for defining a tool using an Open API specification.
@@ -132,7 +117,7 @@ abstract class ToolSet : ToolProvider() {
  * This avoids forcing a specific library on the user, allowing them to use the one that best suits
  * their project needs and dependencies.
  */
-abstract class OpenApiTool : ToolProvider() {
+interface OpenApiTool {
 
   /**
    * Gets the tool description JSON string based on the Open API specification.
@@ -147,7 +132,7 @@ abstract class OpenApiTool : ToolProvider() {
    *   numbers.","parameters":{"type":"object","properties":{"numbers":{"type":"array","items":{"type":"number"}},"description":"The
    *   list of numbers to sum."},"required":["numbers"]}}
    */
-  abstract fun getToolDescriptionJsonString(): String
+  fun getToolDescriptionJsonString(): String
 
   /**
    * Executes the tools with the paramsJsonString and return the result as string.
@@ -160,35 +145,59 @@ abstract class OpenApiTool : ToolProvider() {
    * - 13.5 // return a JSON primitive value
    * - {"sum": 13.5} // return as a JSON Object
    */
-  abstract fun execute(paramsJsonString: String): String
+  fun execute(paramsJsonString: String): String
+}
 
-  override fun provideTools(): Map<String, InternalJsonTool> {
-    val toolDescription: JsonObject =
-      try {
-        JsonParser.parseString(getToolDescriptionJsonString()).asJsonObject
-      } catch (e: JsonParseException) {
-        throw ToolException("Failed to parse JSON. {${e}.message}")
-      }
+/** Returns a [ToolProvider] from a [ToolSet]. */
+fun tool(toolSet: ToolSet): ToolProvider {
+  return object : ToolProvider() {
+    @OptIn(ExperimentalApi::class)
+    override fun provideTools(): Map<String, InternalJsonTool> {
+      val useSnakeCase = ExperimentalFlags.convertCamelToSnakeCaseInToolDescription
 
-    val name: String =
-      try {
-        toolDescription.get("name").asString
-      } catch (e: Throwable) {
-        throw ToolException("Failed to parse field \"name\" as String. {${e}.message}")
-      }
+      val toolClass = toolSet.javaClass.kotlin
+      return toolClass.functions
+        .filter { function -> function.annotations.any { annotation -> annotation is Tool } }
+        .map { function ->
+          (if (useSnakeCase) function.name.camelToSnakeCase() else function.name) to
+            ReflectionTool(toolSet, function, useSnakeCase) // Pass toolSet here
+        }
+        .toMap()
+    }
+  }
+}
 
-    val jsonTool =
-      object : InternalJsonTool {
-        override fun getToolDescription(): JsonObject {
-          return toolDescription
+/** Returns a [ToolProvider] from an [OpenApiTool]. */
+fun tool(openApiTool: OpenApiTool): ToolProvider {
+  return object : ToolProvider() {
+    override fun provideTools(): Map<String, InternalJsonTool> {
+      val toolDescription: JsonObject =
+        try {
+          JsonParser.parseString(openApiTool.getToolDescriptionJsonString()).asJsonObject
+        } catch (e: JsonParseException) {
+          throw ToolException("Failed to parse JSON. {${e}.message}")
         }
 
-        override fun execute(params: JsonObject): Any? {
-          return this@OpenApiTool.execute(params.toString())
+      val name: String =
+        try {
+          toolDescription.get("name").asString
+        } catch (e: Throwable) {
+          throw ToolException("Failed to parse field \"name\" as String. {${e}.message}")
         }
-      }
 
-    return mapOf(name to jsonTool)
+      val jsonTool =
+        object : InternalJsonTool {
+          override fun getToolDescription(): JsonObject {
+            return toolDescription
+          }
+
+          override fun execute(params: JsonObject): Any? {
+            return openApiTool.execute(params.toString())
+          }
+        }
+
+      return mapOf(name to jsonTool)
+    }
   }
 }
 
@@ -205,21 +214,22 @@ class ToolManager(val tools: List<Any>) {
   private val internalTools: Map<String, InternalJsonTool> =
     tools.fold(mapOf()) { acc, tool ->
       acc +
-        if (tool is ToolProvider) {
-          tool.provideTools()
-        } else {
-          // For backward compatibility, handle tool that does not implement ToolProvider similar to
-          // the AutoToolSet.
-          //
-          // TODO(b/476130607): Remove this once all tools implement ToolProvider.
-          val toolClass = tool.javaClass.kotlin
-          toolClass.functions
-            .filter { function -> function.annotations.any { annotation -> annotation is Tool } }
-            .map { function ->
-              (if (useSnakeCase) function.name.camelToSnakeCase() else function.name) to
-                ReflectionTool(tool, function, useSnakeCase)
-            }
-            .toMap()
+        when (tool) {
+          is ToolProvider -> tool.provideTools()
+          else -> {
+            // For backward compatibility, handle tool that does not implement ToolProvider similar
+            // to ToolSet.
+            //
+            // TODO(b/476130607): Remove this once all tools implement ToolProvider.
+            val toolClass = tool.javaClass.kotlin
+            toolClass.functions
+              .filter { function -> function.annotations.any { annotation -> annotation is Tool } }
+              .map { function ->
+                (if (useSnakeCase) function.name.camelToSnakeCase() else function.name) to
+                  ReflectionTool(tool, function, useSnakeCase)
+              }
+              .toMap()
+          }
         }
     }
 
@@ -290,7 +300,7 @@ class ToolManager(val tools: List<Any>) {
 }
 
 /** Internal use only. */
-internal interface InternalJsonTool {
+interface InternalJsonTool {
 
   fun getToolDescription(): JsonObject
 

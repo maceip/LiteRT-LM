@@ -258,14 +258,14 @@ There are two ways to define tools:
 You can define custom Kotlin functions as tools that the model can call to
 perform actions or fetch information.
 
-Create a class extending `ToolSet` and annotate methods with `@Tool` and
+Create a class implementing `ToolSet` and annotate methods with `@Tool` and
 parameters with `@ToolParam`.
 
 ```kotlin
 import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
 
-class SampleToolSet: ToolSet() {
+class SampleToolSet: ToolSet {
     @Tool(description = "Get the current weather for a city")
     fun getCurrentWeather(
         @ToolParam(description = "The city name, e.g., San Francisco") city: String,
@@ -314,7 +314,7 @@ JSON object is recommended.
 
 #### Defining Tools with OpenAPI Specification
 
-Alternatively, you can define a tool by extending the `OpenApiTool` class and
+Alternatively, you can define a tool by implementing the `OpenApiTool` class and
 providing the tool's description as a JSON string conforming to the Open API
 specification. This method is useful if you already have an OpenAPI schema for
 your tool or if you need fine-grained control over the tool's definition.
@@ -322,7 +322,7 @@ your tool or if you need fine-grained control over the tool's definition.
 ```kotlin
 import com.google.ai.edge.litertlm.OpenApiTool
 
-class SampleOpenApiTool : OpenApiTool() {
+class SampleOpenApiTool : OpenApiTool {
 
     override fun getToolDescriptionJsonString(): String {
         return """
@@ -366,7 +366,10 @@ Include instances of your tools in the `ConversationConfig`.
 ```kotlin
 val conversation = engine.createConversation(
     ConversationConfig(
-        tools = listOf(SampleToolSet(), SampleOpenApiTool()),
+        tools = listOf(
+            tool(SampleToolSet()),
+            tool(SampleOpenApiTool()),
+        ),
         // ... other configs
     )
 )

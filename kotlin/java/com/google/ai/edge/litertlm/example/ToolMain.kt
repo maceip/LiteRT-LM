@@ -23,8 +23,10 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.LogSeverity
 import com.google.ai.edge.litertlm.Tool
 import com.google.ai.edge.litertlm.ToolParam
+import com.google.ai.edge.litertlm.ToolSet
+import com.google.ai.edge.litertlm.tool
 
-class SampleToolSet {
+class SampleToolSet : ToolSet {
   @Tool(description = "Get the product of a list of numbers.")
   fun product(
     @ToolParam(description = "The numbers, could be floating point.") numbers: List<Double>
@@ -47,7 +49,7 @@ suspend fun main(args: Array<String>) {
     val conversationConfig =
       ConversationConfig(
         systemInstruction = Contents.of("You can do function call."),
-        tools = listOf(SampleToolSet()),
+        tools = listOf(tool(SampleToolSet())),
       )
 
     engine.createConversation(conversationConfig).use { conversation ->
