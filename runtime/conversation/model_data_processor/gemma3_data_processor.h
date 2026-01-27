@@ -28,6 +28,7 @@
 #include "runtime/components/constrained_decoding/gemma_model_constraint_provider.h"
 #include "runtime/components/preprocessor/audio_preprocessor.h"
 #include "runtime/components/preprocessor/image_preprocessor.h"
+#include "runtime/components/prompt_template.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/conversation/io_types.h"
 #include "runtime/conversation/model_data_processor/gemma3_data_processor_config.h"
@@ -94,6 +95,11 @@ class Gemma3DataProcessor
   absl::StatusOr<Message> ToMessageImpl(
       const Responses& responses,
       const Gemma3DataProcessorArguments& args) const override;
+
+  absl::StatusOr<SingleTurnTemplateRenderResult> RenderSingleTurnTemplate(
+      std::vector<Message>& history, const Preface& preface,
+      const Message& message, const PromptTemplate& prompt_template,
+      bool current_is_appending_message, bool append_message) const override;
 
   std::unique_ptr<LiteRtLmGemmaModelConstraintProvider,
                   decltype(&LiteRtLmGemmaModelConstraintProvider_Destroy)>

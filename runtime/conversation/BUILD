@@ -33,6 +33,20 @@ cc_library(
 )
 
 cc_library(
+    name = "prompt_utils",
+    srcs = ["prompt_utils.cc"],
+    hdrs = ["prompt_utils.h"],
+    deps = [
+        ":io_types",
+        "@com_google_absl//absl/status",
+        "@nlohmann_json//:json",
+        "//runtime/components:prompt_template",
+        "//runtime/conversation/model_data_processor",
+        "//runtime/util:litert_status_util",
+    ],
+)
+
+cc_library(
     name = "internal_callback_util",
     srcs = ["internal_callback_util.cc"],
     hdrs = ["internal_callback_util.h"],
@@ -81,7 +95,6 @@ cc_library(
         ":io_types",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/functional:any_invocable",
-        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -95,6 +108,7 @@ cc_library(
         "//runtime/components/constrained_decoding:constraint_provider",
         "//runtime/components/constrained_decoding:constraint_provider_config",
         "//runtime/components/constrained_decoding:constraint_provider_factory",
+        "//runtime/conversation:prompt_utils",
         "//runtime/conversation/model_data_processor",
         "//runtime/conversation/model_data_processor:config_registry",
         "//runtime/conversation/model_data_processor:model_data_processor_factory",

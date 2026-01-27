@@ -230,6 +230,60 @@ class ConversationConfig {
   std::optional<ConstraintProviderConfig> constraint_provider_config_;
 };
 
+// Optional arguments for sending a message to the LLM.
+struct OptionalArgs {
+  // Whether there is a pending message to be sent. If true, only the prefill
+  // stage of LLM will be triggered, and the following decode stage will be
+  // skipped. This is useful for the case where we need to append multiple
+  // messages to the conversation, but only want to generate a response once.
+  //
+  // To also trigger the decode stage, set this field to false. Or to explicitly
+  // trigger the decode stage only, set this field to false and send an empty
+  // content message.
+  //
+  // Note: this option is only valid for model templates and
+  // ModelDataProcessor that supports single turn prompt rendering.
+  //
+  // Example usages:
+  //
+  // Append multiple messages to the conversation without triggering the decode
+  // stage.
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", "Hello world!"}},
+  //   {.has_pending_message = true}));
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", " This is a long message."}},
+  //   {.has_pending_message = true}));
+  //
+  // By sending a message with has_pending_message set to false, the decode
+  // stage will be triggered, and the decode result will be returned.
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", " This is the last message."}},
+  //   {.has_pending_message = false}));
+  //
+  // Alternatively, send an empty message with has_pending_message set to false
+  // to only trigger the decode stage.
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", " This is the last message."}},
+  //   {.has_pending_message = true}));
+  //
+  // ASSERT_OK(conversation->SendMessage(
+  //   JsonMessage{{"role", "user"}, {"content", ""}},
+  //   {.has_pending_message = false}));
+  bool has_pending_message = false;
+
+  // The constraint to be used for constrained decoding.
+  std::optional<ConstraintArg> decoding_constraint = std::nullopt;
+
+  // The arguments for the model data processor. Most of the time, the users
+  // don't need to provide this argument.
+  std::optional<DataProcessorArguments> args = std::nullopt;
+};
+
 // A multi-turn centric stateful Conversation API for high-level user
 // interaction. Conversation maintains the history for users, so the users'
 // messages will be used as the LLM context through the conversation.
@@ -287,15 +341,12 @@ class Conversation {
   // - `message`: The message to be sent to the LLM. If `message` is an array,
   //    each element will be treated as a separate message and be prefilled
   //    before generating the response.
-  // - `args`: The optional arguments for the corresponding model data
-  //    processor. Most of the time, the users don't need to provide this
-  //    argument.
+  // - `optional_args`: The optional arguments for sending the message. See the
+  //    definition of `OptionalArgs` for more details.
   // Returns :
   // - The complete message from the LLM.
   absl::StatusOr<Message> SendMessage(
-      const Message& message,
-      std::optional<DataProcessorArguments> args = std::nullopt,
-      std::optional<ConstraintArg> decoding_constraint = std::nullopt);
+      const Message& message, OptionalArgs optional_args = OptionalArgs());
 
   // Sends a message to the LLM and process the asynchronous message results via
   // the user_callback.
@@ -312,17 +363,15 @@ class Conversation {
   //      with absl::CancelledError.
   //    - When an error occurs, the user_callback will be invoked with the error
   //      status.
-  // - `args`: The optional arguments for the corresponding model data
-  //    processor. Most of the time, the users don't need to provide this
-  //    argument.
+  // - `optional_args`: The optional arguments for sending the message. See the
+  //    definition of `OptionalArgs` for more details.
   // Returns :
   // - absl::OkStatus if the message is sent and processing successfully,
   //   otherwise the error status.
   absl::Status SendMessageAsync(
       const Message& message,
       absl::AnyInvocable<void(absl::StatusOr<Message>)> user_callback,
-      std::optional<DataProcessorArguments> args = std::nullopt,
-      std::optional<ConstraintArg> decoding_constraint = std::nullopt);
+      OptionalArgs optional_args = OptionalArgs());
 
   // Returns the history of the conversation.
   // Note: the return value is a copy of the history, which may be expensive
@@ -385,7 +434,14 @@ class Conversation {
         config_(config),
         constraint_provider_(std::move(constraint_provider)) {}
 
-  absl::StatusOr<std::string> GetSingleTurnText(const Message& message) const;
+  absl::StatusOr<std::string> GetSingleTurnText(
+      const Message& message, const OptionalArgs& optional_args);
+
+  absl::StatusOr<std::string> GetSingleTurnTextFromFullHistory(
+      const JsonMessage& json_message, const OptionalArgs& optional_args);
+
+  absl::StatusOr<std::string> GetSingleTurnTextFromSingleTurnTemplate(
+      const JsonMessage& json_message, const OptionalArgs& optional_args);
 
   absl::StatusOr<DecodeConfig> CreateDecodeConfig(
       std::optional<ConstraintArg> decoding_constraint = std::nullopt);
@@ -401,6 +457,9 @@ class Conversation {
   std::unique_ptr<ConstraintProvider> constraint_provider_ = nullptr;
   mutable absl::Mutex history_mutex_;
   std::vector<Message> history_ ABSL_GUARDED_BY(history_mutex_);
+
+  // Whether the current conversation is in message appending state.
+  bool is_appending_message_ = false;
 };
 }  // namespace litert::lm
 

@@ -22,10 +22,10 @@
 #include <vector>
 
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
-#include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
@@ -41,6 +41,7 @@
 #include "runtime/conversation/model_data_processor/config_registry.h"
 #include "runtime/conversation/model_data_processor/model_data_processor.h"
 #include "runtime/conversation/model_data_processor/model_data_processor_factory.h"
+#include "runtime/conversation/prompt_utils.h"
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
@@ -51,33 +52,17 @@
 namespace litert::lm {
 
 namespace {
-absl::Status FillPrefaceForPromptTemplateInput(
-    const Preface& preface, ModelDataProcessor* model_data_processor,
-    PromptTemplateInput& tmpl_input) {
-  if (std::holds_alternative<JsonPreface>(preface)) {
-    auto json_preface = std::get<JsonPreface>(preface);
 
-    if (json_preface.messages.is_array()) {
-      for (auto& message : json_preface.messages) {
-        ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
-                         model_data_processor->MessageToTemplateInput(message));
-        tmpl_input.messages.push_back(message_tmpl_input);
-      }
-    }
-
-    if (json_preface.tools.is_null()) {
-      tmpl_input.tools = nullptr;
-    } else {
-      ASSIGN_OR_RETURN(tmpl_input.tools,
-                       model_data_processor->FormatTools(json_preface.tools));
-    }
-    tmpl_input.extra_context = json_preface.extra_context;
-  } else {
-    return absl::UnimplementedError("Preface type is not supported yet");
-  }
-  return absl::OkStatus();
+bool IsEmptyInputError(const absl::Status& status) {
+  return absl::IsInvalidArgument(status) &&
+         absl::StrContains(status.message(), "Input is empty");
 }
 
+// Ignores the invalid argument error when Session Prefill is called with empty
+// input.
+absl::Status IgnoreEmptyInputError(const absl::Status& status) {
+  return IsEmptyInputError(status) ? absl::OkStatus() : status;
+}
 }  // namespace
 
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
@@ -143,8 +128,24 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
       std::move(constraint_provider_config));
 }
 
-absl::StatusOr<std::string> Conversation::GetSingleTurnText(
-    const Message& message) const {
+absl::StatusOr<std::string>
+Conversation::GetSingleTurnTextFromSingleTurnTemplate(
+    const JsonMessage& message, const OptionalArgs& optional_args) {
+  absl::MutexLock lock(history_mutex_);  // NOLINT
+  ASSIGN_OR_RETURN(
+      auto result,
+      model_data_processor_->RenderSingleTurnTemplate(
+          history_,
+          config_.prefill_preface_on_init() ? JsonPreface() : preface_, message,
+          prompt_template_,
+          /*current_is_appending_message=*/is_appending_message_,
+          /*append_message=*/optional_args.has_pending_message));
+  is_appending_message_ = result.is_appending_message;
+  return result.text;
+}
+
+absl::StatusOr<std::string> Conversation::GetSingleTurnTextFromFullHistory(
+    const JsonMessage& json_message, const OptionalArgs& optional_args) {
   PromptTemplateInput old_tmpl_input;
   RETURN_IF_ERROR(FillPrefaceForPromptTemplateInput(
       preface_, model_data_processor_.get(), old_tmpl_input));
@@ -160,12 +161,6 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
       return absl::UnimplementedError("Message type is not supported yet");
     }
   }
-
-  if (!std::holds_alternative<nlohmann::ordered_json>(message)) {
-    return absl::InvalidArgumentError("Json message is required for now.");
-  }
-  nlohmann::ordered_json json_message =
-      std::get<nlohmann::ordered_json>(message);
   nlohmann::ordered_json messages =
       json_message.is_array() ? json_message
                               : nlohmann::ordered_json::array({json_message});
@@ -201,6 +196,31 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnText(
   }
   return {new_string.substr(old_string.size(),
                             new_string.size() - old_string.size())};
+}
+
+absl::StatusOr<std::string> Conversation::GetSingleTurnText(
+    const Message& message, const OptionalArgs& optional_args) {
+  if (!std::holds_alternative<nlohmann::ordered_json>(message)) {
+    return absl::InvalidArgumentError("Json message is required for now.");
+  }
+  nlohmann::ordered_json json_message =
+      std::get<nlohmann::ordered_json>(message);
+  if (!prompt_template_.GetCapabilities().supports_single_turn &&
+      optional_args.has_pending_message) {
+    return absl::InvalidArgumentError(
+        "The prompt template does not support single turn template, but "
+        "has_pending_message is true. `has_pending_message` is only valid for "
+        "model templates and ModelDataProcessor that supports single turn "
+        "prompt rendering.");
+  }
+  if (prompt_template_.GetCapabilities().supports_single_turn) {
+    auto single_turn_text =
+        GetSingleTurnTextFromSingleTurnTemplate(json_message, optional_args);
+    if (!absl::IsUnimplemented(single_turn_text.status())) {
+      return single_turn_text;
+    }
+  }
+  return GetSingleTurnTextFromFullHistory(json_message, optional_args);
 }
 
 absl::StatusOr<DecodeConfig> Conversation::CreateDecodeConfig(
@@ -254,12 +274,28 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
       std::move(session), std::move(model_data_processor), config.GetPreface(),
       config.GetPromptTemplate(), config, std::move(constraint_provider)));
   if (config.prefill_preface_on_init()) {
-    PromptTemplateInput tmpl_input;
-    RETURN_IF_ERROR(FillPrefaceForPromptTemplateInput(
-        config.GetPreface(), conversation->model_data_processor_.get(),
-        tmpl_input));
-    ASSIGN_OR_RETURN(const std::string single_turn_text,
-                     conversation->prompt_template_.Apply(tmpl_input));
+    std::string single_turn_text;
+    std::vector<Message> tmp_history;
+    const auto render_result =
+        conversation->model_data_processor_->RenderSingleTurnTemplate(
+            tmp_history, config.GetPreface(), JsonMessage(),
+            config.GetPromptTemplate(),
+            /*current_is_appending_message=*/false,
+            /*append_message=*/false);
+    if (absl::IsUnimplemented(render_result.status())) {
+      // Fallback to the old way of prefilling the preface.
+      PromptTemplateInput tmpl_input;
+      RETURN_IF_ERROR(FillPrefaceForPromptTemplateInput(
+          config.GetPreface(), conversation->model_data_processor_.get(),
+          tmpl_input));
+      tmpl_input.add_generation_prompt = false;
+      ASSIGN_OR_RETURN(single_turn_text,
+                       conversation->prompt_template_.Apply(tmpl_input));
+    } else if (render_result.ok()) {
+      single_turn_text = render_result->text;
+    } else {
+      return render_result.status();
+    }
     ASSIGN_OR_RETURN(const auto session_inputs,
                      conversation->model_data_processor_->ToInputDataVector(
                          single_turn_text,
@@ -280,15 +316,14 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
   return conversation;
 }
 
-absl::StatusOr<Message> Conversation::SendMessage(
-    const Message& message, std::optional<DataProcessorArguments> args,
-    std::optional<ConstraintArg> decoding_constraint) {
+absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
+                                                  OptionalArgs optional_args) {
   if (!std::holds_alternative<nlohmann::ordered_json>(message)) {
     return absl::InvalidArgumentError("Json message is required for now.");
   }
   auto json_message = std::get<nlohmann::ordered_json>(message);
   ASSIGN_OR_RETURN(const std::string& single_turn_text,
-                   GetSingleTurnText(message));
+                   GetSingleTurnText(message, optional_args));
   absl::MutexLock lock(history_mutex_);  // NOLINT
   if (json_message.is_array()) {
     for (const auto& message : json_message) {
@@ -301,30 +336,35 @@ absl::StatusOr<Message> Conversation::SendMessage(
       const auto session_inputs,
       model_data_processor_->ToInputDataVector(
           single_turn_text, nlohmann::ordered_json::array({json_message}),
-          args.value_or(std::monostate())));
-  RETURN_IF_ERROR(session_->RunPrefill(session_inputs));
-  ASSIGN_OR_RETURN(auto decode_config,
-                   CreateDecodeConfig(std::move(decoding_constraint)));
-  ASSIGN_OR_RETURN(const Responses& responses,
-                   session_->RunDecode(decode_config));
-  ASSIGN_OR_RETURN(const Message assistant_message,
-                   model_data_processor_->ToMessage(
-                       responses, args.value_or(std::monostate())));
-  history_.push_back(assistant_message);
-  return assistant_message;
+          optional_args.args.value_or(std::monostate())));
+  RETURN_IF_ERROR(IgnoreEmptyInputError(session_->RunPrefill(session_inputs)));
+  if (is_appending_message_) {
+    return JsonMessage();
+  } else {
+    ASSIGN_OR_RETURN(
+        auto decode_config,
+        CreateDecodeConfig(std::move(optional_args.decoding_constraint)));
+    ASSIGN_OR_RETURN(const Responses& responses,
+                     session_->RunDecode(decode_config));
+    ASSIGN_OR_RETURN(
+        const Message assistant_message,
+        model_data_processor_->ToMessage(
+            responses, optional_args.args.value_or(std::monostate())));
+    history_.push_back(assistant_message);
+    return assistant_message;
+  }
 }
 
 absl::Status Conversation::SendMessageAsync(
     const Message& message,
     absl::AnyInvocable<void(absl::StatusOr<Message>)> user_callback,
-    std::optional<DataProcessorArguments> args,
-    std::optional<ConstraintArg> decoding_constraint) {
+    OptionalArgs optional_args) {
   if (!std::holds_alternative<nlohmann::ordered_json>(message)) {
     return absl::InvalidArgumentError("Json message is required for now.");
   }
   auto json_message = std::get<nlohmann::ordered_json>(message);
   ASSIGN_OR_RETURN(const std::string& single_turn_text,
-                   GetSingleTurnText(message));
+                   GetSingleTurnText(message, optional_args));
   {
     absl::MutexLock lock(history_mutex_);  // NOLINT
     if (json_message.is_array()) {
@@ -340,7 +380,7 @@ absl::Status Conversation::SendMessageAsync(
       const auto session_inputs,
       model_data_processor_->ToInputDataVector(
           single_turn_text, nlohmann::ordered_json::array({json_message}),
-          args.value_or(std::monostate())));
+          optional_args.args.value_or(std::monostate())));
 
   absl::AnyInvocable<void(Message)> complete_message_callback =
       [this](const Message& complete_message) {
@@ -355,25 +395,41 @@ absl::Status Conversation::SendMessageAsync(
 
   absl::AnyInvocable<void(absl::StatusOr<Responses>)> internal_callback =
       CreateInternalCallback(
-          *model_data_processor_, args.value_or(std::monostate()),
+          *model_data_processor_, optional_args.args.value_or(std::monostate()),
           std::move(user_callback), std::move(cancel_callback),
           std::move(complete_message_callback));
 
-  ASSIGN_OR_RETURN(auto decode_config,
-                   CreateDecodeConfig(std::move(decoding_constraint)));
   ASSIGN_OR_RETURN(
-      std::ignore,
-      session_->RunPrefillAsync(
-          session_inputs,
-          [this, callback = std::move(internal_callback),
-           decode_config](absl::StatusOr<Responses> responses) mutable {
-            if (!responses.ok()) {
-              callback(responses.status());
-            } else if (responses->GetTaskState() == TaskState::kDone) {
-              auto status =
-                  session_->RunDecodeAsync(std::move(callback), decode_config);
-            }
-          }));
+      auto decode_config,
+      CreateDecodeConfig(std::move(optional_args.decoding_constraint)));
+  if (is_appending_message_) {
+    ASSIGN_OR_RETURN(
+        std::ignore,
+        session_->RunPrefillAsync(
+            session_inputs, [callback = std::move(internal_callback)](
+                                absl::StatusOr<Responses> responses) mutable {
+              auto status = IgnoreEmptyInputError(responses.status());
+              if (!status.ok()) {
+                callback(responses.status());
+              }
+            }));
+  } else {
+    ASSIGN_OR_RETURN(
+        std::ignore,
+        session_->RunPrefillAsync(
+            session_inputs,
+            [this, callback = std::move(internal_callback),
+             decode_config](absl::StatusOr<Responses> responses) mutable {
+              auto status = IgnoreEmptyInputError(responses.status());
+              if (!status.ok()) {
+                callback(responses.status());
+              } else if (IsEmptyInputError(responses.status()) ||
+                         responses->GetTaskState() == TaskState::kDone) {
+                auto status = session_->RunDecodeAsync(std::move(callback),
+                                                       decode_config);
+              }
+            }));
+  }
 
   return absl::OkStatus();
 };
