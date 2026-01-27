@@ -120,6 +120,10 @@ struct PromptTemplateCapabilities {
   // Whether the template requires typed content. {"type": "text"}, {"type":
   // "image"}, {"type": "audio"}, {"type": "video"} etc.
   bool requires_typed_content = false;
+
+  // Whether the template supports single turn, i.e. appending to the prefill
+  // without repeating the whole history.
+  bool supports_single_turn = false;
 };
 
 // PromptTemplate to render the jinja prompt template.

@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
@@ -28,6 +29,8 @@ namespace litert::lm {
 using json = nlohmann::ordered_json;
 using minja_chat_template = ::minja::chat_template;
 using minja_chat_template_inputs = ::minja::chat_template_inputs;
+
+constexpr absl::string_view kIsAppendingToPrefill = "is_appending_to_prefill";
 
 PromptTemplate::PromptTemplate(absl::string_view template_content) {
   minja_template_ = std::make_unique<minja_chat_template>(
@@ -45,7 +48,8 @@ PromptTemplate::PromptTemplate(absl::string_view template_content) {
       .requires_object_arguments = original_caps.requires_object_arguments,
       .requires_non_null_content = original_caps.requires_non_null_content,
       .requires_typed_content = original_caps.requires_typed_content,
-  };
+      .supports_single_turn =
+          absl::StrContains(template_content, kIsAppendingToPrefill)};
 }
 
 PromptTemplate::PromptTemplate(const PromptTemplate& other) {
