@@ -240,6 +240,11 @@ absl::Status SessionBasic::RunPrefill(const std::vector<InputData>& contents) {
   if (contents.empty()) {
     return absl::InvalidArgumentError("Input is empty.");
   }
+  ABSL_LOG(INFO) << "RunPrefill: ";
+  for (const auto& content : contents) {
+    ABSL_LOG(INFO) << content;
+  }
+
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
@@ -269,6 +274,11 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
   if (contents.empty()) {
     return absl::InvalidArgumentError("Input is empty.");
   }
+  ABSL_LOG(INFO) << "RunPrefillAsync: ";
+  for (const auto& content : contents) {
+    ABSL_LOG(INFO) << content;
+  }
+
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
@@ -402,10 +412,6 @@ absl::StatusOr<Responses> SessionBasic::GenerateContent(
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
   }
-  ABSL_DLOG(INFO) << "GenerateContent";
-  for (const auto& content : contents) {
-    ABSL_DLOG(INFO) << content;
-  }
   RETURN_IF_ERROR(RunPrefill(contents));
   return RunDecode(DecodeConfig::CreateDefault());
 }
@@ -473,10 +479,6 @@ absl::Status SessionBasic::GenerateContentStream(
   if (cancelled_.load()) {
     // Reset the cancelled flag before processing the next turn.
     cancelled_ = false;
-  }
-  ABSL_DLOG(INFO) << "GenerateContentStream";
-  for (const auto& content : contents) {
-    ABSL_DLOG(INFO) << content;
   }
 
   ASSIGN_OR_RETURN(
