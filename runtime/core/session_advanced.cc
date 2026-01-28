@@ -329,7 +329,18 @@ absl::StatusOr<BenchmarkInfo*> SessionAdvanced::GetMutableBenchmarkInfo() {
   return execution_manager_lock->GetMutableBenchmarkInfo(session_id_);
 }
 
-absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::Clone(
+absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::Clone() {
+  absl::Status status = absl::OkStatus();
+  ASSIGN_OR_RETURN(auto session,
+                   CloneAsync([&status](absl::StatusOr<Responses> responses) {
+                     status = responses.status();
+                   }));
+  RETURN_IF_ERROR(WaitUntilDone());
+  RETURN_IF_ERROR(status);
+  return session;
+}
+
+absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::CloneAsync(
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
   auto execution_manager_lock = execution_manager_.lock();
   if (execution_manager_lock == nullptr) {
