@@ -43,6 +43,7 @@ import dataclasses
 import enum
 import os
 import pathlib
+import shutil
 import tomllib
 from typing import Any, BinaryIO, Callable, Optional, TypeVar
 import zlib
@@ -132,9 +133,8 @@ class _SectionObject:
   metadata: list[Metadata]
   # The data type of the section.
   data_type: schema.AnySectionDataType | int
-  # The data reader for the section. This should return the data as a byte
-  # string.
-  data_reader: Callable[[], bytes]
+  # The data writer for the section. This should write the data to stream.
+  data_writer: Callable[[BinaryIO], None]
 
 
 LitertLmFileBuilderT = TypeVar(
@@ -321,22 +321,23 @@ class LitertLmFileBuilder:
 
     if _is_binary_proto(llm_metadata_path):
 
-      def data_reader():
+      def data_writer(stream: BinaryIO):
         with litertlm_core.open_file(llm_metadata_path, "rb") as f:
-          return f.read()
+          _copy_file_to_stream(f, stream)
 
     else:
 
-      def data_reader():
+      def data_writer(stream: BinaryIO):
         with litertlm_core.open_file(llm_metadata_path, "r") as f:
-          return text_format.Parse(
+          data = text_format.Parse(
               f.read(), llm_metadata_pb2.LlmMetadata()
           ).SerializeToString()
+          stream.write(data)
 
     section_object = _SectionObject(
         metadata=additional_metadata if additional_metadata else [],
         data_type=schema.AnySectionDataType.LlmMetadataProto,
-        data_reader=data_reader,
+        data_writer=data_writer,
     )
     self._sections.append(section_object)
     return self
@@ -388,14 +389,14 @@ class LitertLmFileBuilder:
           raise ValueError("Backend constraint metadata cannot be overridden.")
       metadata.extend(additional_metadata)
 
-    def data_reader():
+    def data_writer(stream: BinaryIO):
       with litertlm_core.open_file(tflite_model_path, "rb") as f:
-        return f.read()
+        _copy_file_to_stream(f, stream)
 
     section_object = _SectionObject(
         metadata=metadata,
         data_type=schema.AnySectionDataType.TFLiteModel,
-        data_reader=data_reader,
+        data_writer=data_writer,
     )
     self._sections.append(section_object)
     return self
@@ -433,14 +434,14 @@ class LitertLmFileBuilder:
           raise ValueError("Model type metadata cannot be overridden.")
       metadata.extend(additional_metadata)
 
-    def data_reader():
+    def data_writer(stream: BinaryIO):
       with litertlm_core.open_file(tflite_weights_path, "rb") as f:
-        return f.read()
+        _copy_file_to_stream(f, stream)
 
     section_object = _SectionObject(
         metadata=metadata,
         data_type=schema.AnySectionDataType.TFLiteWeights,
-        data_reader=data_reader,
+        data_writer=data_writer,
     )
     self._sections.append(section_object)
     return self
@@ -470,14 +471,14 @@ class LitertLmFileBuilder:
           f"Sentencepiece tokenizer file not found: {sp_tokenizer_path}"
       )
 
-    def data_reader():
+    def data_writer(stream: BinaryIO):
       with litertlm_core.open_file(sp_tokenizer_path, "rb") as f:
-        return f.read()
+        _copy_file_to_stream(f, stream)
 
     section_object = _SectionObject(
         metadata=additional_metadata if additional_metadata else [],
         data_type=schema.AnySectionDataType.SP_Tokenizer,
-        data_reader=data_reader,
+        data_writer=data_writer,
     )
     self._sections.append(section_object)
     return self
@@ -506,17 +507,18 @@ class LitertLmFileBuilder:
           f"HF tokenizer file not found: {hf_tokenizer_path}"
       )
 
-    def read_and_compress(path: str) -> bytes:
-      with litertlm_core.open_file(path, "rb") as f:
+    def write_and_compress(stream: BinaryIO):
+      with litertlm_core.open_file(hf_tokenizer_path, "rb") as f:
         content = f.read()
         uncompressed_size = len(content)
         compressed_content = zlib.compress(content)
-        return uncompressed_size.to_bytes(8, "little") + compressed_content
+        stream.write(uncompressed_size.to_bytes(8, "little"))
+        stream.write(compressed_content)
 
     section_object = _SectionObject(
         metadata=additional_metadata if additional_metadata else [],
         data_type=schema.AnySectionDataType.HF_Tokenizer_Zlib,
-        data_reader=lambda: read_and_compress(hf_tokenizer_path),
+        data_writer=write_and_compress,
     )
     self._sections.append(section_object)
     return self
@@ -533,7 +535,7 @@ class LitertLmFileBuilder:
     offsets = []
     for section in self._sections:
       start_offset = stream.tell()
-      stream.write(section.data_reader())
+      section.data_writer(stream)
       end_offset = stream.tell()
       offsets.append((start_offset, end_offset))
       _write_padding(stream, litertlm_core.BLOCK_SIZE)
@@ -610,6 +612,16 @@ class LitertLmFileBuilder:
     schema.SectionMetadataStart(builder)
     schema.SectionMetadataAddObjects(builder, objects_vec)
     return schema.SectionMetadataEnd(builder)
+
+
+def _copy_file_to_stream(
+    f_src: Any, f_dst: BinaryIO, buffer_size=1024 * 1024
+):
+  """Copies data from f_src to f_dst efficiently."""
+  # shutil.copyfileobj attempts to use os.sendfile (zero-copy) if available.
+  # This avoids loading data into Python memory, resulting in massive speedups
+  # for large files (>20GB).
+  shutil.copyfileobj(f_src, f_dst, length=buffer_size)
 
 
 def _validate_backend_constraints(backend_constraint: str) -> None:
