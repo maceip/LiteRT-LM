@@ -30,6 +30,7 @@
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/executor/executor_settings_base.h"
+#include "runtime/proto/sampler_params.pb.h"
 
 namespace litert::lm {
 

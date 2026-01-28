@@ -20,6 +20,7 @@
 #include <filesystem>  // NOLINT(build/c++17) for std::filesystem::path
 #include <memory>
 #include <optional>
+#include <random>
 #include <string>
 #include <utility>
 #include <variant>

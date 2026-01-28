@@ -119,6 +119,7 @@ cc_library(
         "//runtime/components:model_resources_litert_lm",
         "//runtime/components:model_resources_task",
         "//runtime/components:sentencepiece_tokenizer",
+        "//runtime/proto:sampler_params_cc_proto",
         "//runtime/util:external_file_cc_proto",
         "//runtime/util:file_format_util",
         "//runtime/util:litert_lm_loader",
