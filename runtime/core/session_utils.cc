@@ -168,6 +168,11 @@ absl::StatusOr<std::vector<InputData>> PreprocessContents(
         preprocessed_contents.emplace_back(std::move(input_text_copy));
       } else {
         ASSIGN_OR_RETURN(auto templated_text, input_text->GetRawTextString());
+        if (templated_text.empty()) {
+          // We skip empty input text contents in the final preprocessed
+          // version.
+          continue;
+        }
         ASSIGN_OR_RETURN(
             auto processed_input_text,
             StringToProcessedInputText(templated_text, session_config,

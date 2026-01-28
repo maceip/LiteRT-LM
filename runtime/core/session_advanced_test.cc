@@ -50,11 +50,13 @@
 #include "runtime/framework/threadpool.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/scoped_file.h"
-#include "runtime/util/status_macros.h"  // NOLINT
-#include "runtime/util/test_utils.h"  // NOLINT
+#include "runtime/util/status_macros.h"
+#include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {
+
+using ::testing::status::StatusIs;
 
 constexpr absl::string_view kTestdataDir =
     "litert_lm/runtime/components/testdata/";
@@ -201,8 +203,8 @@ class SessionAdvancedTest : public testing::Test {
             // "Hello World!"
             /*prefill_tokens=*/{{2, 90, 547, 58, 735, 210, 466, 2294}},
             // "How's it going?"
-            /*decode_tokens=*/{{224}, {24}, {8}, {66}, {246}, {18}, {2295},
-                               {2294}}));
+            /*decode_tokens=*/{
+                {224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}}));
     ASSIGN_OR_RETURN(
         execution_manager_,
         ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
@@ -292,6 +294,29 @@ TEST_F(SessionAdvancedTest, RunPrefill) {
   std::vector<InputData> inputs;
   inputs.emplace_back(InputText("Hello World!"));
   EXPECT_OK(session->RunPrefill(inputs));
+}
+
+TEST_F(SessionAdvancedTest, EmptyInputTextReturnsError) {
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.SetSamplerBackend(Backend::CPU);
+  ASSERT_OK_AND_ASSIGN(auto executor, CreateFakeLlmExecutor(
+                                          /*prefill_tokens=*/{{}},
+                                          /*decode_tokens=*/{{}}));
+  ASSERT_OK_AND_ASSIGN(
+      std::shared_ptr<ExecutionManager> execution_manager,
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
+                               /*vision_executor_settings=*/nullptr,
+                               /*audio_executor_settings=*/nullptr,
+                               /*litert_env=*/nullptr));
+  ASSERT_OK_AND_ASSIGN(
+      auto session, SessionAdvanced::Create(execution_manager, tokenizer_.get(),
+                                            session_config, std::nullopt));
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText(""));
+  EXPECT_THAT(session->RunPrefill(inputs),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "No token IDs found in preprocessed_contents."));
 }
 
 TEST_F(SessionAdvancedTest, RunDecodeWithInternalSampler) {
@@ -981,8 +1006,7 @@ TEST_F(SessionAdvancedTest, RunPrefillEmptyInput) {
 
   std::vector<InputData> inputs;
   EXPECT_THAT(session->RunPrefill(inputs),
-              testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
-                                        "Input is empty."));
+              StatusIs(absl::StatusCode::kInvalidArgument, "Input is empty."));
 }
 
 TEST_F(SessionAdvancedTest, RunPrefillAsyncFailed) {
@@ -1028,8 +1052,7 @@ TEST_F(SessionAdvancedTest, RunPrefillAsyncFailed) {
   EXPECT_OK(execution_manager->WaitUntilAllDone(absl::Seconds(10)));
   EXPECT_FALSE(status.ok());
   EXPECT_EQ(task_state, TaskState::kProcessing);
-  EXPECT_THAT(status, testing::status::StatusIs(absl::StatusCode::kInternal,
-                                                "Prefill failed"));
+  EXPECT_THAT(status, StatusIs(absl::StatusCode::kInternal, "Prefill failed"));
 }
 
 TEST_F(SessionAdvancedTest, RunDecodeAsyncFailed) {
@@ -1076,8 +1099,7 @@ TEST_F(SessionAdvancedTest, RunDecodeAsyncFailed) {
   EXPECT_OK(task_controller->WaitUntilDone(absl::Seconds(10)));
   EXPECT_FALSE(status.ok());
   EXPECT_EQ(task_state, TaskState::kProcessing);
-  EXPECT_THAT(status, testing::status::StatusIs(absl::StatusCode::kInternal,
-                                                "Decode failed"));
+  EXPECT_THAT(status, StatusIs(absl::StatusCode::kInternal, "Decode failed"));
 }
 
 TEST_F(SessionAdvancedTest, RunDecodeAsyncWithCancellationWithInternalSampler) {
@@ -1879,9 +1901,9 @@ TEST_F(SessionAdvancedTest, RunTextScoringEmptyTargetTextFailure) {
   ASSERT_OK_AND_ASSIGN(auto session, CreateTestSession());
   std::vector<absl::string_view> target_text;
   EXPECT_THAT(session->RunTextScoring(target_text,
-                                         /*store_token_lengths=*/false),
-              testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
-                                        "Target text size should be 1."));
+                                      /*store_token_lengths=*/false),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "Target text size should be 1."));
 }
 
 TEST_F(SessionAdvancedTest, RunTextScoringMultipleTargetTextFailure) {
@@ -1891,8 +1913,8 @@ TEST_F(SessionAdvancedTest, RunTextScoringMultipleTargetTextFailure) {
   target_text.push_back("How are you?");
   EXPECT_THAT(
       session->RunTextScoring(target_text, /*store_token_lengths=*/false),
-      testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
-                                "Target text size should be 1."));
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               "Target text size should be 1."));
 }
 
 TEST_F(SessionAdvancedTest, RunTextScoringWithoutTokenLengthsSuccess) {
@@ -1935,9 +1957,8 @@ TEST_F(SessionAdvancedTest, RunTextScoringAsyncEmptyTargetTextFailure) {
   auto controller = session->RunTextScoringAsync(
       target_text, [](absl::StatusOr<Responses> r) {},
       /*store_token_lengths=*/false);
-  EXPECT_THAT(controller.status(),
-              testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
-                                        "Target text size should be 1."));
+  EXPECT_THAT(controller.status(), StatusIs(absl::StatusCode::kInvalidArgument,
+                                            "Target text size should be 1."));
 }
 
 TEST_F(SessionAdvancedTest, RunTextScoringAsyncMultipleTargetTextFailure) {
@@ -1948,9 +1969,8 @@ TEST_F(SessionAdvancedTest, RunTextScoringAsyncMultipleTargetTextFailure) {
   auto controller = session->RunTextScoringAsync(
       target_text, [](absl::StatusOr<Responses> r) {},
       /*store_token_lengths=*/false);
-  EXPECT_THAT(controller.status(),
-              testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
-                                        "Target text size should be 1."));
+  EXPECT_THAT(controller.status(), StatusIs(absl::StatusCode::kInvalidArgument,
+                                            "Target text size should be 1."));
 }
 
 TEST_F(SessionAdvancedTest, RunTextScoringAsyncWithoutTokenLengthsSuccess) {

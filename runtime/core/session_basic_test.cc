@@ -51,12 +51,13 @@
 #include "runtime/framework/threadpool.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/scoped_file.h"
-#include "runtime/util/status_macros.h"  // NOLINT
-#include "runtime/util/tensor_buffer_util.h"
-#include "runtime/util/test_utils.h"  // NOLINT
+#include "runtime/util/status_macros.h"
+#include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {
+
+using ::testing::status::StatusIs;
 
 constexpr absl::string_view kTestdataDir =
     "litert_lm/runtime/components/testdata/";
@@ -286,12 +287,11 @@ TEST_F(SessionBasicTest, SessionCreation) {
   EXPECT_OK(session);
 
   // Second session creation should fail because there is already a session.
-  EXPECT_THAT(
-      SessionBasic::Create(executor.get(), tokenizer_.get(),
-                           /*vision_executor=*/nullptr,
-                           /*audio_executor=*/nullptr, session_config,
-                           std::nullopt, worker_thread_pool_.get()),
-      ::testing::status::StatusIs(absl::StatusCode::kFailedPrecondition));
+  EXPECT_THAT(SessionBasic::Create(executor.get(), tokenizer_.get(),
+                                   /*vision_executor=*/nullptr,
+                                   /*audio_executor=*/nullptr, session_config,
+                                   std::nullopt, worker_thread_pool_.get()),
+              StatusIs(absl::StatusCode::kFailedPrecondition));
 
   // After the first session is destroyed, the second session creation should
   // succeed.
@@ -329,6 +329,23 @@ TEST_F(SessionBasicTest, RunPrefill) {
   std::vector<InputData> inputs;
   inputs.emplace_back(InputText("Hello World!"));
   EXPECT_OK((*session)->RunPrefill(inputs));
+}
+
+TEST_F(SessionBasicTest, EmptyInputTextReturnsError) {
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.SetSamplerBackend(Backend::CPU);
+  ASSERT_OK_AND_ASSIGN(auto executor, CreateFakeLlmExecutor(
+                                          /*prefill_tokens=*/{{}},
+                                          /*decode_tokens=*/{{}}));
+  auto session = SessionBasic::Create(
+      executor.get(), tokenizer_.get(), /*vision_executor=*/nullptr,
+      /*audio_executor=*/nullptr, session_config, std::nullopt,
+      worker_thread_pool_.get());
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText(""));
+  EXPECT_THAT((*session)->RunPrefill(inputs),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "No token IDs found in preprocessed_contents."));
 }
 
 TEST_F(SessionBasicTest, RunDecode) {
@@ -668,8 +685,8 @@ TEST_F(SessionBasicTest, RunTextScoringEmptyTargetTextFailure) {
   std::vector<absl::string_view> target_text;
   EXPECT_THAT((*session)->RunTextScoring(target_text,
                                          /*store_token_lengths=*/false),
-              testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
-                                        "Target text size should be 1."));
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "Target text size should be 1."));
 }
 
 TEST_F(SessionBasicTest, RunTextScoringMultipleTargetTextFailure) {
@@ -696,8 +713,8 @@ TEST_F(SessionBasicTest, RunTextScoringMultipleTargetTextFailure) {
   target_text.push_back("How are you?");
   EXPECT_THAT(
       (*session)->RunTextScoring(target_text, /*store_token_lengths=*/false),
-      testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
-                                "Target text size should be 1."));
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               "Target text size should be 1."));
 }
 
 TEST_F(SessionBasicTest, RunTextScoringWithoutTokenLengthsSuccess) {
@@ -768,8 +785,8 @@ TEST_F(SessionBasicTest, RunTextScoringAsyncWithTokenLengthsSuccess) {
 
   std::vector<absl::string_view> target_texts;
   target_texts.push_back("How's it going?");
-  ASSERT_OK((*session)->RunTextScoringAsync(
-      target_texts, std::move(callback), /*store_token_lengths=*/true));
+  ASSERT_OK((*session)->RunTextScoringAsync(target_texts, std::move(callback),
+                                            /*store_token_lengths=*/true));
 
   done.WaitForNotification();
 
@@ -843,8 +860,7 @@ TEST_F(SessionBasicTest, GenerateContentStreamEmptyInput) {
   absl::Notification done;
   EXPECT_THAT((*session)->GenerateContentStream(
                   inputs, CreateStreamingTestCallback(status, texts, done)),
-              testing::status::StatusIs(absl::StatusCode::kInvalidArgument,
-                                        "Input is empty."));
+              StatusIs(absl::StatusCode::kInvalidArgument, "Input is empty."));
 }
 
 TEST_F(SessionBasicTest, GenerateContentStreamPrefillError) {
@@ -882,8 +898,7 @@ TEST_F(SessionBasicTest, GenerateContentStreamPrefillError) {
 
   done.WaitForNotification();
   EXPECT_FALSE(status.ok());
-  EXPECT_THAT(status, testing::status::StatusIs(absl::StatusCode::kInternal,
-                                                "Prefill failed"));
+  EXPECT_THAT(status, StatusIs(absl::StatusCode::kInternal, "Prefill failed"));
 }
 
 TEST_F(SessionBasicTest, GenerateContentStreamDecodeError) {
@@ -920,8 +935,7 @@ TEST_F(SessionBasicTest, GenerateContentStreamDecodeError) {
 
   done.WaitForNotification();
   EXPECT_FALSE(status.ok());
-  EXPECT_THAT(status, testing::status::StatusIs(absl::StatusCode::kInternal,
-                                                "Decode failed"));
+  EXPECT_THAT(status, StatusIs(absl::StatusCode::kInternal, "Decode failed"));
 }
 
 TEST_F(SessionBasicTest, ProcessAndCombineContentsSingleText) {
@@ -1040,9 +1054,8 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsEmptyFails) {
 
   std::vector<InputData> preprocessed_contents;
   auto result = session->ProcessAndCombineContents(preprocessed_contents);
-  EXPECT_THAT(result, testing::status::StatusIs(
-                          absl::StatusCode::kInvalidArgument,
-                          "No token IDs found in preprocessed_contents."));
+  EXPECT_THAT(result, StatusIs(absl::StatusCode::kInvalidArgument,
+                               "No token IDs found in preprocessed_contents."));
 }
 
 // TODO: b/441514829 - Enable the tests on Windows once the bug is fixed.
@@ -1279,7 +1292,7 @@ TEST_F(SessionBasicTest, GenerateContentStreamWithCancellation) {
 
   // Wait for the callback to be done.
   done.WaitForNotification();
-  EXPECT_THAT(status, testing::status::StatusIs(absl::StatusCode::kCancelled));
+  EXPECT_THAT(status, StatusIs(absl::StatusCode::kCancelled));
 }
 
 class SessionBasicCancellationTest : public testing::TestWithParam<bool> {
@@ -1355,7 +1368,7 @@ TEST_P(SessionBasicCancellationTest,
 
   // Wait for the callback to be done.
   done1.WaitForNotification();
-  EXPECT_THAT(status, testing::status::StatusIs(absl::StatusCode::kCancelled));
+  EXPECT_THAT(status, StatusIs(absl::StatusCode::kCancelled));
 
   // Generate again after cancellation.
   // The second generation should succeed.

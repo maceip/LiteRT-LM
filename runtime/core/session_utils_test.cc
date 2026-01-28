@@ -431,5 +431,15 @@ TEST_F(SessionUtilsTest, PreprocessContents) {
               testing::ElementsAre(2, 90, 547, 58, 735, 210, 466, 2294));
 }
 
+TEST_F(SessionUtilsTest, PreprocessContentsWithEmptyInputText) {
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  std::vector<InputData> contents;
+  contents.emplace_back(InputText(""));
+  ASSERT_OK_AND_ASSIGN(auto preprocessed_contents,
+                       PreprocessContents(contents, session_config, *tokenizer_,
+                                          /*benchmark_info=*/std::nullopt));
+  EXPECT_TRUE(preprocessed_contents.empty());
+}
+
 }  // namespace
 }  // namespace litert::lm
