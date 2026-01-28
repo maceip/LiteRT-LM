@@ -347,12 +347,12 @@ absl::StatusOr<std::unique_ptr<ModelResources>>
 BuildLiteRtCompiledModelResources(const ModelAssets& model_assets) {
   ASSIGN_OR_RETURN(auto format, GetFileFormat(model_assets));
   switch (format) {
-    case FileFormat::TFLITE:
-      return absl::InvalidArgumentError("Unsupported file format.");
     case FileFormat::TASK:
       return BuildModelResourcesFromTaskFormat(model_assets);
     case FileFormat::LITERT_LM:
       return BuildModelResourcesFromLitertLmFormat(model_assets);
+    default:
+      return absl::InvalidArgumentError("Unsupported file format.");
   }
 }
 
