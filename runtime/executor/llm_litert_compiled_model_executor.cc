@@ -502,10 +502,11 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::RollBackProcessedTokens() {
 
 absl::Status LlmLiteRtCompiledModelExecutorBase::PrepareFirstPrefillAfterDecode(
     int token_index_to_reduce) {
-  if (!llm_context_->runtime_state().ran_decode) {
+  if (!llm_context_->runtime_state().ran_decode && !force_prepare_needed_) {
     return absl::OkStatus();
   }
 
+  force_prepare_needed_ = false;
   llm_context_->runtime_state().ran_decode = false;
 
   int output_heads = 1;
@@ -939,9 +940,10 @@ int LlmLiteRtCompiledModelExecutorBase::BindTensorsAndRunDecodeStatic(
 }
 
 absl::Status LlmLiteRtCompiledModelExecutorBase::PrepareFirstDecode() {
-  if (llm_context_->runtime_state().ran_decode) {
+  if (llm_context_->runtime_state().ran_decode && !force_prepare_needed_) {
     return absl::OkStatus();
   }
+  force_prepare_needed_ = false;
   // Mark that we have run decode at least once.
   llm_context_->runtime_state().ran_decode = true;
 
@@ -1215,20 +1217,26 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::SampleLogits(
 }
 
 absl::Status LlmLiteRtCompiledModelExecutorBase::SetCurrentStep(int new_step) {
-  ASSIGN_OR_RETURN(int current_external_step, GetCurrentStep());
-  RET_CHECK_LE(new_step, current_external_step)
-          .SetCode(absl::StatusCode::kInvalidArgument)
-      << "New step cannot be greater than the current step: "
-      << current_external_step;
-  RET_CHECK_GE(new_step, 0).SetCode(absl::StatusCode::kInvalidArgument)
-      << "New step cannot be negative.";
-  if (new_step == current_external_step) {
+  ASSIGN_OR_RETURN(auto old_step, GetCurrentStep());
+  if (old_step == new_step) {
     return absl::OkStatus();
   }
-  RET_CHECK_LE(new_step, current_external_step)
+
+  int max_step = old_step;
+  RET_CHECK_LE(new_step, max_step)
           .SetCode(absl::StatusCode::kInvalidArgument)
-      << "New step cannot be greater than the current step: "
-      << current_external_step;
+      << "New step cannot be greater than the max step: "
+      << max_step;
+  RET_CHECK_GE(new_step, 0).SetCode(absl::StatusCode::kInvalidArgument)
+      << "New step cannot be negative.";
+  if (new_step == max_step) {
+    llm_context_->runtime_state().current_step = new_step;
+    return absl::OkStatus();
+  }
+  RET_CHECK_LE(new_step, max_step)
+          .SetCode(absl::StatusCode::kInvalidArgument)
+      << "New step cannot be greater than the max step: "
+      << max_step;
   if (new_step < 0) {
     // Current step is negative after rolling back. This can only happen when
     // the user wants to set the step to 0 while there is a pending input token.

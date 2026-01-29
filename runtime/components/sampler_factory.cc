@@ -64,7 +64,7 @@ extern "C" int (*LiteRtTopKOpenClSampler_SampleToIdAndScoreBuffer_Static)(
 extern "C" int (*LiteRtTopKOpenClSampler_UpdateConfig_Static)(
     LiteRtTopKSampler_Sampler* sampler,
     const LiteRtTopKSampler_SamplerParameters* sampler_params, int batch_size,
-    std::default_random_engine* rand_gen, char** error_msg) = nullptr;
+    void* rand_gen_shared_ptr, char** error_msg) = nullptr;
 
 // WebGPU Sampler C API function pointers.
 extern "C" int (*LiteRtTopKWebGpuSampler_Create_Static)(
@@ -84,7 +84,7 @@ extern "C" int (*LiteRtTopKWebGpuSampler_SampleToIdAndScoreBuffer_Static)(
 extern "C" int (*LiteRtTopKWebGpuSampler_UpdateConfig_Static)(
     LiteRtTopKSampler_Sampler* sampler,
     const LiteRtTopKSampler_SamplerParameters* sampler_params, int batch_size,
-    std::default_random_engine* rand_gen, char** error_msg) = nullptr;
+    void* rand_gen_shared_ptr, char** error_msg) = nullptr;
 
 extern "C" int (*LiteRtTopKWebGpuSampler_CanHandleInput_Static)(
     LiteRtTopKSampler_Sampler* sampler) = nullptr;
@@ -133,8 +133,7 @@ class TopKCApiSampler : public Sampler {
   using LiteRtTopKSampler_UpdateConfig = int (*)(
       LiteRtTopKSampler_Sampler* sampler,
       const LiteRtTopKSampler_SamplerParameters* sampler_params, int batch_size,
-      std::default_random_engine* absl_nullable rand_gen,
-      char** absl_nullable error_msg);
+      void* absl_nullable rand_gen_shared_ptr, char** absl_nullable error_msg);
   using LiteRtTopKSampler_CanHandleInput =
       int (*)(LiteRtTopKSampler_Sampler* sampler);
   using LiteRtTopKSampler_HandlesInput =
@@ -199,7 +198,7 @@ class TopKCApiSampler : public Sampler {
       std::shared_ptr<std::default_random_engine> rand_gen) override {
     char* error_msg = nullptr;
     int error_code = capi_->update_config_func(
-        sampler_, &sampler_params, batch_size, rand_gen.get(), &error_msg);
+        sampler_, &sampler_params, batch_size, &rand_gen, &error_msg);
     return CreateStatusAndFreeErrorMsg(error_code, error_msg);
   }
 

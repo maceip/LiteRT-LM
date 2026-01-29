@@ -284,6 +284,9 @@ class LlmLiteRtCompiledModelExecutorBase : public LlmExecutor {
   // 3. The processed tokens.(e.g. KVCache)
   std::unique_ptr<LlmContext> llm_context_;
 
+  // Whether the executor needs to prepare the kvcache buffers before execution.
+  bool force_prepare_needed_ = false;
+
   // Sampler for sampling logits.
   // For now, only CPU sampler is supported.
   std::unique_ptr<Sampler> sampler_;
