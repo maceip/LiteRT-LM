@@ -565,6 +565,7 @@ absl::StatusOr<Responses> Score(
   // The scores for each candidate. The scores are accumulated over the course
   // of the decoding process.
   std::vector<float> scores(num_output_candidates);
+  std::vector<std::vector<float>> token_scores(num_output_candidates);
   // We support multiple targets by padding the targets with a null token which
   // does not exist in the vocabulary and thus does not contribute to the
   // perplexity.
@@ -591,6 +592,7 @@ absl::StatusOr<Responses> Score(
       // Only add the log likelihood of the non-padded tokens to the score.
       if (i < size_of_jth_target) {
         scores[j] += step_log_likelihoods[j];
+        token_scores[j].push_back(step_log_likelihoods[j]);
       }
     }
   }
@@ -603,8 +605,10 @@ absl::StatusOr<Responses> Score(
       token_lengths.push_back(ids_for_each_target_in_batch[j].size());
     }
   }
-  return Responses(TaskState::kDone, /*response_texts=*/{}, std::move(scores),
-                   std::move(token_lengths));
+  auto responses = Responses(TaskState::kDone, /*response_texts=*/{},
+                             std::move(scores), std::move(token_lengths));
+  responses.GetMutableTokenScores() = std::move(token_scores);
+  return responses;
 }
 
 }  // namespace litert::lm::Tasks

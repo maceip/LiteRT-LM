@@ -307,6 +307,16 @@ class Responses {
     return token_lengths_;
   };
 
+  // Returns the const token scores vector.
+  const std::optional<std::vector<std::vector<float>>>& GetTokenScores() const {
+    return token_scores_;
+  }
+
+  // Returns the mutable token scores vector.
+  std::optional<std::vector<std::vector<float>>>& GetMutableTokenScores() {
+    return token_scores_;
+  };
+
  private:
   // The state of the task.
   TaskState task_state_;
@@ -320,6 +330,9 @@ class Responses {
 
   // The output vector of token lengths for each response text. Optional.
   std::optional<std::vector<int>> token_lengths_;
+
+  // The output vector of token scores for each response text. Optional.
+  std::optional<std::vector<std::vector<float>>> token_scores_;
 };
 std::ostream& operator<<(std::ostream& os, const Responses& responses);
 

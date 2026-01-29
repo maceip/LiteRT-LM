@@ -38,6 +38,7 @@
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
+
 namespace litert::lm {
 namespace {
 
@@ -621,6 +622,21 @@ TEST(ResponsesTest, GetMutableScores) {
   EXPECT_EQ(responses.GetMutableScores().size(), 2);
   EXPECT_FLOAT_EQ(responses.GetMutableScores()[0], 0.1f);
   EXPECT_FLOAT_EQ(responses.GetMutableScores()[1], 0.2f);
+}
+
+TEST(ResponsesTest, GetTokenScores) {
+  Responses responses(TaskState::kProcessing);
+  EXPECT_FALSE(responses.GetTokenScores().has_value());
+}
+
+TEST(ResponsesTest, GetMutableTokenScores) {
+  Responses responses = Responses(TaskState::kProcessing);
+  responses.GetMutableTokenScores() =
+      std::vector<std::vector<float>>{{0.1f, 0.2f}, {0.3f, 0.4f}};
+  ASSERT_TRUE(responses.GetTokenScores().has_value());
+  EXPECT_EQ(responses.GetTokenScores()->size(), 2);
+  EXPECT_THAT(responses.GetTokenScores()->at(0), ElementsAre(0.1f, 0.2f));
+  EXPECT_THAT(responses.GetTokenScores()->at(1), ElementsAre(0.3f, 0.4f));
 }
 
 TEST(ResponsesTest, HandlesMultipleCandidatesWithTextAndScores) {

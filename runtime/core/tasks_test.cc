@@ -841,6 +841,11 @@ TEST_F(TasksCustomSamplingTest,
   // decode tokens are the same as the target text.
   EXPECT_EQ(responses_without_token_lengths->GetScores()[0], 0.0f);
   EXPECT_FALSE(responses_without_token_lengths->GetTokenLengths().has_value());
+  ASSERT_TRUE(responses_without_token_lengths->GetTokenScores().has_value());
+  EXPECT_EQ(responses_without_token_lengths->GetTokenScores()->size(), 1);
+  EXPECT_EQ(responses_without_token_lengths->GetTokenScores()->at(0).size(), 7);
+  EXPECT_THAT(responses_without_token_lengths->GetTokenScores()->at(0),
+              testing::Each(0.0f));
 }
 
 TEST_F(TasksCustomSamplingTest,
@@ -862,6 +867,11 @@ TEST_F(TasksCustomSamplingTest,
   EXPECT_TRUE(responses_with_token_lengths->GetTokenLengths().has_value());
   EXPECT_EQ(responses_with_token_lengths->GetTokenLengths()->size(), 1);
   EXPECT_EQ((*responses_with_token_lengths->GetTokenLengths())[0], 7);
+  ASSERT_TRUE(responses_with_token_lengths->GetTokenScores().has_value());
+  EXPECT_EQ(responses_with_token_lengths->GetTokenScores()->size(), 1);
+  EXPECT_EQ(responses_with_token_lengths->GetTokenScores()->at(0).size(), 7);
+  EXPECT_THAT(responses_with_token_lengths->GetTokenScores()->at(0),
+              testing::Each(0.0f));
 }
 
 TEST_F(TasksCustomSamplingTest,
@@ -895,6 +905,17 @@ TEST_F(TasksCustomSamplingTest,
   EXPECT_EQ(task_responses_without_token_lengths->GetScores()[1], 0.0f);
   EXPECT_FALSE(
       task_responses_without_token_lengths->GetTokenLengths().has_value());
+  ASSERT_TRUE(
+      task_responses_without_token_lengths->GetTokenScores().has_value());
+  EXPECT_EQ(task_responses_without_token_lengths->GetTokenScores()->size(), 2);
+  EXPECT_EQ(
+      task_responses_without_token_lengths->GetTokenScores()->at(0).size(), 7);
+  EXPECT_THAT(task_responses_without_token_lengths->GetTokenScores()->at(0),
+              testing::Each(0.0f));
+  EXPECT_EQ(
+      task_responses_without_token_lengths->GetTokenScores()->at(1).size(), 7);
+  EXPECT_THAT(task_responses_without_token_lengths->GetTokenScores()->at(1),
+              testing::Each(0.0f));
 }
 
 TEST_F(TasksCustomSamplingTest, ScoreCustomSamplingMultiBatchWithTokenLengths) {
@@ -929,6 +950,16 @@ TEST_F(TasksCustomSamplingTest, ScoreCustomSamplingMultiBatchWithTokenLengths) {
   EXPECT_EQ(task_responses_with_token_lengths->GetTokenLengths()->size(), 2);
   EXPECT_EQ((*task_responses_with_token_lengths->GetTokenLengths())[0], 7);
   EXPECT_EQ((*task_responses_with_token_lengths->GetTokenLengths())[1], 7);
+  ASSERT_TRUE(task_responses_with_token_lengths->GetTokenScores().has_value());
+  EXPECT_EQ(task_responses_with_token_lengths->GetTokenScores()->size(), 2);
+  EXPECT_EQ(task_responses_with_token_lengths->GetTokenScores()->at(0).size(),
+            7);
+  EXPECT_THAT(task_responses_with_token_lengths->GetTokenScores()->at(0),
+              testing::Each(0.0f));
+  EXPECT_EQ(task_responses_with_token_lengths->GetTokenScores()->at(1).size(),
+            7);
+  EXPECT_THAT(task_responses_with_token_lengths->GetTokenScores()->at(1),
+              testing::Each(0.0f));
 }
 
 TEST_F(TasksCustomSamplingTest, DecodeCustomSamplingReachMaxNumTokens) {
