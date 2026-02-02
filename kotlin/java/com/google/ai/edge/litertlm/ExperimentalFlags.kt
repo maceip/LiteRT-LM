@@ -61,6 +61,20 @@ object ExperimentalFlags {
    * affect any existing [Conversation] instances.
    */
   var convertCamelToSnakeCaseInToolDescription: Boolean = true
+
+  /**
+   * The directory contains the NPU libraries for [Backend.NPU].
+   *
+   * On Android, for apps with built-in NPU libraries, including NPU libraries delivered as Google
+   * Play Feature modules, set it to [Context.applicationInfo.nativeLibraryDir].
+   *
+   * If NPU libraries are not built-in (downloaded separately or on JVM Desktop), set this path to
+   * the directory containing the libraries.
+   *
+   * Note: This flag is read only when a new [Engine] is created. Changing this value will not
+   * affect any existing [Engine] or [Conversation] instances.
+   */
+  var npuLibrariesDir: String = ""
 }
 
 // Mark this annotation itself as requiring opt-in
