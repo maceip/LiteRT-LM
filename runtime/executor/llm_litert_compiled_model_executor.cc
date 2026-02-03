@@ -783,6 +783,9 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::BindTensorsAndRunPrefill(
       for (auto& [name, buffer] : *lora_buffers) {
         input_buffers[name] = std::move(buffer);
       }
+    } else {
+      ABSL_LOG(WARNING) << "Failed to get LoRA buffers for prefill: "
+                        << lora_buffers.status();
     }
   }
   absl::flat_hash_map<absl::string_view, TensorBuffer> output_buffers;
@@ -989,6 +992,9 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::BindTensorsAndRunDecode(
       for (auto& [name, buffer] : *lora_buffers) {
         decode_input_buffers[name] = std::move(buffer);
       }
+    } else {
+      ABSL_LOG(WARNING) << "Failed to get LoRA buffers for decode: "
+                        << lora_buffers.status();
     }
   }
   absl::flat_hash_map<absl::string_view, TensorBuffer> decode_output_buffers;
