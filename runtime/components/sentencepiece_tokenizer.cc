@@ -84,7 +84,21 @@ absl::StatusOr<std::string> SentencePieceTokenizer::TokenIdsToText(
     const std::vector<int>& token_ids) {
   std::string text = "";
   for (const auto& token_id : token_ids) {
-    text += processor_->IdToPiece(token_id);
+    if (processor_->IsByte(token_id)) {
+      // If the token is a byte, we need to decode it using DecodeIds.
+      // Otherwise, the output would be a hexdecimal representation of the byte.
+      // Note: This is not ideal as certain tokens are only meaningful when
+      // multiple bytes are put together (e.g., emoji). This is a limitation of
+      // processing IDs as singletons.
+      text += processor_->DecodeIds({token_id});
+    } else {
+      // We are forced to use IdToPiece to account for leading whitespace.
+      // Otherwise, the normalizer (depending on the configuration) would
+      // remove that which makes streaming decoding impossible.
+      // e.g., [[change], [_volume]] -> "change volume" vs.
+      //       [[change], [volume]] -> "changevolume"
+      text += processor_->IdToPiece(token_id);
+    }
   }
   return text;
 }
