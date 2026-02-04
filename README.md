@@ -4,9 +4,10 @@ A C++ library to efficiently run language models across edge platforms.
 
 ## ⚠️ IMPORTANT: Repository Migration Notice (Jan 31, 2026)
 
-**The LiteRT-LM repository has been migrated to use Git LFS (Large File Storage)
-for all prebuilt binaries.** Because this involved a history rewrite to shrink
-the repository size, all previous commit hashes are now invalid.
+**The LiteRT-LM repository has been migrated to use
+[Git LFS (Large File Storage)](https://git-lfs.com) for all prebuilt binaries.**
+Because this involved a history rewrite to shrink the repository size, all
+previous commit hashes are now invalid.
 
 ### Action Required:
 If you have a local copy of this repository from before **January 31, 2026**,
@@ -16,14 +17,15 @@ to `git pull`.**
 To fix your local environment, please perform a fresh clone:
 
 ```bash
-# 1. Remove your old directory (or move it to a backup)
+# 1. Remove your old directory (or move it to a backup).
 rm -rf LiteRT-LM
 
-# 2. Re-clone the repository
+# 2. Re-clone the repository.
 git clone https://github.com/google-ai-edge/LiteRT-LM.git
 cd LiteRT-LM
 
-# 3. Ensure LFS is initialized
+# 3. Ensure LFS is initialized. If it's the first time to install LFS, download
+#    LFS from https://git-lfs.com.
 git lfs install
 git lfs pull
 ```
