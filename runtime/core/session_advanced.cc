@@ -52,7 +52,8 @@ using TaskController = Engine::Session::TaskController;
 absl::StatusOr<std::unique_ptr<SessionAdvanced>> SessionAdvanced::Create(
     std::weak_ptr<ExecutionManager> execution_manager,
     Tokenizer* absl_nonnull tokenizer, const SessionConfig& session_config,
-    std::optional<BenchmarkInfo> benchmark_info) {
+    std::optional<BenchmarkInfo> benchmark_info,
+    std::optional<AudioExecutorProperties> audio_executor_properties) {
   auto execution_manager_lock = execution_manager.lock();
   if (execution_manager_lock == nullptr) {
     return absl::FailedPreconditionError("Execution manager is not available.");
@@ -61,8 +62,10 @@ absl::StatusOr<std::unique_ptr<SessionAdvanced>> SessionAdvanced::Create(
                                         session_config, benchmark_info));
   ASSIGN_OR_RETURN(auto session_info_,
                    execution_manager_lock->GetSessionInfo(session_id));
-  return absl::WrapUnique(new SessionAdvanced(session_id, execution_manager,
-                                              tokenizer, session_info_));
+  return absl::WrapUnique(new SessionAdvanced(
+      session_id, execution_manager, tokenizer, session_info_,
+      /*is_first_turn=*/true, /*last_task_ids=*/{},
+      /*audio_executor_properties=*/audio_executor_properties));
 }
 
 absl::Status SessionAdvanced::RunPrefill(
@@ -237,10 +240,10 @@ absl::StatusOr<Responses> SessionAdvanced::RunTextScoring(
         collected_responses = std::move(responses);
       };
 
-  ASSIGN_OR_RETURN(auto task_controller,
-                   RunTextScoringAsync(target_text,
-                                       std::move(scoring_sync_callback),
-                                       store_token_lengths));
+  ASSIGN_OR_RETURN(
+      auto task_controller,
+      RunTextScoringAsync(target_text, std::move(scoring_sync_callback),
+                          store_token_lengths));
   RETURN_IF_ERROR(task_controller->WaitUntilDone(Engine::kDefaultTimeout));
   return collected_responses;
 }
@@ -286,20 +289,19 @@ absl::Status SessionAdvanced::GenerateContentStream(
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
     const DecodeConfig& decode_config) {
   absl::AnyInvocable<void(absl::StatusOr<Responses>)> prefill_callback =
-      [this, decode_config,
-       stream_callback = std::move(callback)](
+      [this, decode_config, stream_callback = std::move(callback)](
           absl::StatusOr<Responses> prefill_responses) mutable {
         if (!prefill_responses.ok()) {
           stream_callback(prefill_responses.status());
           return;
         }
         if (prefill_responses->GetTaskState() == TaskState::kDone) {
-            auto decode_task_controller =
-                RunDecodeAsync(std::move(stream_callback), decode_config);
-            if (!decode_task_controller.ok()) {
-              ABSL_LOG(ERROR) << "Failed to start decode task: "
-                              << decode_task_controller.status();
-            }
+          auto decode_task_controller =
+              RunDecodeAsync(std::move(stream_callback), decode_config);
+          if (!decode_task_controller.ok()) {
+            ABSL_LOG(ERROR) << "Failed to start decode task: "
+                            << decode_task_controller.status();
+          }
         } else if (IsTaskEndState(prefill_responses->GetTaskState())) {
           stream_callback(absl::CancelledError(
               "Prefill task finished in cancelled state."));

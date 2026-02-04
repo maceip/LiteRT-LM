@@ -109,10 +109,24 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
         stop_token_detector.AddStopTokenSequence(stop_token_sequence));
   }
 
+  std::optional<AudioExecutorProperties> audio_executor_properties;
+  if (audio_executor != nullptr) {
+    auto properties = audio_executor->GetAudioExecutorProperties();
+    if (properties.ok()) {
+      audio_executor_properties = properties.value();
+    } else if (properties.status().code() == absl::StatusCode::kUnimplemented) {
+      ABSL_LOG(INFO) << "Audio executor properties is not implemented, "
+                        "proceeding without audio executor properties.";
+    } else {
+      return properties.status();
+    }
+  }
+
   occupied_executors_->insert(executor);
   return absl::WrapUnique(new SessionBasic(
       executor, tokenizer, vision_executor, audio_executor, std::move(sampler),
-      session_config, benchmark_info, worker_thread_pool, stop_token_detector));
+      session_config, benchmark_info, worker_thread_pool, stop_token_detector,
+      audio_executor_properties));
 }
 
 SessionBasic::~SessionBasic() {
@@ -425,10 +439,10 @@ absl::StatusOr<Responses> SessionBasic::RunTextScoring(
         collected_responses = std::move(responses);
       };
 
-  ASSIGN_OR_RETURN(auto task_controller,
-                   RunTextScoringAsync(target_text,
-                                       std::move(scoring_sync_callback),
-                                       store_token_lengths));
+  ASSIGN_OR_RETURN(
+      auto task_controller,
+      RunTextScoringAsync(target_text, std::move(scoring_sync_callback),
+                          store_token_lengths));
   RETURN_IF_ERROR(worker_thread_pool_.WaitUntilDone(Engine::kDefaultTimeout));
   return collected_responses;
 }
@@ -457,10 +471,9 @@ SessionBasic::RunTextScoringAsync(
           callback(absl::InternalError(decoded_ids_buffer.Error().Message()));
           return;
         }
-        callback(ScoreCustomSampling(executor_, tokenizer_, target_text,
-                                     temperature,
-                                     std::move(decoded_ids_buffer.Value()),
-                                     store_token_lengths));
+        callback(ScoreCustomSampling(
+            executor_, tokenizer_, target_text, temperature,
+            std::move(decoded_ids_buffer.Value()), store_token_lengths));
       }));
   return nullptr;
 }

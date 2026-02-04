@@ -17,6 +17,7 @@
 
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/engine/io_types.h"
 #include "runtime/executor/llm_executor_io_types.h"
 
 namespace litert::lm {
@@ -36,6 +37,12 @@ class AudioExecutorBase {
   // Reset the audio executor to its initial state. It must be called for
   // streaming audio models after finishing an audio stream.
   virtual absl::Status Reset() {
+    return absl::UnimplementedError("Not implemented.");
+  }
+
+  // Get the audio executor properties.
+  virtual absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties()
+      const {
     return absl::UnimplementedError("Not implemented.");
   }
 };

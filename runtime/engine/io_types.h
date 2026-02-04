@@ -469,6 +469,24 @@ class DecodeConfig {
   Constraint* absl_nullable constraint_ = nullptr;
 };
 
+// The properties of the audio model. These properties are populated by
+// inspecting the LiteRT compiled model and provide information about the model
+// type (static or streaming) and the model parameters (chunk size, overlap
+// size).
+struct AudioExecutorProperties {
+  // Whether the audio model is a streaming model.
+  bool is_streaming_model = false;
+
+  // The size of each streaming chunk.
+  int streaming_chunk_size = 0;
+
+  // The overlap size of each streaming chunk.
+  int streaming_chunk_overlap_size = 0;
+};
+
+std::ostream& operator<<(std::ostream& os,
+                         const AudioExecutorProperties& properties);
+
 }  // namespace litert::lm
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_IO_TYPES_H_

@@ -140,6 +140,14 @@ class SessionBasic : public Engine::Session {
 
   const Tokenizer& GetTokenizer() const override { return tokenizer_; }
 
+  absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties()
+      const override {
+    if (audio_executor_properties_.has_value()) {
+      return audio_executor_properties_.value();
+    }
+    return absl::FailedPreconditionError("Audio modality is not enabled.");
+  }
+
   // Util function for creating the combined ExecutorInputs from the
   // preprocessed contents.
   // TODO - b/436674053: Modularize the preprocessing logic into a separate
@@ -148,15 +156,15 @@ class SessionBasic : public Engine::Session {
       const std::vector<InputData>& preprocessed_contents);
 
  private:
-  explicit SessionBasic(LlmExecutor* absl_nonnull executor,
-                        Tokenizer* absl_nonnull tokenizer,
-                        VisionExecutor* vision_executor,
-                        AudioExecutor* audio_executor,
-                        std::unique_ptr<Sampler> sampler,
-                        const SessionConfig& session_config,
-                        std::optional<BenchmarkInfo> benchmark_info,
-                        ThreadPool* absl_nonnull worker_thread_pool,
-                        const StopTokenDetector& stop_token_detector)
+  explicit SessionBasic(
+      LlmExecutor* absl_nonnull executor, Tokenizer* absl_nonnull tokenizer,
+      VisionExecutor* vision_executor, AudioExecutor* audio_executor,
+      std::unique_ptr<Sampler> sampler, const SessionConfig& session_config,
+      std::optional<BenchmarkInfo> benchmark_info,
+      ThreadPool* absl_nonnull worker_thread_pool,
+      const StopTokenDetector& stop_token_detector,
+      std::optional<AudioExecutorProperties> audio_executor_properties =
+          std::nullopt)
       : executor_(*executor),
         tokenizer_(*tokenizer),
         vision_executor_(vision_executor),
@@ -165,7 +173,8 @@ class SessionBasic : public Engine::Session {
         session_config_(session_config),
         benchmark_info_(benchmark_info),
         worker_thread_pool_(*worker_thread_pool),
-        stop_token_detector_(stop_token_detector) {}
+        stop_token_detector_(stop_token_detector),
+        audio_executor_properties_(audio_executor_properties) {}
 
   // The internal function to prefill the input prompt. It is for convenience to
   // wrap it with lambda function for scheduling.
@@ -225,6 +234,10 @@ class SessionBasic : public Engine::Session {
   static absl::flat_hash_set<LlmExecutor*>* occupied_executors_
       ABSL_GUARDED_BY(occupied_executors_mu_);
   static absl::Mutex occupied_executors_mu_;
+
+  // The audio executor properties for the session. This is only available if
+  // the session is created with audio modality enabled.
+  std::optional<AudioExecutorProperties> audio_executor_properties_;
 };
 
 }  // namespace litert::lm

@@ -234,6 +234,13 @@ class Engine {
 
     // Get the reference to the tokenizer for the session.
     virtual const Tokenizer& GetTokenizer() const = 0;
+
+    // Get the audio model properties for the session. This is only available
+    // if the session is created with audio modality enabled.
+    virtual absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties()
+        const {
+      return absl::UnimplementedError("Not implemented.");
+    }
   };
 
   // Method to create the Session.

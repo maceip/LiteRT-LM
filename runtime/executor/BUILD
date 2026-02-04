@@ -730,8 +730,11 @@ cc_library(
     name = "audio_executor_base",
     hdrs = ["audio_executor_base.h"],
     deps = [
+        ":audio_executor_settings",
+        ":audio_executor_utils",
         ":llm_executor_io_types",
         "@com_google_absl//absl/status:statusor",
+        "//runtime/engine:io_types",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
@@ -749,6 +752,7 @@ cc_library(
     deps = [
         ":audio_executor",
         ":audio_executor_settings",
+        ":audio_executor_utils",
         ":executor_settings_base",
         ":litert_compiled_model_executor_utils",
         ":llm_executor_io_types",
@@ -762,6 +766,7 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@litert//litert/cc:litert_tensor_buffer_types",
         "//runtime/components:model_resources",
+        "//runtime/engine:io_types",
         "//runtime/util:litert_status_util",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
@@ -814,6 +819,28 @@ cc_test(
         ],
         "//conditions:default": [
             "@litert//litert/cc:litert_environment",
+        ],
+    }),
+)
+
+cc_library(
+    name = "audio_executor_utils",
+    srcs = ["audio_executor_utils.cc"],
+    hdrs = ["audio_executor_utils.h"],
+    deps = [
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "//runtime/components:model_resources",
+        "//runtime/engine:io_types",
+        "//runtime/util:litert_status_util",
+    ] + select({
+        "@litert//litert:litert_link_capi_so": [
+            "@litert//litert/cc:litert_api_with_dynamic_runtime",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc:litert_macros",
+            "@litert//litert/cc:litert_model",
         ],
     }),
 )

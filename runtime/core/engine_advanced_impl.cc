@@ -38,6 +38,7 @@
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/audio_executor_settings.h"
+#include "runtime/executor/audio_executor_utils.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor.h"
@@ -172,9 +173,18 @@ class EngineAdvancedImpl : public Engine {
 
     ABSL_CHECK(litert_model_resources_ != nullptr);
     ASSIGN_OR_RETURN(auto* tokenizer, litert_model_resources_->GetTokenizer());
+
+    std::optional<AudioExecutorProperties> audio_executor_properties;
+    if (config.AudioModalityEnabled()) {
+      ASSIGN_OR_RETURN(audio_executor_properties,
+                       GetAudioExecutorPropertiesFromModelResources(
+                           *litert_model_resources_));
+    }
+
     ASSIGN_OR_RETURN(auto session, InitializeSessionAdvanced(
                                        execution_manager_, tokenizer, config,
-                                       std::move(session_benchmark_info)));
+                                       std::move(session_benchmark_info),
+                                       audio_executor_properties));
 
     if (benchmark_info_.has_value()) {
       auto session_benchmark_info_or = session->GetMutableBenchmarkInfo();

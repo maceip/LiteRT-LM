@@ -32,6 +32,7 @@
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/model_resources.h"
+#include "runtime/engine/io_types.h"
 #include "runtime/executor/audio_executor.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/llm_executor_io_types.h"
@@ -87,6 +88,12 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   // Reset the audio encoder, which will be a stateful object when streaming
   // model is used.
   absl::Status Reset() override { return audio_encoder_->Reset(); }
+
+  // Get the audio executor properties.
+  absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties()
+      const override {
+    return exeuctor_properties_;
+  }
 
  private:
   // The Audio Encoder LiteRT CompiledModel wrapper manage the input and
@@ -359,18 +366,19 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   };
 
   explicit AudioLiteRtCompiledModelExecutor(
-      AudioExecutorSettings executor_settings, Environment& env,
+      AudioExecutorSettings executor_settings,
+      AudioExecutorProperties executor_properties, Environment& env,
       std::unique_ptr<ModelResources> resources,
       std::unique_ptr<AudioEncoder> audio_encoder,
       std::unique_ptr<AudioAdapter> audio_adapter, int sequence_length,
       int spectrogram_feature_dimensions, int audio_embedding_dimensions,
-      int encoder_shrinking_factor, bool is_streaming)
+      int encoder_shrinking_factor)
       : sequence_length_(sequence_length),
         spectrogram_feature_dimensions_(spectrogram_feature_dimensions),
         audio_embedding_dimensions_(audio_embedding_dimensions),
         encoder_shrinking_factor_(encoder_shrinking_factor),
-        is_streaming_(is_streaming),
         executor_settings_(std::move(executor_settings)),
+        exeuctor_properties_(std::move(executor_properties)),
         env_(env),
         resources_(std::move(resources)),
         audio_encoder_(std::move(audio_encoder)),
@@ -393,8 +401,8 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   int spectrogram_feature_dimensions_;
   int audio_embedding_dimensions_;
   int encoder_shrinking_factor_;
-  bool is_streaming_;
   AudioExecutorSettings executor_settings_;
+  AudioExecutorProperties exeuctor_properties_;
   /// The LiteRT environment.
   Environment& env_;
   std::unique_ptr<ModelResources> resources_;
