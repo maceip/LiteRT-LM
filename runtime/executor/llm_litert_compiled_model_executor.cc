@@ -339,21 +339,30 @@ absl::StatusOr<TensorBuffer> ResizeKVCacheTensorBuffer(
   return new_tensor_buffer;
 }
 
-absl::Status CopyBuffer(const TensorBuffer& buffers_from,
-                        TensorBuffer& buffers_to) {
+absl::Status CopyBuffer(const TensorBuffer& src_buffer,
+                        TensorBuffer& dst_buffer, size_t src_offset = 0,
+                        size_t dst_offset = 0, int64_t size = -1) {
+  LITERT_ASSIGN_OR_RETURN(auto src_buffer_size, src_buffer.PackedSize());
+  LITERT_ASSIGN_OR_RETURN(auto dst_buffer_size, dst_buffer.PackedSize());
+  if (size == -1) {
+    size = src_buffer_size - src_offset;
+  }
+  LITERT_RETURN_IF_ERROR(src_offset + size <= src_buffer_size);
+  LITERT_RETURN_IF_ERROR(dst_offset + size <= dst_buffer_size);
+
   // TODO: b/452977992: For GPU, we could use a shader to copy the buffer. If we
   // were to do it this way for GPU, then it might make more sense just to keep
   // the copy on the host. Also for GPU, consider optionally keeping its buffer
   // copies in CPU memory to save on GPU memory.
-  LITERT_ASSIGN_OR_RETURN(auto read_lock,
+  LITERT_ASSIGN_OR_RETURN(auto src_read_lock,
                           TensorBufferScopedLock::Create(
-                              buffers_from, TensorBuffer::LockMode::kRead));
-  LITERT_ASSIGN_OR_RETURN(auto write_lock,
+                              src_buffer, TensorBuffer::LockMode::kRead));
+  LITERT_ASSIGN_OR_RETURN(auto dst_write_lock,
                           TensorBufferScopedLock::Create(
-                              buffers_to, TensorBuffer::LockMode::kWrite));
+                              dst_buffer, TensorBuffer::LockMode::kWrite));
 
-  LITERT_ASSIGN_OR_RETURN(auto buffer_size, buffers_from.PackedSize());
-  memcpy(write_lock.second, read_lock.second, buffer_size);
+  memcpy(static_cast<char*>(dst_write_lock.second) + dst_offset,
+         static_cast<const char*>(src_read_lock.second) + src_offset, size);
   return absl::OkStatus();
 }
 
@@ -383,22 +392,28 @@ absl::StatusOr<RankedTensorType> GetEmbeddingLookupOutputTensorType(
                           Layout(std::move(embedding_dims)));
 }
 
+struct MaybeWrappedTensorBuffer {
+  TensorBuffer buffer;
+  bool wrapped;
+};
+
 template <typename T>
-absl::StatusOr<TensorBuffer> CreateTensorBufferFromHostMemory(
+absl::StatusOr<MaybeWrappedTensorBuffer> WrapOrCreateTensorBufferFromHostMemory(
     RankedTensorType tensor_type, absl::Span<T> data) {
+  size_t size = data.size() * sizeof(T);
   // First try to wrap the memory with a TensorBuffer.
-  auto wrapped_buffer = TensorBuffer::CreateFromHostMemory(
-      tensor_type, data.data(), data.size() * sizeof(T));
+  auto wrapped_buffer =
+      TensorBuffer::CreateFromHostMemory(tensor_type, data.data(), size);
   if (wrapped_buffer.HasValue()) {
-    return std::move(*wrapped_buffer);
+    return MaybeWrappedTensorBuffer{.buffer = std::move(*wrapped_buffer),
+                                    .wrapped = true};
   }
 
-  Dimensions dims(tensor_type.Layout().Dimensions().begin(),
-                  tensor_type.Layout().Dimensions().end());
   LITERT_ASSIGN_OR_RETURN(
-      auto copied_buffer,
-      CopyToTensorBuffer<T>(absl::MakeConstSpan(data), std::move(dims)));
-  return copied_buffer;
+      auto new_buffer,
+      TensorBuffer::CreateManagedHostMemory(tensor_type, size));
+  return MaybeWrappedTensorBuffer{.buffer = std::move(new_buffer),
+                                  .wrapped = false};
 }
 
 // Returns a subspan of the given span for a chunk at the given index.
@@ -1587,6 +1602,8 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
           ASSIGN_OR_RETURN(int fd, duplicated.Release());
           cpu_compilation_options.SetXNNPackWeightCacheFileDescriptor(fd);
         }
+      } else {
+        ABSL_LOG(WARNING) << "Can't use cache: " << weight_cache_file.status();
       }
       LITERT_ASSIGN_OR_RETURN(const uint32_t default_xnnpack_flags,
                               cpu_compilation_options.GetXNNPackFlags());

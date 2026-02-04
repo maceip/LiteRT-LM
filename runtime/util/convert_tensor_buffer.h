@@ -43,6 +43,11 @@ struct ElementTypeFor {
 // types for now to avoid compatibility issues, e.g. whether or not uint8 is
 // compatible with int8.
 template <>
+struct ElementTypeFor<bool> {
+  static constexpr ::litert::ElementType kType = ::litert::ElementType::Bool;
+};
+
+template <>
 struct ElementTypeFor<int8_t> {
   static constexpr ::litert::ElementType kType = ::litert::ElementType::Int8;
 };
