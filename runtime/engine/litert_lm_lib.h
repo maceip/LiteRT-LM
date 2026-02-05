@@ -51,6 +51,13 @@ class FileLogSink : public absl::LogSink {
   std::ofstream file_;
 };
 
+// Input data type for GPU Convolution and Fully Connected operations.
+enum class ConvType {
+  kAuto,   // Either float32/16 or int8 depending on the model.
+  kFloat,  // Either float32 or float16 depending on the activation data type.
+  kInt8,   // int8 quantized. Better latency with risk of less accuracy.
+};
+
 struct LiteRtLmSettings {
   std::string backend = "gpu";
   std::optional<std::string> vision_backend = std::nullopt;
@@ -97,6 +104,7 @@ struct LiteRtLmSettings {
   int num_iterations = 1;
   std::string litert_dispatch_lib_dir = "";
   bool sampler_handles_input = true;
+  ConvType conv_type = ConvType::kAuto;
 };
 
 // Runs the LLM inference with the given settings.

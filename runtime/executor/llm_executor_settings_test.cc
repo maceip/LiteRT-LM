@@ -270,6 +270,7 @@ TEST(LlmExecutorConfigTest, LlmExecutorSettingsWithAdvancedSettings) {
       .optimize_shader_compilation = false,
       .share_constant_tensors = false,
       .sampler_handles_input = false,
+      .allow_src_quantized_fc_conv_ops = true,
   });
 
   std::stringstream oss;
@@ -313,6 +314,7 @@ convert_weights_on_gpu: 1
 optimize_shader_compilation: 0
 share_constant_tensors: 0
 sampler_handles_input: 0
+allow_src_quantized_fc_conv_ops: 1
 
 )");
   EXPECT_EQ(oss.str(), expected_output);

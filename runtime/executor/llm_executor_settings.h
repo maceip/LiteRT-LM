@@ -194,7 +194,7 @@ struct AdvancedSettings {
   // If true, the executor allows src quantized fc conv ops on the GPU.
   // This feature is only supported by some GPUs. It can greatly improve
   // performance at the risk of reducing quality.
-  bool allow_src_quantized_fc_conv_ops = false;
+  std::optional<bool> allow_src_quantized_fc_conv_ops;
 
   bool operator==(const AdvancedSettings& other) const {
     return prefill_batch_sizes == other.prefill_batch_sizes &&

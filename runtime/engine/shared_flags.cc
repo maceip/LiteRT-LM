@@ -124,3 +124,8 @@ ABSL_FLAG(std::string, litert_dispatch_lib_dir, "",
 ABSL_FLAG(bool, sampler_handles_input, true,
           "If true and the sampler supports, the sampler manipulates decode "
           "input tensors including tokens, positions, and mask.");
+ABSL_FLAG(std::string, conv_type, "auto",
+          "Convolution data type. It can be auto, float, or int8. float will "
+          "be either float32 or float16 depending on the activation data type. "
+          "See --force_f32. int8 would have better latency with lower "
+          "accuracy. auto will choose the best type based on the model.");

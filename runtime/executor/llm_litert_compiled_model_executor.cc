@@ -1456,9 +1456,6 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
       LITERT_ASSIGN_OR_RETURN(auto& gpu_compilation_options,
                               compilation_options.GetGpuOptions());
       gpu_compilation_options.EnableInfiniteFloatCapping(true);
-      // Setting this to true could lead to improved latency but lower quality
-      // on high end GPUs.
-      gpu_compilation_options.EnableAllowSrcQuantizedFcConvOps(false);
       if (activation_data_type == ActivationDataType::FLOAT32) {
         gpu_compilation_options.SetPrecision(GpuOptions::Precision::kFp32);
       } else {
@@ -1538,6 +1535,7 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
       int num_threads_to_upload = kDefaultNumThreadsToUpload;
       int num_threads_to_compile = kDefaultNumThreadsToCompile;
       bool enable_constant_tensor_sharing = true;
+      bool allow_src_quantized_fc_conv_ops = true;
       if (advanced_settings) {
         gpu_compilation_options.SetMadviseOriginalSharedTensors(
             advanced_settings->gpu_madvise_original_shared_tensors);
@@ -1561,13 +1559,17 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
         if (!advanced_settings->optimize_shader_compilation) {
           gpu_compilation_options.DisableShaderOptimization(true);
         }
-        gpu_compilation_options.EnableAllowSrcQuantizedFcConvOps(
-            advanced_settings->allow_src_quantized_fc_conv_ops);
         enable_constant_tensor_sharing =
             advanced_settings->share_constant_tensors;
+        if (advanced_settings->allow_src_quantized_fc_conv_ops.has_value()) {
+          allow_src_quantized_fc_conv_ops =
+              advanced_settings->allow_src_quantized_fc_conv_ops.value();
+        }
       }
       gpu_compilation_options.EnableConstantTensorSharing(
           enable_constant_tensor_sharing);
+      gpu_compilation_options.EnableAllowSrcQuantizedFcConvOps(
+          allow_src_quantized_fc_conv_ops);
       // TODO b/441627719 - Select backend by runtime options.
 #if defined(LITERT_USE_WEBGPU_ACCELERATOR)
       gpu_compilation_options.SetBackend(GpuOptions::Backend::kWebGpu);

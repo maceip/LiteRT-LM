@@ -237,14 +237,18 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
                      InferLlmModelType(metadata, tokenizer));
   }
 
-  if (metadata.has_llm_model_type() &&
-      metadata.llm_model_type().model_type_case() ==
-          proto::LlmModelType::kGemma3N) {
-    auto advanced_settings = AdvancedSettings();
-    if (main_executor_settings_.GetAdvancedSettings()) {
-      advanced_settings = *main_executor_settings_.GetAdvancedSettings();
-    }
-    advanced_settings.allow_src_quantized_fc_conv_ops = true;
+  // Set allow_src_quantized_fc_conv_ops to default values depending on the
+  // model type if it is not set.
+  auto advanced_settings = AdvancedSettings();
+  if (main_executor_settings_.GetAdvancedSettings()) {
+    advanced_settings = *main_executor_settings_.GetAdvancedSettings();
+  }
+  if (!advanced_settings.allow_src_quantized_fc_conv_ops.has_value()) {
+    // Disable src quantized fc conv ops for generic models. If it's well-known,
+    // the quality is acceptable with int8 quantized fc/conv ops.
+    advanced_settings.allow_src_quantized_fc_conv_ops =
+        metadata.has_llm_model_type() &&
+        !metadata.llm_model_type().has_generic_model();
     main_executor_settings_.SetAdvancedSettings(advanced_settings);
   }
 

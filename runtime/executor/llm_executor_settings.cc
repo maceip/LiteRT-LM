@@ -77,6 +77,12 @@ std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings) {
      << settings.optimize_shader_compilation << "\n";
   os << "share_constant_tensors: " << settings.share_constant_tensors << "\n";
   os << "sampler_handles_input: " << settings.sampler_handles_input << "\n";
+  if (settings.allow_src_quantized_fc_conv_ops.has_value()) {
+    os << "allow_src_quantized_fc_conv_ops: "
+       << settings.allow_src_quantized_fc_conv_ops.value() << "\n";
+  } else {
+    os << "allow_src_quantized_fc_conv_ops: Not set\n";
+  }
   return os;
 }
 

@@ -208,6 +208,11 @@ absl::StatusOr<EngineSettings> CreateEngineSettings(
       .share_constant_tensors = settings.share_constant_tensors,
       .sampler_handles_input = settings.sampler_handles_input,
   };
+  if (settings.conv_type == ConvType::kFloat) {
+    advanced_settings.allow_src_quantized_fc_conv_ops = false;
+  } else if (settings.conv_type == ConvType::kInt8) {
+    advanced_settings.allow_src_quantized_fc_conv_ops = true;
+  }
   if (advanced_settings != AdvancedSettings()) {
     engine_settings.GetMutableMainExecutorSettings().SetAdvancedSettings(
         advanced_settings);

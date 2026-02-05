@@ -143,7 +143,8 @@ absl::Status MainHelper(int argc, char** argv) {
            "[--num_iterations=<num_iterations>]"
            "[--litert_dispatch_lib_dir=<litert_dispatch_lib_dir>]"
            "[--sampler_handles_input=<true|false>]"
-           "[--disable_cache=<true|false>]";
+           "[--disable_cache=<true|false>]"
+           "[--conv_type=<auto|float|int8>]";
     ABSL_LOG(INFO)
         << "To provide data for multimodality, use [image:/path/to/image.jpg] "
            "or [audio:/path/to/audio.wav] in the input prompt. e.g. \"Describe "
@@ -206,6 +207,10 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.litert_dispatch_lib_dir =
       absl::GetFlag(FLAGS_litert_dispatch_lib_dir);
   settings.sampler_handles_input = absl::GetFlag(FLAGS_sampler_handles_input);
+  settings.conv_type =
+      absl::GetFlag(FLAGS_conv_type) == "float" ? litert::lm::ConvType::kFloat :
+      absl::GetFlag(FLAGS_conv_type) == "int8" ? litert::lm::ConvType::kInt8 :
+      litert::lm::ConvType::kAuto;
 
   // Adjust max_num_tokens and prefill_batch_size if not set on benchmark mode.
   if (settings.benchmark && settings.benchmark_prefill_tokens > 0) {
