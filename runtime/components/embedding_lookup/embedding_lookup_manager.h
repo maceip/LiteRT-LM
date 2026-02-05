@@ -131,9 +131,6 @@ class EmbeddingLookupManager {
   // Otherwise, it will default any multimodal tokens to the text embedding
   // value of entry 0.
   bool fully_supports_multi_modal_;
-
-  // The default embedding vector to use when full_supports_multi_modal_=false.
-  std::vector<float> default_embedding_vector_;
 };
 
 }  // namespace litert::lm

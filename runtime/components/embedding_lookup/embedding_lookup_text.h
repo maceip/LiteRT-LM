@@ -104,7 +104,7 @@ class EmbeddingLookupText : public EmbeddingLookup {
 
   // Returns the default embedding vector to use when a token is not found in
   // the lookup table.
-  std::vector<float> GetDefaultEmbeddingVector() const {
+  const std::vector<float>& GetDefaultEmbeddingVector() const {
     return default_embedding_vector_;
   }
 

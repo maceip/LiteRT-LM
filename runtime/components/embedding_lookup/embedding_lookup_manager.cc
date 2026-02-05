@@ -29,6 +29,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
+#include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/embedding_lookup/embedding_lookup_end_of_multi_modal.h"
@@ -162,8 +163,9 @@ absl::Status EmbeddingLookupManager::LookupPrefill(
   } else {
     // If fully_supports_multi_modal_ is false, then we need to fill in the
     // missing embeddings with the default embedding vector.
-    memcpy(output_vector.data(), default_embedding_vector_.data(),
-           default_embedding_vector_.size() * sizeof(float));
+    memcpy(output_vector.data(),
+           text_embedding_lookup_->GetDefaultEmbeddingVector().data(),
+           floats_per_token * sizeof(float));
   }
   return absl::OkStatus();
 }
@@ -195,18 +197,23 @@ absl::Status EmbeddingLookupManager::LookupPrefill(
     // If fully_supports_multi_modal_ is false, then we need to fill in the
     // missing embeddings with the default embedding vector.
     const size_t bytes_per_token = floats_per_token * sizeof(float);
+    LITERT_ASSIGN_OR_RETURN(auto output_tensor_size,
+                            output_tensor->PackedSize());
     auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
         *output_tensor, ::litert::TensorBuffer::LockMode::kWrite);
-    auto output_tensor_ptr =
+    auto* output_tensor_ptr =
         reinterpret_cast<uint8_t*>(output_tensor_lock_and_addr->second);
-    for (int i = 0; i < tokens.size(); ++i) {
-      if (tokens[i] >= 0) {
-        continue;
+    auto* output_tensor_last_ptr =
+        output_tensor_ptr + output_tensor_size - bytes_per_token;
+    output_tensor_ptr += byte_offset;
+    const auto* default_embedding =
+        text_embedding_lookup_->GetDefaultEmbeddingVector().data();
+    for (int i = 0;
+         i < tokens.size() && output_tensor_ptr <= output_tensor_last_ptr;
+         ++i, output_tensor_ptr += bytes_per_token) {
+      if (tokens[i] < 0) {
+        memcpy(output_tensor_ptr, default_embedding, bytes_per_token);
       }
-      size_t byte_offset_for_token = byte_offset + i * bytes_per_token;
-      memcpy(output_tensor_ptr + byte_offset_for_token,
-             default_embedding_vector_.data(),
-             default_embedding_vector_.size() * sizeof(float));
     }
   }
   // Remove fully used multi modal embedding lookups.
@@ -232,8 +239,6 @@ absl::Status EmbeddingLookupManager::Initialize(
   ASSIGN_OR_RETURN(text_embedding_lookup_,
                    EmbeddingLookupText::Create(std::move(text_embedding_model),
                                                signature_key));
-  default_embedding_vector_ =
-      text_embedding_lookup_->GetDefaultEmbeddingVector();
   for (const auto& [special_token, embedding_model] :
        end_of_multi_modal_embedding_models) {
     ASSIGN_OR_RETURN(auto end_of_multi_modal_embedding_lookup,

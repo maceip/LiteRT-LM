@@ -145,6 +145,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
+        "@litert//litert/cc:litert_macros",
         "//runtime/executor:llm_executor_io_types",
         "//runtime/util:litert_status_util",
         "@litert//tflite:framework_stable",
