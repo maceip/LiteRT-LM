@@ -144,8 +144,6 @@ SessionBasic::~SessionBasic() {
   occupied_executors_->erase(&executor_);
 }
 
-// TODO - b/436674053: Modularize the preprocessing logic into a separate
-// preprocessor class, and have unit test for it.
 absl::StatusOr<ExecutorInputs> SessionBasic::ProcessAndCombineContents(
     const std::vector<InputData>& preprocessed_contents) {
   std::vector<int> combined_token_ids;
@@ -243,10 +241,10 @@ absl::Status SessionBasic::PrefillInternal(
     bool wait_for_completion) {
   ASSIGN_OR_RETURN(ExecutorInputs inputs,
                    ProcessAndCombineContents(preprocessed_contents));
-
   ASSIGN_OR_RETURN(
       last_prefill_token_id_,
       Prefill(executor_, inputs, wait_for_completion, benchmark_info_));
+  session_state_ = SessionState::kPrefilled;
   return absl::OkStatus();
 }
 
@@ -270,9 +268,19 @@ absl::Status SessionBasic::RunPrefill(const std::vector<InputData>& contents) {
                      PreprocessContents(contents, session_config_, tokenizer_,
                                         benchmark_info_));
   } else {
-    ASSIGN_OR_RETURN(std::vector<InputData> templated_contents,
-                     ApplyPromptTemplates(contents, session_config_, tokenizer_,
-                                          is_first_turn_));
+    bool is_first_turn = session_state_ == SessionState::kFresh;
+    ContentType content_type;
+    if (session_config_.GetApplyPromptTemplateInSession()) {
+      content_type = (is_first_turn || session_state_ == SessionState::kDecoded)
+                         ? ContentType::kFirst
+                         : ContentType::kMiddle;
+    } else {
+      content_type = ContentType::kNA;
+    }
+    ASSIGN_OR_RETURN(
+        std::vector<InputData> templated_contents,
+        ApplyPromptTemplates(contents, content_type, session_config_,
+                             tokenizer_, is_first_turn));
     ASSIGN_OR_RETURN(preprocessed_contents,
                      PreprocessContents(templated_contents, session_config_,
                                         tokenizer_, benchmark_info_));
@@ -304,9 +312,19 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
                      PreprocessContents(contents, session_config_, tokenizer_,
                                         benchmark_info_));
   } else {
-    ASSIGN_OR_RETURN(std::vector<InputData> templated_contents,
-                     ApplyPromptTemplates(contents, session_config_, tokenizer_,
-                                          is_first_turn_));
+    bool is_first_turn = session_state_ == SessionState::kFresh;
+    ContentType content_type;
+    if (session_config_.GetApplyPromptTemplateInSession()) {
+      content_type = (is_first_turn || session_state_ == SessionState::kDecoded)
+                         ? ContentType::kFirst
+                         : ContentType::kMiddle;
+    } else {
+      content_type = ContentType::kNA;
+    }
+    ASSIGN_OR_RETURN(
+        std::vector<InputData> templated_contents,
+        ApplyPromptTemplates(contents, content_type, session_config_,
+                             tokenizer_, is_first_turn));
     ASSIGN_OR_RETURN(preprocessed_contents,
                      PreprocessContents(templated_contents, session_config_,
                                         tokenizer_, benchmark_info_));
@@ -333,6 +351,29 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
 
 absl::StatusOr<Responses> SessionBasic::DecodeInternal(
     const DecodeConfig& decode_config) {
+  if (session_state_ != SessionState::kPrefilled) {
+    return absl::InternalError("Session is not prefilled yet.");
+  }
+
+  // We need to do a last prefill before initializing the decode, to make sure
+  // the prompt is correctly set up for decode.
+  if (session_config_.GetApplyPromptTemplateInSession()) {
+    std::vector<InputData> contents;
+    contents.emplace_back(InputText(""));
+    ASSIGN_OR_RETURN(
+        std::vector<InputData> templated_contents,
+        ApplyPromptTemplates(contents, ContentType::kLast, session_config_,
+                             tokenizer_, /*is_first_turn=*/false));
+    if (!templated_contents.empty()) {
+      ASSIGN_OR_RETURN(std::vector<InputData> preprocessed_contents,
+                       PreprocessContents(templated_contents, session_config_,
+                                          tokenizer_, benchmark_info_));
+      RETURN_IF_ERROR(PrefillInternal(preprocessed_contents,
+                                      /*wait_for_completion=*/true));
+    }
+  }
+  session_state_ = SessionState::kDecoded;
+
   if (sampler_ == nullptr) {
     ASSIGN_OR_RETURN(auto responses,
                      Decode(executor_, tokenizer_, stop_token_detector_,

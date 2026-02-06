@@ -82,9 +82,6 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
   }
 
   SessionConfig session_config_copy = session_config;
-  // Disable the deprecated prompt templates in the session.
-  // TODO - b/453312248: Remove this once the prompt template is removed from
-  // Session
   session_config_copy.SetApplyPromptTemplateInSession(false);
   RETURN_IF_ERROR(
       session_config_copy.MaybeUpdateAndValidate(engine.GetEngineSettings()));

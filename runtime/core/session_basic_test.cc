@@ -1058,6 +1058,67 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsEmptyFails) {
                                "No token IDs found in preprocessed_contents."));
 }
 
+TEST_F(SessionBasicTest, RunIncrementalPrefillWithDecode) {
+  const std::vector<std::vector<int>> stop_token_ids = {{2294}};
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.SetStartTokenId(2);
+  session_config.SetSamplerBackend(Backend::CPU);
+  session_config.GetMutableSamplerParams() = sampler_params_;
+  session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.GetMutablePromptTemplates().mutable_user()->set_prefix(
+      "User:");
+  session_config.GetMutablePromptTemplates().mutable_user()->set_suffix(
+      "[END]");
+  session_config.GetMutablePromptTemplates().mutable_model()->set_prefix(
+      "Model:");
+  session_config.GetMutableLlmModelType().mutable_gemma3n();
+
+  ASSERT_OK_AND_ASSIGN(
+      auto executor,
+      CreateFakeLlmExecutor(
+          /*prefill_tokens=*/
+          {
+              {2, 423, 8, 179, 29, 207, 19, 547, 58},  // prefill chunk 1.1
+              {735, 210, 466, 2294},                   // prefill chunk 1.2
+              {433, 2172, 1920, 432, 197, 979, 3076,
+               29},  // prefill ran before decode with turn change template
+              {423, 8, 179, 29, 207, 19, 547, 58, 735, 210, 466,
+               2294},  // prefill chunk 2.1
+              {433, 2172, 1920, 432, 197, 979, 3076,
+               29},  // prefill ran before decode with turn change template
+          },
+          /*decode_tokens=*/
+          {{1}, {2}, {3}, {2294}, {1}, {2}, {3}, {2294}}));
+  ASSERT_OK_AND_ASSIGN(
+      auto session,
+      SessionBasic::Create(executor.get(), tokenizer_.get(),
+                           /*vision_executor=*/nullptr,
+                           /*audio_executor=*/nullptr, session_config,
+                           std::nullopt, worker_thread_pool_.get()));
+
+  {
+    std::vector<InputData> inputs;
+    inputs.emplace_back(InputText("Hello "));
+    EXPECT_OK(session->RunPrefill(inputs));
+  }
+  {
+    std::vector<InputData> inputs;
+    inputs.emplace_back(InputText("World!"));
+    EXPECT_OK(session->RunPrefill(inputs));
+  }
+  {
+    EXPECT_OK(session->RunDecode());
+  }
+  {
+    std::vector<InputData> inputs;
+    inputs.emplace_back(InputText("Hello World!"));
+    EXPECT_OK(session->RunPrefill(inputs));
+  }
+  {
+    EXPECT_OK(session->RunDecode());
+  }
+}
+
 // TODO: b/441514829 - Enable the tests on Windows once the bug is fixed.
 #if !defined(WIN32) && !defined(_WIN32) && !defined(__WIN32__) && \
     !defined(__NT__) && !defined(_WIN64)
@@ -1150,10 +1211,10 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsTextAndAudioSuccess) {
       auto executor,
       CreateFakeLlmExecutor(
           // "User:Hello World!<start_of_audio>[END]Model:"
-          /*prefill_tokens=*/{{2,    423,  8,   179, 29,  207,  19,
-                               547,  58,   735, 210, 466, 2294, 256000,
-                               -2,   -2,   -2,  -2,  -2,  -4,   433,
-                               2172, 1920, 432, 197, 979, 3076, 29}},
+          /*prefill_tokens=*/{{2,   423, 8,   179, 29,  207,  19,
+                               547, 58,  735, 210, 466, 2294, 256000,
+                               -2,  -2,  -2,  -2,  -2,  -4},
+                              {433, 2172, 1920, 432, 197, 979, 3076, 29}},
           // "How's it going?"
           /*decode_tokens=*/
           {{224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}},
@@ -1207,14 +1268,13 @@ TEST_F(SessionBasicTest, ProcessAndCombineContentsTextAudioTextSuccess) {
   ASSERT_OK_AND_ASSIGN(
       auto executor,
       CreateFakeLlmExecutor(
-          // clang-format off
-          // "User:Hello World!<start_of_audio>What does the audio say?[END]Model:" // NOLINT
-          // clang-format on
+          // "User:Hello World!<start_of_audio>What does the audio say?"
+          // "[END]Model:"
           /*prefill_tokens=*/
-          {{2,    423,  8,    179,    29,  207, 19,   547,  58, 735,
-            210,  466,  2294, 256000, -2,  -2,  -2,   -2,   -2, -4,
-            583,  378,  844,  166,    3,   14,  1252, 54,   58, 626,
-            2295, 3995, 2172, 1920,   432, 197, 979,  3076, 29}},
+          {{2,   423,  8,      179, 29,   207, 19, 547, 58,  735, 210,
+            466, 2294, 256000, -2,  -2,   -2,  -2, -2,  -4,  583, 378,
+            844, 166,  3,      14,  1252, 54,  58, 626, 2295},
+           {3995, 2172, 1920, 432, 197, 979, 3076, 29}},
 
           // "How's it going?"
           /*decode_tokens=*/
@@ -1446,10 +1506,11 @@ TEST_F(SessionBasicTest,
   ASSERT_OK_AND_ASSIGN(
       auto executor,
       CreateFakeLlmExecutor(
-          // Expected tokens: "</s><test>User\nHello World!<end>\n<test>Model\n"
-          /*prefill_tokens=*/{{2,   4,  0,   39,  637, 0,    3328, 8,   179, 90,
-                               547, 58, 735, 210, 466, 2294, 0,    40,  23,  0,
-                               4,   0,  39,  637, 0,   197,  979,  3076}},
+          // Expected tokens: "</s><test>User\nHello World!" +
+          // "<end>\n<test>Model\n"
+          /*prefill_tokens=*/{{2, 4, 0, 39, 637, 0, 3328, 8, 179, 90, 547, 58,
+                               735, 210, 466, 2294},
+                              {0, 40, 23, 0, 4, 0, 39, 637, 0, 197, 979, 3076}},
           /*decode_tokens=*/{{224}}));
 
   proto::BenchmarkParams benchmark_params;

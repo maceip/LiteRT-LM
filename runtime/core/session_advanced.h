@@ -93,9 +93,7 @@ class SessionAdvanced : public Engine::Session {
 
   // TODO b/409401231 - Call execution manager's release session instead.
   // Wait until all tasks are done before destroying the session.
-  ~SessionAdvanced() override {
-    WaitUntilDone().IgnoreError();
-  };
+  ~SessionAdvanced() override { WaitUntilDone().IgnoreError(); };
 
   absl::StatusOr<Responses> GenerateContent(
       const std::vector<InputData>& contents) override;
@@ -197,18 +195,32 @@ class SessionAdvanced : public Engine::Session {
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) override;
 
  private:
-  explicit SessionAdvanced(
-      SessionId session_id, std::weak_ptr<ExecutionManager> execution_manager,
-      Tokenizer* absl_nonnull tokenizer,
-      std::shared_ptr<const SessionInfo> session_info,
-      bool is_first_turn = true, absl::flat_hash_set<TaskId> last_task_ids = {},
-      std::optional<AudioExecutorProperties> audio_executor_properties =
-          std::nullopt)
+  // The state of the session.
+  // * `kFresh` means the session is just created and
+  //   hasn't been prefilled yet.
+  // * `kPrefilled` means the session has been prefilled
+  //   but not decoded yet.
+  // * `kDecoded` means the session has been decoded.
+  //
+  // A session is considered fresh only if it has not been prefilled or decoded
+  // yet.
+  // A session could transition between kPrefilled and kDecoded if
+  // `RunPrefill` or `RunDecode` is called multiple times.
+  enum class SessionState : int { kFresh, kPrefilled, kDecoded };
+
+  explicit SessionAdvanced(SessionId session_id,
+                           std::weak_ptr<ExecutionManager> execution_manager,
+                           Tokenizer* absl_nonnull tokenizer,
+                           std::shared_ptr<const SessionInfo> session_info,
+                           SessionState session_state = SessionState::kFresh,
+                           absl::flat_hash_set<TaskId> last_task_ids = {},
+                           std::optional<AudioExecutorProperties>
+                               audio_executor_properties = std::nullopt)
       : session_id_(session_id),
         execution_manager_(execution_manager),
         tokenizer_(tokenizer),
         session_info_(session_info),
-        is_first_turn_(is_first_turn),
+        session_state_(session_state),
         last_task_ids_(last_task_ids),
         audio_executor_properties_(audio_executor_properties) {}
 
@@ -224,11 +236,8 @@ class SessionAdvanced : public Engine::Session {
   // The session info used for the session.
   std::shared_ptr<const SessionInfo> session_info_;
 
-  // Whether the current turn is the first turn.
-  // TODO - b/436674053: This is a temporary solution to determine whether the
-  // current turn is the first turn. Should be removed once prompt templates
-  // is no longer used.
-  bool is_first_turn_ = true;
+  // The state of the session.
+  SessionState session_state_;
 
   // The last task IDs that might be executing in the session.
   absl::flat_hash_set<TaskId> last_task_ids_ = {};

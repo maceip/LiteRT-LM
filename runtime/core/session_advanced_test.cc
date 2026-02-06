@@ -47,7 +47,6 @@
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/fake_llm_executor.h"
 #include "runtime/framework/resource_management/execution_manager.h"
-#include "runtime/framework/threadpool.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"
@@ -1016,7 +1015,6 @@ TEST_F(SessionAdvancedTest, RunPrefillEmptyInput) {
   SessionConfig session_config = SessionConfig::CreateDefault();
   session_config.GetMutableSamplerParams() = sampler_params_;
   session_config.GetMutableStopTokenIds() = stop_token_ids;
-  session_config.SetStartTokenId(2);
   session_config.SetSamplerBackend(Backend::CPU);
   ASSERT_OK_AND_ASSIGN(
       auto executor,
@@ -1042,7 +1040,8 @@ TEST_F(SessionAdvancedTest, RunPrefillEmptyInput) {
 
   std::vector<InputData> inputs;
   EXPECT_THAT(session->RunPrefill(inputs),
-              StatusIs(absl::StatusCode::kInvalidArgument, "Input is empty."));
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       "No token IDs found in preprocessed_contents."));
 }
 
 TEST_F(SessionAdvancedTest, RunPrefillAsyncFailed) {
@@ -1613,10 +1612,11 @@ TEST_F(SessionAdvancedTest,
   ASSERT_OK_AND_ASSIGN(
       auto executor,
       CreateFakeLlmExecutor(
-          // Expected tokens: "</s><test>User\nHello World!<end>\n<test>Model\n"
-          /*prefill_tokens=*/{{2,   4,  0,   39,  637, 0,    3328, 8,   179, 90,
-                               547, 58, 735, 210, 466, 2294, 0,    40,  23,  0,
-                               4,   0,  39,  637, 0,   197,  979,  3076}},
+          // Expected tokens: "</s><test>User\nHello World!" +
+          // "<end>\n<test>Model\n"
+          /*prefill_tokens=*/{{2, 4, 0, 39, 637, 0, 3328, 8, 179, 90, 547, 58,
+                               735, 210, 466, 2294},
+                              {0, 40, 23, 0, 4, 0, 39, 637, 0, 197, 979, 3076}},
           /*decode_tokens=*/{{224}}));
 
   proto::BenchmarkParams benchmark_params;
@@ -1821,6 +1821,74 @@ TEST_F(SessionAdvancedTest,
   EXPECT_THAT(texts, testing::ElementsAre("'", "s", " it"));
 }
 
+TEST_F(SessionAdvancedTest, RunIncrementalPrefillWithDecode) {
+  const std::vector<std::vector<int>> stop_token_ids = {{2294}};
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.SetStartTokenId(2);
+  session_config.SetSamplerBackend(Backend::CPU);
+  session_config.GetMutableSamplerParams() = sampler_params_;
+  session_config.GetMutableStopTokenIds() = stop_token_ids;
+  session_config.GetMutablePromptTemplates().mutable_user()->set_prefix(
+      "User:");
+  session_config.GetMutablePromptTemplates().mutable_user()->set_suffix(
+      "[END]");
+  session_config.GetMutablePromptTemplates().mutable_model()->set_prefix(
+      "Model:");
+  session_config.GetMutableLlmModelType().mutable_gemma3n();
+
+  ASSERT_OK_AND_ASSIGN(
+      auto executor,
+      CreateFakeLlmExecutor(
+          /*prefill_tokens=*/
+          {
+              {2, 423, 8, 179, 29, 207, 19, 547, 58},  // prefill chunk 1.1
+              {735, 210, 466, 2294},                   // prefill chunk 1.2
+              {433, 2172, 1920, 432, 197, 979, 3076,
+               29},  // prefill ran before decode with turn change template
+              {423, 8, 179, 29, 207, 19, 547, 58, 735, 210, 466,
+               2294},  // prefill chunk 2.1
+              {433, 2172, 1920, 432, 197, 979, 3076,
+               29},  // prefill ran before decode with turn change template
+          },
+          /*decode_tokens=*/
+          {{1}, {2}, {3}, {2294}, {1}, {2}, {3}, {2294}}));
+  ASSERT_OK_AND_ASSIGN(
+      std::shared_ptr<ExecutionManager> execution_manager,
+      ExecutionManager::Create(tokenizer_.get(), model_resources_.get(),
+                               std::move(executor),
+                               /*vision_executor_settings=*/nullptr,
+                               /*audio_executor_settings=*/nullptr,
+                               /*litert_env=*/nullptr));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto session,
+      SessionAdvanced::Create(execution_manager, tokenizer_.get(),
+                              session_config, /*benchmark_info=*/std::nullopt,
+                              /*audio_executor_properties=*/std::nullopt));
+
+  {
+    std::vector<InputData> inputs;
+    inputs.emplace_back(InputText("Hello "));
+    EXPECT_OK(session->RunPrefill(inputs));
+  }
+  {
+    std::vector<InputData> inputs;
+    inputs.emplace_back(InputText("World!"));
+    EXPECT_OK(session->RunPrefill(inputs));
+  }
+  {
+    EXPECT_OK(session->RunDecode());
+  }
+  {
+    std::vector<InputData> inputs;
+    inputs.emplace_back(InputText("Hello World!"));
+    EXPECT_OK(session->RunPrefill(inputs));
+  }
+  {
+    EXPECT_OK(session->RunDecode());
+  }
+}
+
 #if !defined(WIN32) && !defined(_WIN32) && !defined(__WIN32__) && \
     !defined(__NT__) && !defined(_WIN64)
 TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAndAudioSuccess) {
@@ -1849,10 +1917,10 @@ TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAndAudioSuccess) {
       auto executor,
       CreateFakeLlmExecutor(
           // "User:Hello World!<start_of_audio>[END]Model:"
-          /*prefill_tokens=*/{{2,    423,  8,   179, 29,  207,  19,
-                               547,  58,   735, 210, 466, 2294, 256000,
-                               -2,   -2,   -2,  -2,  -2,  -4,   433,
-                               2172, 1920, 432, 197, 979, 3076, 29}},
+          /*prefill_tokens=*/{{2,   423, 8,   179, 29,  207,  19,
+                               547, 58,  735, 210, 466, 2294, 256000,
+                               -2,  -2,  -2,  -2,  -2,  -4},
+                              {433, 2172, 1920, 432, 197, 979, 3076, 29}},
           // "How's it going?"
           /*decode_tokens=*/
           {{224}, {24}, {8}, {66}, {246}, {18}, {2295}, {2294}},
@@ -1914,14 +1982,13 @@ TEST_F(SessionAdvancedTest, ProcessAndCombineContentsTextAudioTextSuccess) {
   ASSERT_OK_AND_ASSIGN(
       auto executor,
       CreateFakeLlmExecutor(
-          // clang-format off
-          // "User:Hello World!<start_of_audio>What does the audio say?[END]Model:" // NOLINT
-          // clang-format on
+          // "User:Hello World!<start_of_audio>What does the audio say?"
+          // "[END]Model:"
           /*prefill_tokens=*/
-          {{2,    423,  8,    179,    29,  207, 19,   547,  58, 735,
-            210,  466,  2294, 256000, -2,  -2,  -2,   -2,   -2, -4,
-            583,  378,  844,  166,    3,   14,  1252, 54,   58, 626,
-            2295, 3995, 2172, 1920,   432, 197, 979,  3076, 29}},
+          {{2,   423,  8,      179, 29,   207, 19, 547, 58,  735, 210,
+            466, 2294, 256000, -2,  -2,   -2,  -2, -2,  -4,  583, 378,
+            844, 166,  3,      14,  1252, 54,  58, 626, 2295},
+           {3995, 2172, 1920, 432, 197, 979, 3076, 29}},
 
           // "How's it going?"
           /*decode_tokens=*/

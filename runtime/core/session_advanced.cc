@@ -64,7 +64,8 @@ absl::StatusOr<std::unique_ptr<SessionAdvanced>> SessionAdvanced::Create(
                    execution_manager_lock->GetSessionInfo(session_id));
   return absl::WrapUnique(new SessionAdvanced(
       session_id, execution_manager, tokenizer, session_info_,
-      /*is_first_turn=*/true, /*last_task_ids=*/{},
+      /*session_state=*/SessionState::kFresh,
+      /*last_task_ids=*/{},
       /*audio_executor_properties=*/audio_executor_properties));
 }
 
@@ -84,10 +85,6 @@ absl::StatusOr<std::unique_ptr<TaskController>>
 SessionAdvanced::RunPrefillAsync(
     const std::vector<InputData>& contents,
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
-  if (contents.empty()) {
-    return absl::InvalidArgumentError("Input is empty.");
-  }
-
   auto cancelled = std::make_shared<std::atomic<bool>>(false);
 
   auto execution_manager_lock = execution_manager_.lock();
@@ -104,21 +101,29 @@ SessionAdvanced::RunPrefillAsync(
         PreprocessContents(contents, session_info_->session_config, *tokenizer_,
                            session_info_->benchmark_info));
   } else {
-    ASSIGN_OR_RETURN(
-        std::vector<InputData> templated_contents,
-        ApplyPromptTemplates(contents, session_info_->session_config,
-                             *tokenizer_, is_first_turn_));
+    bool is_first_turn = session_state_ == SessionState::kFresh;
+    ContentType content_type;
+    if (session_info_->session_config.GetApplyPromptTemplateInSession()) {
+      content_type = (is_first_turn || session_state_ == SessionState::kDecoded)
+                         ? ContentType::kFirst
+                         : ContentType::kMiddle;
+    } else {
+      content_type = ContentType::kNA;
+    }
+    ASSIGN_OR_RETURN(std::vector<InputData> templated_contents,
+                     ApplyPromptTemplates(contents, content_type,
+                                          session_info_->session_config,
+                                          *tokenizer_, is_first_turn));
     ASSIGN_OR_RETURN(
         preprocessed_contents,
         PreprocessContents(templated_contents, session_info_->session_config,
                            *tokenizer_, session_info_->benchmark_info));
   }
   ASSIGN_OR_RETURN(auto task_id, execution_manager_lock->GetNewTaskId());
-
   RETURN_IF_ERROR(execution_manager_lock->AddPrefillTask(
       session_id_, task_id, std::move(preprocessed_contents), last_task_ids_,
       cancelled, std::move(callback)));
-
+  session_state_ = SessionState::kPrefilled;
   last_task_ids_ = {task_id};
 
   return std::make_unique<AdvancedTaskController>(task_id, cancelled,
@@ -203,12 +208,40 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionAdvanced::RunDecodeAsync(
 absl::StatusOr<std::unique_ptr<TaskController>> SessionAdvanced::RunDecodeAsync(
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
     const DecodeConfig& decode_config) {
+  if (session_state_ != SessionState::kPrefilled) {
+    return absl::InternalError("Session is not prefilled yet.");
+  }
+
   auto cancelled = std::make_shared<std::atomic<bool>>(false);
 
   auto execution_manager_lock = execution_manager_.lock();
   if (execution_manager_lock == nullptr) {
     return absl::FailedPreconditionError("Execution manager is not available.");
   }
+
+  // We need to do a last prefill before initializing the decode, to make sure
+  // the prompt is correctly set up for decode.
+  if (session_info_->session_config.GetApplyPromptTemplateInSession()) {
+    std::vector<InputData> contents;
+    contents.emplace_back(InputText(""));
+    ASSIGN_OR_RETURN(
+        std::vector<InputData> templated_contents,
+        ApplyPromptTemplates(contents, ContentType::kLast,
+                             session_info_->session_config, *tokenizer_,
+                             /*is_first_turn=*/false));
+    if (!templated_contents.empty()) {
+      ASSIGN_OR_RETURN(
+          std::vector<InputData> preprocessed_contents,
+          PreprocessContents(templated_contents, session_info_->session_config,
+                             *tokenizer_, session_info_->benchmark_info));
+      auto noop_callback = [](absl::StatusOr<Responses> responses) {};
+      ASSIGN_OR_RETURN(auto task_id, execution_manager_lock->GetNewTaskId());
+      RETURN_IF_ERROR(execution_manager_lock->AddPrefillTask(
+          session_id_, task_id, std::move(preprocessed_contents),
+          last_task_ids_, cancelled, std::move(noop_callback)));
+    }
+  }
+  session_state_ = SessionState::kDecoded;
 
   ASSIGN_OR_RETURN(auto task_id, execution_manager_lock->GetNewTaskId());
 
@@ -366,7 +399,7 @@ absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::CloneAsync(
 
   return absl::WrapUnique(new SessionAdvanced(session_id, execution_manager_,
                                               tokenizer_, session_info,
-                                              is_first_turn_, last_task_ids_));
+                                              session_state_, last_task_ids_));
 }
 
 }  // namespace litert::lm

@@ -26,6 +26,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "litert/cc/internal/scoped_file.h"  // from @litert
 #include "runtime/components/tokenizer.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -35,7 +36,6 @@
 #include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/proto/llm_model_type.pb.h"
 #include "runtime/proto/sampler_params.pb.h"
-#include "litert/cc/internal/scoped_file.h"  // from @litert
 
 namespace litert::lm {
 
@@ -201,9 +201,7 @@ class SessionConfig {
   // Prompt templates:
   // Getters for the prompt templates.
 
-  [[deprecated("Use Jinja prompt template instead.")]]
   const proto::PromptTemplates& GetPromptTemplates() const;
-  [[deprecated("Use Jinja prompt template instead.")]]
   proto::PromptTemplates& GetMutablePromptTemplates();
 
   // Llm model type:
@@ -211,9 +209,7 @@ class SessionConfig {
   const proto::LlmModelType& GetLlmModelType() const;
   proto::LlmModelType& GetMutableLlmModelType();
 
-  // Whether to apply the deprecated prompt templates in the session.
-  // TODO - b/453312248: Remove this field once the prompt templates are
-  // removed.
+  // Whether to apply the basic prompt templates in the session.
   bool GetApplyPromptTemplateInSession() const {
     return apply_prompt_template_in_session_;
   }
@@ -230,8 +226,7 @@ class SessionConfig {
   // Scoped LoRA file:
   // Getters for the scoped LoRA file.
   std::shared_ptr<ScopedFile> GetScopedLoraFile() const;
-  void SetScopedLoraFile(
-      std::shared_ptr<ScopedFile> scoped_lora_file);
+  void SetScopedLoraFile(std::shared_ptr<ScopedFile> scoped_lora_file);
 
   // The maximum number of tokens to generate in a single request:
   // Getters for the max output tokens.

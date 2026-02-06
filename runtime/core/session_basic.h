@@ -220,14 +220,22 @@ class SessionBasic : public Engine::Session {
   // The stop token detector used for the session.
   StopTokenDetector stop_token_detector_;
 
-  // Whether the current turn is the first turn.
-  // TODO - b/436674053: This is a temporary solution to determine whether the
-  // current turn is the first turn. Should be removed once prompt templates
-  // is no longer used.
-  bool is_first_turn_ = true;
-
   // An atomic boolean to indicate whether the session is cancelled.
   std::atomic<bool> cancelled_{false};
+
+  // The state of the session.
+  // * `kFresh` means the session is just created and
+  //   hasn't been prefilled yet.
+  // * `kPrefilled` means the session has been prefilled
+  //   but not decoded yet.
+  // * `kDecoded` means the session has been decoded.
+  //
+  // A session is considered fresh only if it has not been prefilled or decoded
+  // yet.
+  // A session could transition between kPrefilled and kDecoded if
+  // `RunPrefill` or `RunDecode` is called multiple times.
+  enum class SessionState : int { kFresh, kPrefilled, kDecoded };
+  SessionState session_state_ = SessionState::kFresh;
 
   // The set of executors that are already existed in the system. This is used
   // to avoid creating multiple sessions for the same executor.

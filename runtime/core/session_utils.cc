@@ -74,19 +74,18 @@ absl::StatusOr<InputText> StringToProcessedInputText(
 }
 
 absl::StatusOr<std::vector<InputData>> ApplyPromptTemplates(
-    const std::vector<InputData>& contents, const SessionConfig& session_config,
-    Tokenizer& tokenizer, bool& is_first_turn) {
-  if (contents.empty()) {
-    return std::vector<InputData>();
-  }
+    const std::vector<InputData>& contents, ContentType content_type,
+    const SessionConfig& session_config, Tokenizer& tokenizer,
+    bool is_first_turn) {
   ASSIGN_OR_RETURN(std::string bos_string,
                    MaybeGetBosString(session_config, tokenizer));
+
   std::vector<InputData> templated_contents;
   if (!session_config.GetApplyPromptTemplateInSession()) {
+    RET_CHECK(content_type == ContentType::kNA);
     if (is_first_turn && !bos_string.empty()) {
       templated_contents.push_back(InputText(bos_string));
     }
-    is_first_turn = false;
     for (int i = 0; i < contents.size(); ++i) {
       const auto& content = contents[i];
       ASSIGN_OR_RETURN(auto content_copy, CreateInputDataCopy(content));
@@ -95,64 +94,66 @@ absl::StatusOr<std::vector<InputData>> ApplyPromptTemplates(
     return templated_contents;
   }
 
+  RET_CHECK(content_type != ContentType::kNA);
+
+  if (is_first_turn && !bos_string.empty()) {
+    templated_contents.push_back(InputText(bos_string));
+  }
+
+  if (is_first_turn) {
+    RET_CHECK(content_type == ContentType::kFirst);
+  };
+
+  std::string turn_prefix = session_config.GetPromptTemplates().user().prefix();
+  std::string turn_suffix =
+      absl::StrCat(session_config.GetPromptTemplates().user().suffix(),
+                   session_config.GetPromptTemplates().model().prefix());
   for (int i = 0; i < contents.size(); ++i) {
     const auto& content = contents[i];
     const bool is_first_chunk = i == 0;
-    const bool is_last_chunk = i == contents.size() - 1;
-    absl::string_view raw_text = "";
-    if (const auto* input_text = std::get_if<InputText>(&content);
-        input_text != nullptr && !input_text->IsTensorBuffer()) {
-      ASSIGN_OR_RETURN(raw_text, input_text->GetRawTextString());
-    }
+    const bool is_text_chunk = std::holds_alternative<InputText>(content);
 
-    // Check if the input starts with the BOS string. If it does, return an
-    // error. This is to prevent the user from including the BOS string in the
-    // input. This is also needed for the current implementation as tokenizer
-    // will treat the BOS string differently from other strings. If the BOS
-    // string is empty, it means the BOS token id is not valid. In this case, we
-    // will not check for the BOS string in the input.
-    if (!bos_string.empty() && StartsWith(raw_text, bos_string)) {
-      return absl::InvalidArgumentError(
-          "Input contains bos control token. Control token should not be "
-          "included in the input.");
-    }
+    if (is_text_chunk) {
+      ASSIGN_OR_RETURN(absl::string_view raw_text,
+                       std::get<InputText>(content).GetRawTextString());
 
-    std::string session_prefix = "";
-    if (is_first_chunk) {
-      session_prefix = is_first_turn ? bos_string : "\n";
-      is_first_turn = false;
-    }
-    std::string turn_prefix = absl::StrCat(
-        session_prefix, session_config.GetPromptTemplates().user().prefix());
-    std::string turn_suffix =
-        absl::StrCat(session_config.GetPromptTemplates().user().suffix(),
-                     session_config.GetPromptTemplates().model().prefix());
-
-    if (raw_text.empty()) {
-      // Non-text chunk. Add templates as separate InputText objects.
-      if (is_first_chunk && !turn_prefix.empty()) {
-        templated_contents.push_back(InputText(std::move(turn_prefix)));
+      // Check if the input starts with the BOS string. If it does, return an
+      // error. This is to prevent the user from including the BOS string in the
+      // input. This is also needed for the current implementation as tokenizer
+      // will treat the BOS string differently from other strings. If the BOS
+      // string is empty, it means the BOS token id is not valid. In this case,
+      // we will not check for the BOS string in the input.
+      if (!bos_string.empty() && StartsWith(raw_text, bos_string)) {
+        return absl::InvalidArgumentError(
+            "Input contains bos control token. Control token should not be "
+            "included in the input.");
       }
-      // TODO - b/445254659: Remove all actual copies.
-      ASSIGN_OR_RETURN(auto content_copy, CreateInputDataCopy(content));
-      templated_contents.emplace_back(std::move(content_copy));
-      if (is_last_chunk && !turn_suffix.empty()) {
-        templated_contents.push_back(InputText(std::move(turn_suffix)));
+
+      std::string templated_text;
+      if (is_first_chunk && (content_type == ContentType::kFirst)) {
+        templated_text = absl::StrCat(turn_prefix, raw_text);
+      } else if (content_type == ContentType::kLast) {
+        templated_text = absl::StrCat(raw_text, turn_suffix);
+      } else {
+        templated_text = raw_text;
+      }
+
+      if (!templated_text.empty()) {
+        templated_contents.push_back(InputText(std::move(templated_text)));
       }
     } else {
-      // Raw text chunk. Combine templates with the raw text.
-      std::string templated_text;
-      if (is_first_chunk) {
-        templated_text = absl::StrCat(turn_prefix, raw_text);
-      } else {
-        templated_text = std::string(raw_text);
+      if (is_first_chunk && (content_type == ContentType::kFirst) &&
+          !turn_prefix.empty()) {
+        templated_contents.push_back(InputText(turn_prefix));
       }
-      if (is_last_chunk) {
-        absl::StrAppend(&templated_text, turn_suffix);
+      ASSIGN_OR_RETURN(auto content_copy, CreateInputDataCopy(content));
+      templated_contents.emplace_back(std::move(content_copy));
+      if ((content_type == ContentType::kLast) && !turn_suffix.empty()) {
+        templated_contents.push_back(InputText(turn_suffix));
       }
-      templated_contents.push_back(InputText(std::move(templated_text)));
     }
   }
+
   return templated_contents;
 }
 
