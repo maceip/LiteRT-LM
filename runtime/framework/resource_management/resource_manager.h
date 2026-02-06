@@ -33,7 +33,6 @@
 #include "runtime/executor/audio_executor.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/llm_executor.h"
-#include "runtime/executor/llm_executor_settings.h"
 #include "runtime/executor/vision_executor.h"
 #include "runtime/executor/vision_executor_settings.h"
 #include "runtime/framework/resource_management/context_handler/context_handler.h"
@@ -50,7 +49,7 @@ class ResourceManager {
       std::unique_ptr<VisionExecutorSettings> vision_executor_settings,
       std::unique_ptr<AudioExecutorSettings> audio_executor_settings,
       ::litert::Environment* absl_nullable litert_env)
-      : model_resources_(model_resources),
+      :  // dummy comment to prevent clang-format from moving the next line here
         llm_executor_(std::move(llm_executor)),
         vision_executor_settings_(std::move(vision_executor_settings)),
         audio_executor_settings_(std::move(audio_executor_settings)),
@@ -134,8 +133,6 @@ class ResourceManager {
  private:
   // Creates the litert environment if it is not created yet.
   absl::Status MaybeCreateLitertEnv();
-
-  ModelResources* model_resources_;
 
   // Guards the llm_executor_.
   absl::Mutex executor_mutex_;
