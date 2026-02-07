@@ -252,6 +252,13 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
     main_executor_settings_.SetAdvancedSettings(advanced_settings);
   }
 
+  // TODO: b/482450588 - Remove this once the bug is fixed.
+  if (metadata.has_llm_model_type() &&
+      metadata.llm_model_type().has_function_gemma()) {
+    advanced_settings.convert_weights_on_gpu = false;
+    main_executor_settings_.SetAdvancedSettings(advanced_settings);
+  }
+
   if (!metadata.has_jinja_prompt_template()) {
     ASSIGN_OR_RETURN(*metadata.mutable_jinja_prompt_template(),
                      GetDefaultJinjaPromptTemplate(metadata.prompt_templates(),

@@ -1531,45 +1531,30 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
       }
       // Prefill and decode are always fully delegated to single delegate.
       gpu_compilation_options.SetHintFullyDelegatedToSingleDelegate(true);
-      auto advanced_settings = executor_settings.GetAdvancedSettings();
-      int num_threads_to_upload = kDefaultNumThreadsToUpload;
-      int num_threads_to_compile = kDefaultNumThreadsToCompile;
-      bool enable_constant_tensor_sharing = true;
-      bool allow_src_quantized_fc_conv_ops = true;
-      if (advanced_settings) {
-        gpu_compilation_options.SetMadviseOriginalSharedTensors(
-            advanced_settings->gpu_madvise_original_shared_tensors);
-        if (advanced_settings->is_benchmark) {
-          gpu_compilation_options.SetSyncExecutionModeWaitType(
-              GpuOptions::SyncExecutionModeWaitType::kActive);
-        }
-        if (!advanced_settings->preferred_device_substr.empty()) {
-          gpu_compilation_options.SetPreferredDeviceSubstr(
-              advanced_settings->preferred_device_substr.c_str());
-        }
-        if (advanced_settings->num_threads_to_upload >= 0) {
-          num_threads_to_upload = advanced_settings->num_threads_to_upload;
-        }
-        if (advanced_settings->num_threads_to_compile >= 0) {
-          num_threads_to_compile = advanced_settings->num_threads_to_compile;
-        }
-        if (advanced_settings->convert_weights_on_gpu) {
-          gpu_compilation_options.SetConvertWeightsOnGpu(true);
-        }
-        if (!advanced_settings->optimize_shader_compilation) {
-          gpu_compilation_options.DisableShaderOptimization(true);
-        }
-        enable_constant_tensor_sharing =
-            advanced_settings->share_constant_tensors;
-        if (advanced_settings->allow_src_quantized_fc_conv_ops.has_value()) {
-          allow_src_quantized_fc_conv_ops =
-              advanced_settings->allow_src_quantized_fc_conv_ops.value();
-        }
+
+      AdvancedSettings advanced_settings;
+      if (executor_settings.GetAdvancedSettings()) {
+        advanced_settings = *executor_settings.GetAdvancedSettings();
       }
+      gpu_compilation_options.SetMadviseOriginalSharedTensors(
+          advanced_settings.gpu_madvise_original_shared_tensors);
+      gpu_compilation_options.SetConvertWeightsOnGpu(
+          advanced_settings.convert_weights_on_gpu);
       gpu_compilation_options.EnableConstantTensorSharing(
-          enable_constant_tensor_sharing);
+          advanced_settings.share_constant_tensors);
       gpu_compilation_options.EnableAllowSrcQuantizedFcConvOps(
-          allow_src_quantized_fc_conv_ops);
+          !advanced_settings.allow_src_quantized_fc_conv_ops.has_value() ||
+          advanced_settings.allow_src_quantized_fc_conv_ops.value());
+      if (advanced_settings.is_benchmark) {
+        gpu_compilation_options.SetSyncExecutionModeWaitType(
+            GpuOptions::SyncExecutionModeWaitType::kActive);
+      }
+      if (!advanced_settings.preferred_device_substr.empty()) {
+        gpu_compilation_options.SetPreferredDeviceSubstr(
+            advanced_settings.preferred_device_substr.c_str());
+      }
+      gpu_compilation_options.DisableShaderOptimization(
+          !advanced_settings.optimize_shader_compilation);
       // TODO b/441627719 - Select backend by runtime options.
 #if defined(LITERT_USE_WEBGPU_ACCELERATOR)
       gpu_compilation_options.SetBackend(GpuOptions::Backend::kWebGpu);
@@ -1579,8 +1564,14 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
       // swapped and the GPU resource bindings are the same as the previous
       // previous step.
       gpu_compilation_options.SetNumStepsOfCommandBufferPreparations(2);
-      gpu_compilation_options.SetNumThreadsToUpload(num_threads_to_upload);
-      gpu_compilation_options.SetNumThreadsToCompile(num_threads_to_compile);
+      gpu_compilation_options.SetNumThreadsToUpload(
+        advanced_settings.num_threads_to_upload >= 0
+            ? advanced_settings.num_threads_to_upload
+            : kDefaultNumThreadsToUpload);
+      gpu_compilation_options.SetNumThreadsToCompile(
+          advanced_settings.num_threads_to_compile >= 0
+              ? advanced_settings.num_threads_to_compile
+              : kDefaultNumThreadsToCompile);
       compilation_options.SetHardwareAccelerators(HwAccelerators::kGpu);
       break;
     }

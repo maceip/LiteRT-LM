@@ -104,6 +104,8 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  // TODO: b/482489374 - Remove this once the memory leak is fixed.
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto env, Environment::Create(std::vector<Environment::Option>()));
   auto executor = LlmLiteRtCompiledModelExecutorStatic::Create(
@@ -126,6 +128,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest, PrefillTest) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto env, Environment::Create(std::vector<Environment::Option>()));
   ASSERT_OK_AND_ASSIGN(auto executor,
@@ -163,6 +166,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest, DecodeTest) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto env, Environment::Create(std::vector<Environment::Option>()));
   ASSERT_OK_AND_ASSIGN(auto executor,
@@ -223,6 +227,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest, ConstrainedDecodeTest) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto env, Environment::Create(std::vector<Environment::Option>()));
   ASSERT_OK_AND_ASSIGN(auto executor,
@@ -290,6 +295,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest, DecodeLogitsTest) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto env, Environment::Create(std::vector<Environment::Option>()));
   ASSERT_OK_AND_ASSIGN(auto executor,
@@ -347,6 +353,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest, CreateExecutorTest_WithCache) {
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto env, Environment::Create(std::vector<Environment::Option>()));
   auto executor = LlmLiteRtCompiledModelExecutorStatic::Create(
@@ -391,6 +398,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   ::litert::lm::CpuConfig config;
   config.number_of_threads = kNumThreads;
   executor_settings->SetBackendConfig(config);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   LITERT_ASSERT_OK_AND_ASSIGN(
       auto env, Environment::Create(std::vector<Environment::Option>()));
   auto executor = LlmLiteRtCompiledModelExecutorStatic::Create(
@@ -457,6 +465,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest, MultipleOutput_Decode) {
   EXPECT_OK(model_assets);
   auto executor_settings = LlmExecutorSettings::CreateDefault(*model_assets);
   EXPECT_OK(executor_settings);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   auto env = Environment::Create(std::vector<Environment::Option>());
   EXPECT_TRUE(env);
   TfLiteModelResources model_resources(*model_assets);
@@ -536,6 +545,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   EXPECT_OK(model_assets);
   auto executor_settings = LlmExecutorSettings::CreateDefault(*model_assets);
   EXPECT_OK(executor_settings);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   auto env = Environment::Create(std::vector<Environment::Option>());
   EXPECT_TRUE(env);
   TfLiteModelResources model_resources(*model_assets);
@@ -631,6 +641,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   EXPECT_OK(model_assets);
   auto executor_settings = LlmExecutorSettings::CreateDefault(*model_assets);
   EXPECT_OK(executor_settings);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   auto env = Environment::Create(std::vector<Environment::Option>());
   EXPECT_TRUE(env);
   TfLiteModelResources model_resources(*model_assets);
@@ -720,6 +731,7 @@ TEST(LlmLiteRtCompiledModelExecutorStaticTest,
   EXPECT_OK(model_assets);
   auto executor_settings = LlmExecutorSettings::CreateDefault(*model_assets);
   EXPECT_OK(executor_settings);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   auto env = Environment::Create(std::vector<Environment::Option>());
   EXPECT_TRUE(env);
   TfLiteModelResources model_resources(*model_assets);
@@ -773,6 +785,7 @@ CreateDynamicExecutor(Environment& env, absl::string_view model_path,
   config.kv_increment_size = kv_increment_size;
   config.prefill_chunk_size = prefill_chunk_size;
   executor_settings->SetBackendConfig(config);
+  executor_settings->SetAdvancedSettings({.convert_weights_on_gpu = false});
   ASSIGN_OR_RETURN(auto executor,
                    LlmLiteRtCompiledModelExecutorDynamic::Create(
                        *executor_settings, env, *model_resources));
