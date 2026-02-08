@@ -123,6 +123,8 @@ class SessionBasic : public Engine::Session {
 
   absl::StatusOr<BenchmarkInfo*> GetMutableBenchmarkInfo() override;
 
+  absl::Status Reset() override;
+
   // TODO(b/450903294): Add rollback history support for Session and
   // Conversation.
   void CancelProcess() override {
@@ -147,6 +149,9 @@ class SessionBasic : public Engine::Session {
     }
     return absl::FailedPreconditionError("Audio modality is not enabled.");
   }
+
+  absl::StatusOr<std::unique_ptr<TrainableParameterHandle>>
+  GetTrainableParameters() override;
 
   // Util function for creating the combined ExecutorInputs from the
   // preprocessed contents.

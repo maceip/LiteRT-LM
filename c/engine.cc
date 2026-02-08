@@ -35,6 +35,7 @@
 #include "runtime/engine/engine_factory.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/engine/mezo.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/proto/sampler_params.pb.h"
 
@@ -98,7 +99,10 @@ using ::litert::lm::EngineSettings;
 using ::litert::lm::InputText;
 using ::litert::lm::JsonMessage;
 using ::litert::lm::Message;
+using ::litert::lm::MeZoConfig;
+using ::litert::lm::MeZoFineTuner;
 using ::litert::lm::ModelAssets;
+using ::litert::lm::NamedParameter;
 using ::litert::lm::Responses;
 using ::litert::lm::SessionConfig;
 using ::litert::lm::proto::SamplerParameters;
@@ -137,6 +141,23 @@ struct LiteRtLmSessionConfig {
 
 struct LiteRtLmConversationConfig {
   std::unique_ptr<ConversationConfig> config;
+};
+
+struct LiteRtLmMeZoConfig {
+  MeZoConfig config;
+};
+
+struct LiteRtLmMeZoFineTuner {
+  std::unique_ptr<MeZoFineTuner> finetuner;
+};
+
+using ::litert::lm::TrainableParameterHandle;
+
+struct LiteRtLmTrainableParams {
+  std::unique_ptr<TrainableParameterHandle> handle;
+  // Cached C-compatible parameter array (name strings owned by params_names).
+  std::vector<LiteRtLmMeZoParameter> c_params;
+  std::vector<std::string> param_names;  // Owns the name strings.
 };
 
 extern "C" {
@@ -182,6 +203,26 @@ void litert_lm_session_config_set_sampler_params(
     params.set_temperature(sampler_params->temperature);
     params.set_seed(sampler_params->seed);
   }
+}
+
+void litert_lm_session_config_set_lora_id(LiteRtLmSessionConfig* config,
+                                          int32_t lora_id) {
+  if (config && config->config) {
+    if (lora_id >= 0) {
+      config->config->SetLoraId(static_cast<uint32_t>(lora_id));
+    } else {
+      config->config->SetLoraId(std::nullopt);
+    }
+  }
+}
+
+int32_t litert_lm_session_config_get_lora_id(
+    const LiteRtLmSessionConfig* config) {
+  if (!config || !config->config) {
+    return -1;
+  }
+  auto lora_id = config->config->GetLoraId();
+  return lora_id.has_value() ? static_cast<int32_t>(*lora_id) : -1;
 }
 
 void litert_lm_session_config_delete(LiteRtLmSessionConfig* config) {
@@ -339,6 +380,13 @@ void litert_lm_engine_settings_set_cache_dir(LiteRtLmEngineSettings* settings,
   }
 }
 
+void litert_lm_engine_settings_set_lora_rank(LiteRtLmEngineSettings* settings,
+                                             int lora_rank) {
+  if (settings && settings->settings) {
+    settings->settings->GetMutableMainExecutorSettings().SetLoraRank(lora_rank);
+  }
+}
+
 void litert_lm_engine_settings_enable_benchmark(
     LiteRtLmEngineSettings* settings) {
   if (settings && settings->settings) {
@@ -375,6 +423,21 @@ LiteRtLmEngine* litert_lm_engine_create(
 
 void litert_lm_engine_delete(LiteRtLmEngine* engine) { delete engine; }
 
+int litert_lm_engine_load_lora(LiteRtLmEngine* engine, int32_t lora_id,
+                               const char* lora_path) {
+  if (!engine || !engine->engine || !lora_path) {
+    ABSL_LOG(ERROR) << "Invalid arguments to litert_lm_engine_load_lora";
+    return -1;
+  }
+  auto status = engine->engine->LoadLoRA(static_cast<uint32_t>(lora_id),
+                                         std::string(lora_path));
+  if (!status.ok()) {
+    ABSL_LOG(ERROR) << "Failed to load LoRA: " << status;
+    return -1;
+  }
+  return 0;
+}
+
 LiteRtLmSession* litert_lm_engine_create_session(
     LiteRtLmEngine* engine, LiteRtLmSessionConfig* config) {
   if (!engine || !engine->engine) {
@@ -397,6 +460,18 @@ LiteRtLmSession* litert_lm_engine_create_session(
 }
 
 void litert_lm_session_delete(LiteRtLmSession* session) { delete session; }
+
+int litert_lm_session_reset(LiteRtLmSession* session) {
+  if (!session || !session->session) {
+    return -1;
+  }
+  auto status = session->session->Reset();
+  if (!status.ok()) {
+    ABSL_LOG(ERROR) << "Failed to reset session: " << status;
+    return -1;
+  }
+  return 0;
+}
 
 LiteRtLmResponses* litert_lm_session_generate_content(LiteRtLmSession* session,
                                                       const InputData* inputs,
@@ -704,6 +779,272 @@ LiteRtLmBenchmarkInfo* litert_lm_conversation_get_benchmark_info(
     return nullptr;
   }
   return new LiteRtLmBenchmarkInfo{std::move(*benchmark_info)};
+}
+
+// ---------------------------------------------------------------------------
+// MeZO Fine-Tuning C API
+// ---------------------------------------------------------------------------
+
+LiteRtLmMeZoConfig* litert_lm_mezo_config_create() {
+  return new LiteRtLmMeZoConfig;
+}
+
+void litert_lm_mezo_config_delete(LiteRtLmMeZoConfig* config) {
+  delete config;
+}
+
+void litert_lm_mezo_config_set_learning_rate(LiteRtLmMeZoConfig* config,
+                                             float learning_rate) {
+  if (config) {
+    config->config.SetLearningRate(learning_rate);
+  }
+}
+
+void litert_lm_mezo_config_set_epsilon(LiteRtLmMeZoConfig* config,
+                                       float epsilon) {
+  if (config) {
+    config->config.SetEpsilon(epsilon);
+  }
+}
+
+void litert_lm_mezo_config_set_weight_decay(LiteRtLmMeZoConfig* config,
+                                            float weight_decay) {
+  if (config) {
+    config->config.SetWeightDecay(weight_decay);
+  }
+}
+
+void litert_lm_mezo_config_set_seed(LiteRtLmMeZoConfig* config,
+                                    uint64_t seed) {
+  if (config) {
+    config->config.SetSeed(seed);
+  }
+}
+
+void litert_lm_mezo_config_set_use_conmezo(LiteRtLmMeZoConfig* config,
+                                           bool use_conmezo) {
+  if (config) {
+    config->config.SetUseConMeZo(use_conmezo);
+  }
+}
+
+void litert_lm_mezo_config_set_momentum_decay(LiteRtLmMeZoConfig* config,
+                                              float momentum_decay) {
+  if (config) {
+    config->config.SetMomentumDecay(momentum_decay);
+  }
+}
+
+void litert_lm_mezo_config_set_cone_angle(LiteRtLmMeZoConfig* config,
+                                          float cone_angle) {
+  if (config) {
+    config->config.SetConeAngle(cone_angle);
+  }
+}
+
+void litert_lm_mezo_config_set_optimizer_mode(LiteRtLmMeZoConfig* config,
+                                              int mode) {
+  if (config) {
+    config->config.SetOptimizerMode(
+        static_cast<litert::lm::OptimizerMode>(mode));
+  }
+}
+
+void litert_lm_mezo_config_set_agzo_subspace_rank(LiteRtLmMeZoConfig* config,
+                                                   int rank) {
+  if (config) {
+    config->config.SetAgzoSubspaceRank(rank);
+  }
+}
+
+void litert_lm_mezo_config_set_momentum_warmup(LiteRtLmMeZoConfig* config,
+                                                float momentum_init,
+                                                int cold_steps,
+                                                int warm_steps) {
+  if (config) {
+    config->config.SetMomentumInit(momentum_init);
+    config->config.SetMomentumColdSteps(cold_steps);
+    config->config.SetMomentumWarmSteps(warm_steps);
+  }
+}
+
+LiteRtLmMeZoFineTuner* litert_lm_mezo_finetuner_create(
+    const LiteRtLmMeZoConfig* config) {
+  if (!config) {
+    return nullptr;
+  }
+  auto finetuner = MeZoFineTuner::Create(config->config);
+  if (!finetuner.ok()) {
+    ABSL_LOG(ERROR) << "Failed to create MeZO fine-tuner: "
+                    << finetuner.status();
+    return nullptr;
+  }
+  auto* c_finetuner = new LiteRtLmMeZoFineTuner;
+  c_finetuner->finetuner = *std::move(finetuner);
+  return c_finetuner;
+}
+
+void litert_lm_mezo_finetuner_delete(LiteRtLmMeZoFineTuner* finetuner) {
+  delete finetuner;
+}
+
+int litert_lm_mezo_finetuner_step(LiteRtLmMeZoFineTuner* finetuner,
+                                  const LiteRtLmMeZoParameter* parameters,
+                                  size_t num_parameters,
+                                  LiteRtLmMeZoLossFn loss_fn, void* user_data,
+                                  float* loss_out) {
+  if (!finetuner || !finetuner->finetuner || !parameters || !loss_fn ||
+      !loss_out) {
+    return -1;
+  }
+
+  // Convert C parameters to C++ NamedParameter vector.
+  std::vector<NamedParameter> cpp_params;
+  cpp_params.reserve(num_parameters);
+  for (size_t i = 0; i < num_parameters; ++i) {
+    NamedParameter p;
+    p.name = parameters[i].name ? parameters[i].name : "";
+    p.data = parameters[i].data;
+    p.num_elements = parameters[i].num_elements;
+    p.is_bias_or_layernorm = !parameters[i].apply_weight_decay;
+    cpp_params.push_back(std::move(p));
+  }
+
+  // Wrap the C loss callback as a C++ invocable.
+  auto cpp_loss_fn =
+      [loss_fn, user_data]() -> absl::StatusOr<float> {
+    float loss = 0.0f;
+    int result = loss_fn(user_data, &loss);
+    if (result != 0) {
+      return absl::InternalError("Loss function callback failed.");
+    }
+    return loss;
+  };
+
+  auto result =
+      finetuner->finetuner->Step(cpp_params, std::move(cpp_loss_fn));
+  if (!result.ok()) {
+    ABSL_LOG(ERROR) << "MeZO step failed: " << result.status();
+    return static_cast<int>(result.status().code());
+  }
+  *loss_out = *result;
+  return 0;
+}
+
+uint64_t litert_lm_mezo_finetuner_get_step_count(
+    const LiteRtLmMeZoFineTuner* finetuner) {
+  if (!finetuner || !finetuner->finetuner) {
+    return 0;
+  }
+  return finetuner->finetuner->GetStepCount();
+}
+
+void litert_lm_mezo_finetuner_set_learning_rate(
+    LiteRtLmMeZoFineTuner* finetuner, float learning_rate) {
+  if (finetuner && finetuner->finetuner) {
+    finetuner->finetuner->SetLearningRate(learning_rate);
+  }
+}
+
+float litert_lm_mezo_finetuner_get_learning_rate(
+    const LiteRtLmMeZoFineTuner* finetuner) {
+  if (!finetuner || !finetuner->finetuner) {
+    return 0.0f;
+  }
+  return finetuner->finetuner->GetLearningRate();
+}
+
+// ---------------------------------------------------------------------------
+// Low-level Session APIs (Prefill, TextScoring, Trainable Parameters)
+// ---------------------------------------------------------------------------
+
+int litert_lm_session_run_prefill(LiteRtLmSession* session,
+                                  const char* input_text) {
+  if (!session || !session->session || !input_text) {
+    return -1;
+  }
+  std::vector<litert::lm::InputData> inputs;
+  inputs.emplace_back(InputText(std::string(input_text)));
+  auto status = session->session->RunPrefill(inputs);
+  if (!status.ok()) {
+    ABSL_LOG(ERROR) << "Failed to run prefill: " << status;
+    return static_cast<int>(status.code());
+  }
+  return 0;
+}
+
+int litert_lm_session_run_text_scoring(LiteRtLmSession* session,
+                                       const char** target_texts,
+                                       size_t num_targets,
+                                       float* scores_out) {
+  if (!session || !session->session || !target_texts || !scores_out ||
+      num_targets == 0) {
+    return -1;
+  }
+  std::vector<absl::string_view> targets;
+  targets.reserve(num_targets);
+  for (size_t i = 0; i < num_targets; ++i) {
+    if (!target_texts[i]) return -1;
+    targets.emplace_back(target_texts[i]);
+  }
+  auto responses =
+      session->session->RunTextScoring(targets, /*store_token_lengths=*/false);
+  if (!responses.ok()) {
+    ABSL_LOG(ERROR) << "Failed to run text scoring: " << responses.status();
+    return -1;
+  }
+  const auto& scores = responses->GetScores();
+  int n = static_cast<int>(scores.size());
+  for (int i = 0; i < n; ++i) {
+    scores_out[i] = scores[i];
+  }
+  return n;
+}
+
+LiteRtLmTrainableParams* litert_lm_session_get_trainable_parameters(
+    LiteRtLmSession* session) {
+  if (!session || !session->session) {
+    return nullptr;
+  }
+  auto handle = session->session->GetTrainableParameters();
+  if (!handle.ok()) {
+    ABSL_LOG(ERROR) << "Failed to get trainable parameters: "
+                    << handle.status();
+    return nullptr;
+  }
+
+  auto* result = new LiteRtLmTrainableParams;
+  result->handle = *std::move(handle);
+  const auto& params = result->handle->GetParameters();
+
+  result->param_names.reserve(params.size());
+  result->c_params.reserve(params.size());
+  for (const auto& p : params) {
+    result->param_names.push_back(p.name);
+    LiteRtLmMeZoParameter c_param;
+    c_param.name = result->param_names.back().c_str();
+    c_param.data = p.data;
+    c_param.num_elements = p.num_elements;
+    c_param.apply_weight_decay = !p.is_bias_or_layernorm;
+    result->c_params.push_back(c_param);
+  }
+  return result;
+}
+
+size_t litert_lm_trainable_params_count(
+    const LiteRtLmTrainableParams* params) {
+  if (!params) return 0;
+  return params->c_params.size();
+}
+
+const LiteRtLmMeZoParameter* litert_lm_trainable_params_get(
+    const LiteRtLmTrainableParams* params, size_t index) {
+  if (!params || index >= params->c_params.size()) return nullptr;
+  return &params->c_params[index];
+}
+
+void litert_lm_trainable_params_delete(LiteRtLmTrainableParams* params) {
+  delete params;
 }
 
 }  // extern "C"

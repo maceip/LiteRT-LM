@@ -53,8 +53,10 @@
 #include "runtime/executor/vision_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
+#include "runtime/components/lora_manager.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/executor_data_util.h"
+#include "runtime/util/lora_util.h"
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
 #include "runtime/util/tensor_buffer_util.h"
 
@@ -142,6 +144,85 @@ SessionBasic::~SessionBasic() {
   }
   absl::MutexLock lock(occupied_executors_mu_);  // NOLINT
   occupied_executors_->erase(&executor_);
+}
+
+namespace {
+
+// Concrete TrainableParameterHandle that holds LoRA TensorBuffers alive.
+// The TensorBuffers are duplicated from the LoRA manager and keep the
+// underlying ref-counted memory alive. We lock briefly to discover the host
+// address, then immediately unlock so the executor's forward pass can also
+// lock the same buffers. The raw float* stays valid as long as the
+// TensorBuffer is alive (CPU buffers use stable host-memory addresses).
+class LoraTrainableParameterHandle : public TrainableParameterHandle {
+ public:
+  // Takes ownership of the duplicated TensorBuffer map.
+  static absl::StatusOr<std::unique_ptr<LoraTrainableParameterHandle>> Create(
+      absl::flat_hash_map<absl::string_view, TensorBuffer> buffers) {
+    auto handle = std::make_unique<LoraTrainableParameterHandle>();
+
+    for (auto& [name, buffer] : buffers) {
+      // Lock briefly to discover the float* address, then release the lock
+      // so the executor can register the same buffers during forward pass.
+      float* data = nullptr;
+      {
+        LITERT_ASSIGN_OR_RETURN(
+            auto lock_and_addr,
+            TensorBufferScopedLock::Create(
+                buffer, TensorBuffer::LockMode::kRead));
+        data = static_cast<float*>(const_cast<void*>(lock_and_addr.second));
+      }  // lock released here
+
+      LITERT_ASSIGN_OR_RETURN(auto tensor_type, buffer.TensorType());
+      LITERT_ASSIGN_OR_RETURN(auto num_elements,
+                              tensor_type.Layout().NumElements());
+
+      bool is_bias_or_ln = !IsLoRAInputName(name);
+
+      TrainableParameter param;
+      param.name = std::string(name);
+      param.data = data;
+      param.num_elements = num_elements;
+      param.is_bias_or_layernorm = is_bias_or_ln;
+      handle->parameters_.push_back(std::move(param));
+
+      // Keep the TensorBuffer alive to maintain the underlying memory.
+      handle->buffers_.push_back(std::move(buffer));
+    }
+
+    return handle;
+  }
+
+  const std::vector<TrainableParameter>& GetParameters() const override {
+    return parameters_;
+  }
+
+ private:
+  friend class std::unique_ptr<LoraTrainableParameterHandle>;
+  std::vector<TrainableParameter> parameters_;
+  std::vector<TensorBuffer> buffers_;
+};
+
+}  // namespace
+
+absl::StatusOr<std::unique_ptr<TrainableParameterHandle>>
+SessionBasic::GetTrainableParameters() {
+  LoraManager* lora_manager = executor_.GetLoraManager();
+  if (lora_manager == nullptr) {
+    return absl::FailedPreconditionError(
+        "No LoRA manager available. The executor does not support LoRA.");
+  }
+  ASSIGN_OR_RETURN(auto buffers, lora_manager->GetLoRABuffers());
+  if (buffers.empty()) {
+    return absl::NotFoundError("No trainable LoRA parameters found.");
+  }
+  auto handle = LoraTrainableParameterHandle::Create(std::move(buffers));
+  if (!handle.ok()) {
+    return absl::InternalError(
+        absl::StrCat("Failed to create trainable parameter handle: ",
+                     handle.status().ToString()));
+  }
+  return std::unique_ptr<TrainableParameterHandle>(*std::move(handle));
 }
 
 absl::StatusOr<ExecutorInputs> SessionBasic::ProcessAndCombineContents(
@@ -571,6 +652,14 @@ absl::StatusOr<BenchmarkInfo*> SessionBasic::GetMutableBenchmarkInfo() {
   return absl::InternalError(
       "Benchmark is not enabled. Please make sure the BenchmarkParams is set "
       "in the EngineSettings.");
+}
+
+absl::Status SessionBasic::Reset() {
+  RETURN_IF_ERROR(executor_.Reset());
+  last_prefill_token_id_ = 0;
+  cancelled_ = false;
+  session_state_ = SessionState::kFresh;
+  return absl::OkStatus();
 }
 
 }  // namespace litert::lm

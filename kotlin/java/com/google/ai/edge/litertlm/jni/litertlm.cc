@@ -36,6 +36,7 @@
 #include "runtime/engine/engine_factory.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/engine/mezo.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "tflite/logger.h"  // from @litert
@@ -70,10 +71,16 @@ using litert::lm::InputText;
 using litert::lm::JsonMessage;
 using litert::lm::JsonPreface;
 using litert::lm::Message;
+using litert::lm::MeZoConfig;
+using litert::lm::MeZoFineTuner;
+using litert::lm::OptimizerMode;
 using litert::lm::ModelAssets;
+using litert::lm::NamedParameter;
 using litert::lm::Preface;
 using litert::lm::Responses;
 using litert::lm::SessionConfig;
+using litert::lm::TrainableParameter;
+using litert::lm::TrainableParameterHandle;
 using litert::lm::proto::SamplerParameters;
 
 void ThrowLiteRtLmJniException(JNIEnv* env, const std::string& message) {
@@ -498,6 +505,33 @@ JNI_METHOD(nativeCreateSession)(JNIEnv* env, jclass thiz, jlong engine_pointer,
   return reinterpret_cast<jlong>(session->release());
 }
 
+LITERTLM_JNIEXPORT jlong JNICALL
+JNI_METHOD(nativeCreateSessionWithLora)(JNIEnv* env, jclass thiz,
+                                        jlong engine_pointer,
+                                        jobject sampler_config_obj,
+                                        jint lora_id) {
+  auto session_config = SessionConfig::CreateDefault();
+
+  if (sampler_config_obj != nullptr) {
+    session_config.GetMutableSamplerParams() =
+        CreateSamplerParamsFromJni(env, sampler_config_obj);
+  }
+
+  // Set LoRA ID if specified (>= 0).
+  if (lora_id >= 0) {
+    session_config.SetLoraId(static_cast<uint32_t>(lora_id));
+  }
+
+  Engine* engine = reinterpret_cast<Engine*>(engine_pointer);
+  auto session = engine->CreateSession(session_config);
+  if (!session.ok()) {
+    ThrowLiteRtLmJniException(
+        env, "Failed to create session: " + session.status().ToString());
+    return 0;
+  }
+  return reinterpret_cast<jlong>(session->release());
+}
+
 LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeDeleteSession)(
     JNIEnv* env, jclass thiz, jlong session_pointer) {
   delete reinterpret_cast<Engine::Session*>(session_pointer);
@@ -744,6 +778,72 @@ LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversation)(
   return reinterpret_cast<jlong>(conversation->release());
 }
 
+LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversationWithLora)(
+    JNIEnv* env, jclass thiz, jlong engine_pointer, jobject sampler_config_obj,
+    jstring messages_json_string, jstring tools_description_json_string,
+    jboolean enable_constrained_decoding, jint lora_id) {
+  Engine* engine = reinterpret_cast<Engine*>(engine_pointer);
+
+  // Create a native SessionConfig
+  auto session_config = SessionConfig::CreateDefault();
+  if (sampler_config_obj != nullptr) {
+    session_config.GetMutableSamplerParams() =
+        CreateSamplerParamsFromJni(env, sampler_config_obj);
+  }
+
+  // Set LoRA ID if specified (>= 0).
+  if (lora_id >= 0) {
+    session_config.SetLoraId(static_cast<uint32_t>(lora_id));
+  }
+
+  // Create the Preface from the system instruction and tools.
+  JsonPreface json_preface;
+
+  const char* messages_chars =
+      env->GetStringUTFChars(messages_json_string, nullptr);
+  std::string messages_json_str(messages_chars);
+  env->ReleaseStringUTFChars(messages_json_string, messages_chars);
+  json_preface.messages = nlohmann::ordered_json::parse(messages_json_str);
+
+  const char* tools_description_chars =
+      env->GetStringUTFChars(tools_description_json_string, nullptr);
+  auto tool_json = nlohmann::ordered_json::parse(tools_description_chars);
+  env->ReleaseStringUTFChars(tools_description_json_string,
+                             tools_description_chars);
+
+  if (tool_json.is_array()) {
+    nlohmann::ordered_json::array_t tool_json_array =
+        tool_json.get<nlohmann::ordered_json::array_t>();
+    json_preface.tools = tool_json_array;
+  } else {
+    ThrowLiteRtLmJniException(
+        env, "tools_json should be a json array. Got: " + tool_json.dump());
+    return 0;
+  }
+
+  // Create the conversation
+  auto conversation_config =
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config)
+          .SetPreface(json_preface)
+          .SetEnableConstrainedDecoding(enable_constrained_decoding)
+          .Build(*engine);
+
+  if (!conversation_config.ok()) {
+    ThrowLiteRtLmJniException(env, "Failed to create conversation config: " +
+                                       conversation_config.status().ToString());
+    return 0;
+  }
+  auto conversation = Conversation::Create(*engine, *conversation_config);
+  if (!conversation.ok()) {
+    ThrowLiteRtLmJniException(env, "Failed to create conversation: " +
+                                       conversation.status().ToString());
+    return 0;
+  }
+
+  return reinterpret_cast<jlong>(conversation->release());
+}
+
 LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeDeleteConversation)(
     JNIEnv* env, jclass thiz, jlong conversation_pointer) {
   delete reinterpret_cast<Conversation*>(conversation_pointer);
@@ -874,6 +974,332 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeConversationCancelProcess)(
   Conversation* conversation =
       reinterpret_cast<Conversation*>(conversation_pointer);
   conversation->CancelProcess();
+}
+
+// ---------------------------------------------------------------------------
+// MeZO Fine-Tuning JNI Methods
+// ---------------------------------------------------------------------------
+
+LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeMeZoConfigCreate)(
+    JNIEnv* env, jclass thiz) {
+  auto* config = new MeZoConfig();
+  return reinterpret_cast<jlong>(config);
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigDelete)(
+    JNIEnv* env, jclass thiz, jlong config_pointer) {
+  delete reinterpret_cast<MeZoConfig*>(config_pointer);
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigSetLearningRate)(
+    JNIEnv* env, jclass thiz, jlong config_pointer, jfloat learning_rate) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (config) config->SetLearningRate(learning_rate);
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigSetEpsilon)(
+    JNIEnv* env, jclass thiz, jlong config_pointer, jfloat epsilon) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (config) config->SetEpsilon(epsilon);
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigSetWeightDecay)(
+    JNIEnv* env, jclass thiz, jlong config_pointer, jfloat weight_decay) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (config) config->SetWeightDecay(weight_decay);
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigSetSeed)(
+    JNIEnv* env, jclass thiz, jlong config_pointer, jlong seed) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (config) config->SetSeed(static_cast<uint64_t>(seed));
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigSetUseConMeZo)(
+    JNIEnv* env, jclass thiz, jlong config_pointer, jboolean use_conmezo) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (config) config->SetUseConMeZo(use_conmezo);
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigSetMomentumDecay)(
+    JNIEnv* env, jclass thiz, jlong config_pointer, jfloat momentum_decay) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (config) config->SetMomentumDecay(momentum_decay);
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigSetConeAngle)(
+    JNIEnv* env, jclass thiz, jlong config_pointer, jfloat cone_angle) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (config) config->SetConeAngle(cone_angle);
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigSetOptimizerMode)(
+    JNIEnv* env, jclass thiz, jlong config_pointer, jint mode) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (config) {
+    config->SetOptimizerMode(
+        static_cast<litert::lm::OptimizerMode>(mode));
+  }
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoConfigSetAgzoSubspaceRank)(
+    JNIEnv* env, jclass thiz, jlong config_pointer, jint rank) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (config) config->SetAgzoSubspaceRank(rank);
+}
+
+LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeMeZoFineTunerCreate)(
+    JNIEnv* env, jclass thiz, jlong config_pointer) {
+  auto* config = reinterpret_cast<MeZoConfig*>(config_pointer);
+  if (!config) {
+    ThrowLiteRtLmJniException(env, "MeZO config pointer is null.");
+    return 0;
+  }
+  auto finetuner = MeZoFineTuner::Create(*config);
+  if (!finetuner.ok()) {
+    ThrowLiteRtLmJniException(
+        env, "Failed to create MeZO fine-tuner: " +
+                 finetuner.status().ToString());
+    return 0;
+  }
+  return reinterpret_cast<jlong>(finetuner->release());
+}
+
+LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeMeZoFineTunerDelete)(
+    JNIEnv* env, jclass thiz, jlong finetuner_pointer) {
+  delete reinterpret_cast<MeZoFineTuner*>(finetuner_pointer);
+}
+
+LITERTLM_JNIEXPORT jfloat JNICALL JNI_METHOD(nativeMeZoFineTunerStep)(
+    JNIEnv* env, jclass thiz, jlong finetuner_pointer,
+    jobjectArray names, jlongArray data_pointers, jlongArray num_elements,
+    jbooleanArray is_bias_or_layernorm, jobject loss_callback) {
+  auto* finetuner = reinterpret_cast<MeZoFineTuner*>(finetuner_pointer);
+  if (!finetuner) {
+    ThrowLiteRtLmJniException(env, "MeZO fine-tuner pointer is null.");
+    return 0.0f;
+  }
+
+  jsize num_params = env->GetArrayLength(names);
+  jlong* ptrs = env->GetLongArrayElements(data_pointers, nullptr);
+  jlong* elems = env->GetLongArrayElements(num_elements, nullptr);
+  jboolean* bias_flags = env->GetBooleanArrayElements(is_bias_or_layernorm,
+                                                       nullptr);
+
+  std::vector<NamedParameter> params;
+  params.reserve(num_params);
+  for (jsize i = 0; i < num_params; ++i) {
+    NamedParameter p;
+    jstring name_jstr = (jstring)env->GetObjectArrayElement(names, i);
+    const char* name_chars = env->GetStringUTFChars(name_jstr, nullptr);
+    p.name = name_chars;
+    env->ReleaseStringUTFChars(name_jstr, name_chars);
+    env->DeleteLocalRef(name_jstr);
+    p.data = reinterpret_cast<float*>(ptrs[i]);
+    p.num_elements = static_cast<size_t>(elems[i]);
+    p.is_bias_or_layernorm = bias_flags[i];
+    params.push_back(std::move(p));
+  }
+
+  env->ReleaseLongArrayElements(data_pointers, ptrs, JNI_ABORT);
+  env->ReleaseLongArrayElements(num_elements, elems, JNI_ABORT);
+  env->ReleaseBooleanArrayElements(is_bias_or_layernorm, bias_flags, JNI_ABORT);
+
+  // Get the JavaVM for callback thread attachment.
+  JavaVM* jvm = nullptr;
+  env->GetJavaVM(&jvm);
+
+  // Cache callback method ID.
+  jclass callback_class = env->GetObjectClass(loss_callback);
+  jmethodID compute_loss_mid =
+      env->GetMethodID(callback_class, "computeLoss", "()F");
+  env->DeleteLocalRef(callback_class);
+
+  // Wrap the Java callback as a C++ invocable.
+  jobject callback_global = env->NewGlobalRef(loss_callback);
+  auto cpp_loss_fn = [jvm, callback_global,
+                      compute_loss_mid]() -> absl::StatusOr<float> {
+    bool attached = false;
+    JNIEnv* cb_env = GetJniEnvAndAttach(jvm, &attached);
+    if (!cb_env) {
+      return absl::InternalError("Failed to attach JNI env for loss callback.");
+    }
+
+    jfloat loss = cb_env->CallFloatMethod(callback_global, compute_loss_mid);
+
+    if (cb_env->ExceptionCheck()) {
+      cb_env->ExceptionClear();
+      if (attached && jvm->DetachCurrentThread() != JNI_OK) {
+        ABSL_LOG(ERROR) << "Failed to detach JVM in loss callback.";
+      }
+      return absl::InternalError("Java loss callback threw an exception.");
+    }
+
+    if (attached && jvm->DetachCurrentThread() != JNI_OK) {
+      ABSL_LOG(ERROR) << "Failed to detach JVM in loss callback.";
+    }
+
+    return loss;
+  };
+
+  auto result = finetuner->Step(params, std::move(cpp_loss_fn));
+
+  env->DeleteGlobalRef(callback_global);
+
+  if (!result.ok()) {
+    ThrowLiteRtLmJniException(
+        env, "MeZO step failed: " + result.status().ToString());
+    return 0.0f;
+  }
+
+  return *result;
+}
+
+LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeMeZoFineTunerGetStepCount)(
+    JNIEnv* env, jclass thiz, jlong finetuner_pointer) {
+  auto* finetuner = reinterpret_cast<MeZoFineTuner*>(finetuner_pointer);
+  if (!finetuner) return 0;
+  return static_cast<jlong>(finetuner->GetStepCount());
+}
+
+LITERTLM_JNIEXPORT void JNICALL
+JNI_METHOD(nativeMeZoFineTunerSetLearningRate)(
+    JNIEnv* env, jclass thiz, jlong finetuner_pointer, jfloat learning_rate) {
+  auto* finetuner = reinterpret_cast<MeZoFineTuner*>(finetuner_pointer);
+  if (finetuner) finetuner->SetLearningRate(learning_rate);
+}
+
+LITERTLM_JNIEXPORT jfloat JNICALL
+JNI_METHOD(nativeMeZoFineTunerGetLearningRate)(
+    JNIEnv* env, jclass thiz, jlong finetuner_pointer) {
+  auto* finetuner = reinterpret_cast<MeZoFineTuner*>(finetuner_pointer);
+  if (!finetuner) return 0.0f;
+  return finetuner->GetLearningRate();
+}
+
+// ---------------------------------------------------------------------------
+// Session: Prefill, TextScoring, Trainable Parameters
+// ---------------------------------------------------------------------------
+
+LITERTLM_JNIEXPORT jint JNICALL
+JNI_METHOD(nativeSessionRunPrefill)(
+    JNIEnv* env, jclass thiz, jlong session_pointer, jstring input_text) {
+  auto* session = reinterpret_cast<Engine::Session*>(session_pointer);
+  if (!session || !input_text) return -1;
+
+  const char* text = env->GetStringUTFChars(input_text, nullptr);
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText(std::string(text)));
+  env->ReleaseStringUTFChars(input_text, text);
+
+  auto status = session->RunPrefill(inputs);
+  if (!status.ok()) {
+    ABSL_LOG(ERROR) << "RunPrefill failed: " << status;
+    return static_cast<jint>(status.code());
+  }
+  return 0;
+}
+
+LITERTLM_JNIEXPORT jfloatArray JNICALL
+JNI_METHOD(nativeSessionRunTextScoring)(
+    JNIEnv* env, jclass thiz, jlong session_pointer,
+    jobjectArray target_texts) {
+  auto* session = reinterpret_cast<Engine::Session*>(session_pointer);
+  if (!session || !target_texts) return nullptr;
+
+  int num_targets = env->GetArrayLength(target_texts);
+  std::vector<std::string> target_strs;
+  std::vector<absl::string_view> target_views;
+  target_strs.reserve(num_targets);
+  target_views.reserve(num_targets);
+
+  for (int i = 0; i < num_targets; ++i) {
+    auto jstr = static_cast<jstring>(env->GetObjectArrayElement(target_texts, i));
+    const char* text = env->GetStringUTFChars(jstr, nullptr);
+    target_strs.emplace_back(text);
+    env->ReleaseStringUTFChars(jstr, text);
+    target_views.emplace_back(target_strs.back());
+  }
+
+  auto responses = session->RunTextScoring(target_views, false);
+  if (!responses.ok()) {
+    ABSL_LOG(ERROR) << "RunTextScoring failed: " << responses.status();
+    return nullptr;
+  }
+
+  const auto& scores = responses->GetScores();
+  jfloatArray result = env->NewFloatArray(scores.size());
+  env->SetFloatArrayRegion(result, 0, scores.size(), scores.data());
+  return result;
+}
+
+LITERTLM_JNIEXPORT jlong JNICALL
+JNI_METHOD(nativeSessionGetTrainableParameters)(
+    JNIEnv* env, jclass thiz, jlong session_pointer) {
+  auto* session = reinterpret_cast<Engine::Session*>(session_pointer);
+  if (!session) return 0;
+
+  auto handle = session->GetTrainableParameters();
+  if (!handle.ok()) {
+    ABSL_LOG(ERROR) << "GetTrainableParameters failed: " << handle.status();
+    return 0;
+  }
+  // Transfer ownership to a raw pointer the Kotlin side will manage.
+  return reinterpret_cast<jlong>(handle->release());
+}
+
+LITERTLM_JNIEXPORT jint JNICALL
+JNI_METHOD(nativeTrainableParamsCount)(
+    JNIEnv* env, jclass thiz, jlong handle_pointer) {
+  auto* handle = reinterpret_cast<TrainableParameterHandle*>(handle_pointer);
+  if (!handle) return 0;
+  return static_cast<jint>(handle->GetParameters().size());
+}
+
+LITERTLM_JNIEXPORT jstring JNICALL
+JNI_METHOD(nativeTrainableParamsGetName)(
+    JNIEnv* env, jclass thiz, jlong handle_pointer, jint index) {
+  auto* handle = reinterpret_cast<TrainableParameterHandle*>(handle_pointer);
+  if (!handle) return nullptr;
+  const auto& params = handle->GetParameters();
+  if (index < 0 || index >= static_cast<jint>(params.size())) return nullptr;
+  return env->NewStringUTF(params[index].name.c_str());
+}
+
+LITERTLM_JNIEXPORT jlong JNICALL
+JNI_METHOD(nativeTrainableParamsGetDataPointer)(
+    JNIEnv* env, jclass thiz, jlong handle_pointer, jint index) {
+  auto* handle = reinterpret_cast<TrainableParameterHandle*>(handle_pointer);
+  if (!handle) return 0;
+  const auto& params = handle->GetParameters();
+  if (index < 0 || index >= static_cast<jint>(params.size())) return 0;
+  return reinterpret_cast<jlong>(params[index].data);
+}
+
+LITERTLM_JNIEXPORT jlong JNICALL
+JNI_METHOD(nativeTrainableParamsGetNumElements)(
+    JNIEnv* env, jclass thiz, jlong handle_pointer, jint index) {
+  auto* handle = reinterpret_cast<TrainableParameterHandle*>(handle_pointer);
+  if (!handle) return 0;
+  const auto& params = handle->GetParameters();
+  if (index < 0 || index >= static_cast<jint>(params.size())) return 0;
+  return static_cast<jlong>(params[index].num_elements);
+}
+
+LITERTLM_JNIEXPORT jboolean JNICALL
+JNI_METHOD(nativeTrainableParamsIsBiasOrLayerNorm)(
+    JNIEnv* env, jclass thiz, jlong handle_pointer, jint index) {
+  auto* handle = reinterpret_cast<TrainableParameterHandle*>(handle_pointer);
+  if (!handle) return JNI_FALSE;
+  const auto& params = handle->GetParameters();
+  if (index < 0 || index >= static_cast<jint>(params.size())) return JNI_FALSE;
+  return params[index].is_bias_or_layernorm ? JNI_TRUE : JNI_FALSE;
+}
+
+LITERTLM_JNIEXPORT void JNICALL
+JNI_METHOD(nativeTrainableParamsDelete)(
+    JNIEnv* env, jclass thiz, jlong handle_pointer) {
+  delete reinterpret_cast<TrainableParameterHandle*>(handle_pointer);
 }
 
 }  // extern "C"

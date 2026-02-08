@@ -70,6 +70,20 @@ internal object LiteRtLmJni {
   external fun nativeCreateSession(enginePointer: Long, samplerConfig: SamplerConfig?): Long
 
   /**
+   * Creates a new LiteRT-LM session with a specific LoRA adapter.
+   *
+   * @param enginePointer A pointer to the native engine instance.
+   * @param samplerConfig The sampler configuration.
+   * @param loraId The LoRA adapter ID to use, or -1 for base model.
+   * @return A pointer to the native session instance.
+   */
+  external fun nativeCreateSessionWithLora(
+    enginePointer: Long,
+    samplerConfig: SamplerConfig?,
+    loraId: Int
+  ): Long
+
+  /**
    * Delete the LiteRT-LM session.
    *
    * @param sessionPointer A pointer to the native session instance.
@@ -171,6 +185,27 @@ internal object LiteRtLmJni {
   ): Long
 
   /**
+   * Creates a new LiteRT-LM conversation with a specific LoRA adapter.
+   *
+   * @param enginePointer A pointer to the native engine instance.
+   * @param samplerConfig The sampler configuration.
+   * @param messageJsonString The system instruction to be used in the conversation.
+   * @param toolsDescriptionJsonString A json string of a list of tool definitions (Open API json).
+   * @param enableConversationConstrainedDecoding Whether to enable conversation constrained
+   *   decoding.
+   * @param loraId The LoRA adapter ID to use, or -1 for base model.
+   * @return A pointer to the native conversation instance.
+   */
+  external fun nativeCreateConversationWithLora(
+    enginePointer: Long,
+    samplerConfig: SamplerConfig?,
+    messageJsonString: String,
+    toolsDescriptionJsonString: String,
+    enableConversationConstrainedDecoding: Boolean,
+    loraId: Int,
+  ): Long
+
+  /**
    * Deletes the LiteRT-LM conversation.
    *
    * @param conversationPointer A pointer to the native conversation instance.
@@ -248,4 +283,110 @@ internal object LiteRtLmJni {
    * @param logSeverity The minimum log level to set. See [LogSeverity].
    */
   external fun nativeSetMinLogSeverity(logSeverity: Int)
+
+  // ---------------------------------------------------------------------------
+  // MeZO Fine-Tuning JNI Methods
+  // ---------------------------------------------------------------------------
+
+  /** Creates a native MeZO config with default values. */
+  external fun nativeMeZoConfigCreate(): Long
+
+  /** Destroys a native MeZO config. */
+  external fun nativeMeZoConfigDelete(configPointer: Long)
+
+  /** Sets the learning rate on a native MeZO config. */
+  external fun nativeMeZoConfigSetLearningRate(configPointer: Long, learningRate: Float)
+
+  /** Sets the epsilon on a native MeZO config. */
+  external fun nativeMeZoConfigSetEpsilon(configPointer: Long, epsilon: Float)
+
+  /** Sets the weight decay on a native MeZO config. */
+  external fun nativeMeZoConfigSetWeightDecay(configPointer: Long, weightDecay: Float)
+
+  /** Sets the random seed on a native MeZO config. */
+  external fun nativeMeZoConfigSetSeed(configPointer: Long, seed: Long)
+
+  /** Enables or disables ConMeZO on a native MeZO config. */
+  external fun nativeMeZoConfigSetUseConMeZo(configPointer: Long, useConMeZo: Boolean)
+
+  /** Sets the momentum decay on a native MeZO config. */
+  external fun nativeMeZoConfigSetMomentumDecay(configPointer: Long, momentumDecay: Float)
+
+  /** Sets the cone angle on a native MeZO config. */
+  external fun nativeMeZoConfigSetConeAngle(configPointer: Long, coneAngle: Float)
+
+  /** Sets the optimizer mode on a native MeZO config (0=VanillaMeZo, 1=ConMeZo, 2=Agzo). */
+  external fun nativeMeZoConfigSetOptimizerMode(configPointer: Long, mode: Int)
+
+  /** Sets the AGZO subspace rank on a native MeZO config. */
+  external fun nativeMeZoConfigSetAgzoSubspaceRank(configPointer: Long, rank: Int)
+
+  /** Creates a native MeZO fine-tuner from a config. */
+  external fun nativeMeZoFineTunerCreate(configPointer: Long): Long
+
+  /** Destroys a native MeZO fine-tuner. */
+  external fun nativeMeZoFineTunerDelete(finetunerPointer: Long)
+
+  /**
+   * Performs one MeZO optimization step.
+   *
+   * @param finetunerPointer Pointer to the native fine-tuner.
+   * @param names Parameter names.
+   * @param dataPointers Native pointers to float32 weight data.
+   * @param numElements Number of elements per parameter.
+   * @param isBiasOrLayerNorm Whether each parameter is bias/layernorm.
+   * @param lossCallback Callback to compute the loss.
+   * @return The loss from the positive perturbation.
+   */
+  external fun nativeMeZoFineTunerStep(
+    finetunerPointer: Long,
+    names: Array<String>,
+    dataPointers: LongArray,
+    numElements: LongArray,
+    isBiasOrLayerNorm: BooleanArray,
+    lossCallback: MeZoLossCallback,
+  ): Float
+
+  /** Returns the step count from a native MeZO fine-tuner. */
+  external fun nativeMeZoFineTunerGetStepCount(finetunerPointer: Long): Long
+
+  /** Sets the learning rate on a native MeZO fine-tuner. */
+  external fun nativeMeZoFineTunerSetLearningRate(finetunerPointer: Long, learningRate: Float)
+
+  /** Returns the current learning rate from a native MeZO fine-tuner. */
+  external fun nativeMeZoFineTunerGetLearningRate(finetunerPointer: Long): Float
+
+  // ---------------------------------------------------------------------------
+  // Session: Prefill, TextScoring, Trainable Parameters
+  // ---------------------------------------------------------------------------
+
+  /** Runs prefill on a session with a text input. Returns 0 on success. */
+  external fun nativeSessionRunPrefill(sessionPointer: Long, inputText: String): Int
+
+  /** Runs text scoring after prefill. Returns float array of scores, or null on failure. */
+  external fun nativeSessionRunTextScoring(
+    sessionPointer: Long,
+    targetTexts: Array<String>
+  ): FloatArray?
+
+  /** Gets trainable parameter handle from a session. Returns handle pointer, or 0 on failure. */
+  external fun nativeSessionGetTrainableParameters(sessionPointer: Long): Long
+
+  /** Returns the number of trainable parameters. */
+  external fun nativeTrainableParamsCount(handlePointer: Long): Int
+
+  /** Returns the name of the trainable parameter at the given index. */
+  external fun nativeTrainableParamsGetName(handlePointer: Long, index: Int): String?
+
+  /** Returns the native data pointer for the trainable parameter at the given index. */
+  external fun nativeTrainableParamsGetDataPointer(handlePointer: Long, index: Int): Long
+
+  /** Returns the number of elements in the trainable parameter at the given index. */
+  external fun nativeTrainableParamsGetNumElements(handlePointer: Long, index: Int): Long
+
+  /** Returns whether the parameter at the given index is a bias or layer norm weight. */
+  external fun nativeTrainableParamsIsBiasOrLayerNorm(handlePointer: Long, index: Int): Boolean
+
+  /** Destroys a trainable parameter handle. */
+  external fun nativeTrainableParamsDelete(handlePointer: Long)
 }

@@ -219,6 +219,7 @@ cc_library(
         "@litert//litert/cc:litert_layout",
         "@litert//litert/cc:litert_macros",
         "@litert//litert/cc:litert_tensor_buffer_types",
+        "//runtime/components:lora_manager",
         "//runtime/components:sampler",
         "//runtime/components:sampler_factory",
         "//runtime/components:stop_token_detector",
@@ -238,6 +239,7 @@ cc_library(
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:executor_data_util",
         "//runtime/util:litert_status_util",
+        "//runtime/util:lora_util",
         "//runtime/util:model_type_utils",
         "//runtime/util:tensor_buffer_util",
     ] + select({

@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_H_
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
@@ -29,6 +30,23 @@
 #include "runtime/engine/io_types.h"
 
 namespace litert::lm {
+
+// A single trainable parameter (e.g., a LoRA weight tensor).
+struct TrainableParameter {
+  std::string name;
+  float* data;
+  size_t num_elements;
+  bool is_bias_or_layernorm;
+};
+
+// Handle that holds trainable parameters and keeps their memory alive.
+// The float* pointers in the parameters are valid as long as this handle
+// exists and the owning session is alive.
+class TrainableParameterHandle {
+ public:
+  virtual ~TrainableParameterHandle() = default;
+  virtual const std::vector<TrainableParameter>& GetParameters() const = 0;
+};
 
 // Engine is the interface for the LLM runtime. It is responsible for
 // - Initializing the LLM model and related resources, e.g. tokenizer,
@@ -278,6 +296,21 @@ class Engine {
         const {
       return absl::UnimplementedError("Not implemented.");
     }
+
+    // Returns a handle to the trainable parameters (e.g., LoRA weights) for
+    // fine-tuning. The returned float* pointers are valid as long as both the
+    // handle and the session are alive.
+    virtual absl::StatusOr<std::unique_ptr<TrainableParameterHandle>>
+    GetTrainableParameters() {
+      return absl::UnimplementedError("Not implemented.");
+    }
+
+    // Resets the session state (executor step counter, KV cache, processed
+    // tokens) so it can be reused for a fresh forward pass without the
+    // overhead of destroying and recreating the session.
+    virtual absl::Status Reset() {
+      return absl::UnimplementedError("Not implemented.");
+    }
   };
 
   // Method to create the Session.
@@ -288,6 +321,13 @@ class Engine {
   // return error if the timeout is reached.
   virtual absl::Status WaitUntilDone(absl::Duration timeout) {
     return absl::UnimplementedError("Not implemented.");
+  }
+
+  // Loads a LoRA adapter from the given path and assigns it the given ID.
+  // The adapter must be loaded before creating sessions that reference it.
+  virtual absl::Status LoadLoRA(uint32_t lora_id,
+                                const std::string& lora_path) {
+    return absl::UnimplementedError("LoadLoRA not implemented.");
   }
 
   // Returns the EngineSettings currently used by the engine.

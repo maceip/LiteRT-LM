@@ -62,6 +62,12 @@ typedef struct LiteRtLmSessionConfig LiteRtLmSessionConfig;
 // Opaque pointer for LiteRT LM Conversation Config.
 typedef struct LiteRtLmConversationConfig LiteRtLmConversationConfig;
 
+// Opaque pointer for LiteRT LM MeZO Config.
+typedef struct LiteRtLmMeZoConfig LiteRtLmMeZoConfig;
+
+// Opaque pointer for LiteRT LM MeZO Fine-Tuner.
+typedef struct LiteRtLmMeZoFineTuner LiteRtLmMeZoFineTuner;
+
 // Represents the type of sampler.
 typedef enum {
   kTypeUnspecified = 0,
@@ -103,6 +109,21 @@ void litert_lm_session_config_set_max_output_tokens(
 LITERT_LM_C_API_EXPORT
 void litert_lm_session_config_set_sampler_params(
     LiteRtLmSessionConfig* config, const LiteRtLmSamplerParams* sampler_params);
+
+// Sets the LoRA adapter ID for this session config.
+// Sessions created with this config will use the specified LoRA adapter.
+// @param config The config to modify.
+// @param lora_id The LoRA adapter ID to use. Pass -1 to clear (use base model).
+LITERT_LM_C_API_EXPORT
+void litert_lm_session_config_set_lora_id(LiteRtLmSessionConfig* config,
+                                          int32_t lora_id);
+
+// Gets the LoRA adapter ID from this session config.
+// @param config The config to query.
+// @return The LoRA adapter ID, or -1 if no LoRA is set.
+LITERT_LM_C_API_EXPORT
+int32_t litert_lm_session_config_get_lora_id(
+    const LiteRtLmSessionConfig* config);
 
 // Destroys a LiteRT LM Session Config.
 // @param config The config to destroy.
@@ -199,6 +220,15 @@ LITERT_LM_C_API_EXPORT
 void litert_lm_engine_settings_set_activation_data_type(
     LiteRtLmEngineSettings* settings, int activation_data_type_int);
 
+// Sets the LoRA rank for the engine. Must be set before engine creation if the
+// model has LoRA signatures (e.g. rank 4). 0 means LoRA is disabled (default).
+//
+// @param settings The engine settings.
+// @param lora_rank The LoRA rank.
+LITERT_LM_C_API_EXPORT
+void litert_lm_engine_settings_set_lora_rank(LiteRtLmEngineSettings* settings,
+                                             int lora_rank);
+
 // Enables benchmarking for the engine.
 //
 // @param settings The engine settings.
@@ -220,6 +250,19 @@ LiteRtLmEngine* litert_lm_engine_create(const LiteRtLmEngineSettings* settings);
 LITERT_LM_C_API_EXPORT
 void litert_lm_engine_delete(LiteRtLmEngine* engine);
 
+// Loads a LoRA adapter into the engine from the given file path. The adapter
+// is assigned the given lora_id. Sessions created afterwards can reference
+// this adapter via `litert_lm_session_config_set_lora_id`. The adapter is
+// also immediately activated so that sessions can get trainable parameters.
+//
+// @param engine The engine to load the adapter into.
+// @param lora_id The ID to assign to the adapter (must be >= 0).
+// @param lora_path Path to the LoRA adapter file (.tflite).
+// @return 0 on success, non-zero on failure.
+LITERT_LM_C_API_EXPORT
+int litert_lm_engine_load_lora(LiteRtLmEngine* engine, int32_t lora_id,
+                               const char* lora_path);
+
 // Creates a LiteRT LM Session. The caller is responsible for destroying the
 // session using `litert_lm_session_delete`.
 //
@@ -236,6 +279,15 @@ LiteRtLmSession* litert_lm_engine_create_session(LiteRtLmEngine* engine,
 // @param session The session to destroy.
 LITERT_LM_C_API_EXPORT
 void litert_lm_session_delete(LiteRtLmSession* session);
+
+// Resets a session's internal state (step counter, KV cache, processed tokens)
+// so it can be reused for a fresh forward pass. This is much cheaper than
+// deleting and recreating the session.
+//
+// @param session The session to reset.
+// @return 0 on success, non-zero on failure.
+LITERT_LM_C_API_EXPORT
+int litert_lm_session_reset(LiteRtLmSession* session);
 
 // Generates content from the input prompt.
 //
@@ -458,6 +510,258 @@ void litert_lm_conversation_cancel_process(LiteRtLmConversation* conversation);
 LITERT_LM_C_API_EXPORT
 LiteRtLmBenchmarkInfo* litert_lm_conversation_get_benchmark_info(
     LiteRtLmConversation* conversation);
+
+// ---------------------------------------------------------------------------
+// Low-level Session APIs (Prefill, TextScoring, Trainable Parameters)
+// ---------------------------------------------------------------------------
+
+// Runs the prefill step with a text input. Must be called before
+// `litert_lm_session_run_text_scoring`.
+//
+// @param session The session to prefill.
+// @param input_text The prompt text to prefill with.
+// @return 0 on success, non-zero on failure.
+LITERT_LM_C_API_EXPORT
+int litert_lm_session_run_prefill(LiteRtLmSession* session,
+                                  const char* input_text);
+
+// Scores target text(s) after prefill. Returns the negative log-probability
+// for each target text. Must be called after `litert_lm_session_run_prefill`.
+//
+// @param session The session (must have been prefilled).
+// @param target_texts Array of target text strings to score.
+// @param num_targets Number of target texts.
+// @param scores_out Output array for scores (caller allocates, size >= num_targets).
+// @return Number of scores written, or -1 on failure.
+LITERT_LM_C_API_EXPORT
+int litert_lm_session_run_text_scoring(LiteRtLmSession* session,
+                                       const char** target_texts,
+                                       size_t num_targets,
+                                       float* scores_out);
+
+// ---------------------------------------------------------------------------
+// MeZO (Memory-efficient Zeroth-Order) Fine-Tuning API
+// ---------------------------------------------------------------------------
+//
+// MeZO estimates gradients using only forward passes, achieving the same
+// memory footprint as inference. It is suitable for on-device fine-tuning
+// of LLMs where backpropagation is infeasible.
+
+// Represents a single named model parameter for MeZO fine-tuning.
+typedef struct {
+  // Name of the parameter (e.g., "attention.query_weight_0").
+  const char* name;
+  // Pointer to the mutable weight data (float32).
+  float* data;
+  // Number of float elements in the parameter.
+  size_t num_elements;
+  // Whether this parameter is a bias or layer normalization weight. When true,
+  // weight decay is not applied during updates.
+  bool apply_weight_decay;
+} LiteRtLmMeZoParameter;
+
+// ---------------------------------------------------------------------------
+// Trainable Parameter Extraction (LoRA weights from loaded model)
+// ---------------------------------------------------------------------------
+
+// Opaque pointer for trainable parameter handle.
+typedef struct LiteRtLmTrainableParams LiteRtLmTrainableParams;
+
+// Extracts trainable parameters (e.g., LoRA weights) from a session.
+// The returned handle keeps the float* pointers valid. The caller must
+// destroy it with `litert_lm_trainable_params_delete` when done.
+//
+// @param session The session with LoRA adapter loaded.
+// @return A handle to the parameters, or NULL on failure.
+LITERT_LM_C_API_EXPORT
+LiteRtLmTrainableParams* litert_lm_session_get_trainable_parameters(
+    LiteRtLmSession* session);
+
+// Returns the number of trainable parameters.
+//
+// @param params The parameter handle.
+// @return The number of parameters.
+LITERT_LM_C_API_EXPORT
+size_t litert_lm_trainable_params_count(const LiteRtLmTrainableParams* params);
+
+// Returns the trainable parameter at the given index as a MeZoParameter.
+// The returned pointer is valid as long as the handle is alive.
+//
+// @param params The parameter handle.
+// @param index The parameter index.
+// @return Pointer to the parameter, or NULL if index is out of bounds.
+LITERT_LM_C_API_EXPORT
+const LiteRtLmMeZoParameter* litert_lm_trainable_params_get(
+    const LiteRtLmTrainableParams* params, size_t index);
+
+// Destroys a trainable parameter handle.
+//
+// @param params The handle to destroy.
+LITERT_LM_C_API_EXPORT
+void litert_lm_trainable_params_delete(LiteRtLmTrainableParams* params);
+
+// Callback for computing the loss during a MeZO step.
+// @param user_data User-provided context pointer.
+// @param loss_out Pointer to store the computed loss value.
+// @return 0 on success, non-zero on failure.
+typedef int (*LiteRtLmMeZoLossFn)(void* user_data, float* loss_out);
+
+// Creates a MeZO config with default values (lr=1e-6, eps=1e-3, wd=0).
+// The caller is responsible for destroying the config using
+// `litert_lm_mezo_config_delete`.
+//
+// @return A pointer to the created config, or NULL on failure.
+LITERT_LM_C_API_EXPORT
+LiteRtLmMeZoConfig* litert_lm_mezo_config_create();
+
+// Destroys a MeZO config.
+//
+// @param config The config to destroy.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_delete(LiteRtLmMeZoConfig* config);
+
+// Sets the learning rate for MeZO. Must be positive.
+//
+// @param config The config to modify.
+// @param learning_rate The learning rate.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_learning_rate(LiteRtLmMeZoConfig* config,
+                                             float learning_rate);
+
+// Sets the perturbation scale (epsilon) for MeZO. Must be positive.
+//
+// @param config The config to modify.
+// @param epsilon The perturbation scale.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_epsilon(LiteRtLmMeZoConfig* config,
+                                       float epsilon);
+
+// Sets the weight decay coefficient for MeZO. Must be non-negative.
+//
+// @param config The config to modify.
+// @param weight_decay The weight decay coefficient.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_weight_decay(LiteRtLmMeZoConfig* config,
+                                            float weight_decay);
+
+// Sets the random seed for reproducibility. A value of 0 uses a random seed.
+//
+// @param config The config to modify.
+// @param seed The random seed.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_seed(LiteRtLmMeZoConfig* config,
+                                    uint64_t seed);
+
+// Enables or disables ConMeZO (cone-constrained momentum MeZO).
+// When enabled, perturbation directions are biased toward a momentum vector
+// derived from past gradients, accelerating convergence.
+//
+// @param config The config to modify.
+// @param use_conmezo Whether to enable ConMeZO.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_use_conmezo(LiteRtLmMeZoConfig* config,
+                                           bool use_conmezo);
+
+// Sets the momentum decay rate for ConMeZO. Must be in [0, 1].
+//
+// @param config The config to modify.
+// @param momentum_decay The EMA decay rate for the momentum vector.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_momentum_decay(LiteRtLmMeZoConfig* config,
+                                              float momentum_decay);
+
+// Sets the cone half-angle for ConMeZO in radians. Must be in [0, pi/2].
+// Smaller values concentrate perturbations closer to the momentum direction.
+//
+// @param config The config to modify.
+// @param cone_angle The half-angle of the sampling cone in radians.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_cone_angle(LiteRtLmMeZoConfig* config,
+                                          float cone_angle);
+
+// Sets the optimizer mode for MeZO. 0=vanilla, 1=ConMeZO, 2=AGZO.
+//
+// @param config The config to modify.
+// @param mode The optimizer mode (0, 1, or 2).
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_optimizer_mode(LiteRtLmMeZoConfig* config,
+                                              int mode);
+
+// Sets the AGZO subspace rank. Only used when optimizer mode is AGZO (2).
+// Must be positive. Memory cost: rank * num_params * sizeof(float).
+//
+// @param config The config to modify.
+// @param rank The subspace rank.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_agzo_subspace_rank(LiteRtLmMeZoConfig* config,
+                                                   int rank);
+
+// ConMeZO momentum warm-up schedule (per paper arXiv:2511.02757):
+//   steps [0, cold_steps): beta = momentum_init
+//   steps [cold_steps, warm_steps): cubic interpolation to momentum_decay
+//   steps [warm_steps, ...): beta = momentum_decay
+// Set warm_steps=0 to disable warm-up (constant momentum_decay).
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_config_set_momentum_warmup(LiteRtLmMeZoConfig* config,
+                                                float momentum_init,
+                                                int cold_steps,
+                                                int warm_steps);
+
+// Creates a MeZO fine-tuner from the given config. The caller is responsible
+// for destroying the fine-tuner using `litert_lm_mezo_finetuner_delete`.
+//
+// @param config The MeZO config.
+// @return A pointer to the created fine-tuner, or NULL on failure.
+LITERT_LM_C_API_EXPORT
+LiteRtLmMeZoFineTuner* litert_lm_mezo_finetuner_create(
+    const LiteRtLmMeZoConfig* config);
+
+// Destroys a MeZO fine-tuner.
+//
+// @param finetuner The fine-tuner to destroy.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_finetuner_delete(LiteRtLmMeZoFineTuner* finetuner);
+
+// Performs one MeZO optimization step. The loss function is called twice
+// (once with positive perturbation, once with negative perturbation).
+//
+// @param finetuner The fine-tuner to use.
+// @param parameters An array of named parameters to optimize.
+// @param num_parameters The number of parameters in the array.
+// @param loss_fn Callback function that computes the forward-pass loss.
+// @param user_data User-provided context pointer passed to loss_fn.
+// @param loss_out Pointer to store the loss from the positive perturbation.
+// @return 0 on success, non-zero on failure.
+LITERT_LM_C_API_EXPORT
+int litert_lm_mezo_finetuner_step(LiteRtLmMeZoFineTuner* finetuner,
+                                  const LiteRtLmMeZoParameter* parameters,
+                                  size_t num_parameters,
+                                  LiteRtLmMeZoLossFn loss_fn, void* user_data,
+                                  float* loss_out);
+
+// Returns the number of completed optimization steps.
+//
+// @param finetuner The fine-tuner to query.
+// @return The step count.
+LITERT_LM_C_API_EXPORT
+uint64_t litert_lm_mezo_finetuner_get_step_count(
+    const LiteRtLmMeZoFineTuner* finetuner);
+
+// Updates the learning rate (e.g., for scheduling).
+//
+// @param finetuner The fine-tuner to modify.
+// @param learning_rate The new learning rate.
+LITERT_LM_C_API_EXPORT
+void litert_lm_mezo_finetuner_set_learning_rate(
+    LiteRtLmMeZoFineTuner* finetuner, float learning_rate);
+
+// Returns the current learning rate.
+//
+// @param finetuner The fine-tuner to query.
+// @return The current learning rate, or 0.0f if finetuner is NULL.
+LITERT_LM_C_API_EXPORT
+float litert_lm_mezo_finetuner_get_learning_rate(
+    const LiteRtLmMeZoFineTuner* finetuner);
 
 #ifdef __cplusplus
 }  // extern "C"
