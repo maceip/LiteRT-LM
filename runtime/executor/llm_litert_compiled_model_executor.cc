@@ -1016,7 +1016,7 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::BindTensorsAndRunDecode(
 
   bool async = true;
   LITERT_RETURN_IF_ERROR(
-      compiled_model_.RunAsync(kDecodeSignatureRunner, decode_input_buffers,
+      compiled_model_.RunAsync(decode_signature_name_, decode_input_buffers,
                                decode_output_buffers, async));
 
   if (!gpu_optimized_single_buffer_cache_) {
@@ -1248,13 +1248,13 @@ absl::Status LlmLiteRtCompiledModelExecutorBase::InitializeSampler(
     if (!decode_prev_input_pos_) {
       LITERT_ASSIGN_OR_RETURN(
           decode_prev_input_pos_,
-          compiled_model_.CreateInputBuffer(kDecodeSignatureRunner,
+          compiled_model_.CreateInputBuffer(decode_signature_name_,
                                             signatures_.input_positions));
     }
     if (!decode_prev_mask_ && signatures_.input_attn_mask.has_value()) {
       LITERT_ASSIGN_OR_RETURN(
           decode_prev_mask_,
-          compiled_model_.CreateInputBuffer(kDecodeSignatureRunner,
+          compiled_model_.CreateInputBuffer(decode_signature_name_,
                                             *signatures_.input_attn_mask));
     }
     // Set, then reset the input handling to get the underlying model ready, but
@@ -1453,11 +1453,30 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
     return absl::InternalError("Failed to build LiteRt model");
   }
 
+  // When lora_rank > 0, prefer LoRA-suffixed signatures (e.g.
+  // "decode_lora_r4", "prefill_64_lora_r4") over base signatures.
+  const uint32_t lora_rank = executor_settings.GetLoraRank();
+  const std::string lora_suffix =
+      lora_rank > 0 ? absl::StrCat("_lora_r", lora_rank) : "";
+
   absl::string_view prefill_signature_key = "";
   for (int i = 0; i < litert_model->GetNumSignatures(); ++i) {
     LITERT_ASSIGN_OR_RETURN(auto sig, litert_model->GetSignature(i));
     absl::string_view key = sig.Key();
     if (absl::StartsWith(key, kPrefillSignatureRunner)) {
+      // When LoRA is enabled, prefer signatures with the LoRA suffix.
+      if (!lora_suffix.empty()) {
+        if (absl::EndsWith(key, lora_suffix)) {
+          prefill_signature_key = key;
+          break;
+        }
+        // Skip non-LoRA signatures when LoRA is enabled, but remember as
+        // fallback.
+        if (prefill_signature_key.empty()) {
+          prefill_signature_key = key;
+        }
+        continue;
+      }
       prefill_signature_key = key;
       break;
     }
@@ -1469,8 +1488,11 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
   RETURN_IF_ERROR(GetKVCacheRootNames(
       prefill_signature.InputNames(), prefill_signature.OutputNames(),
       kv_cache_k_root_name, kv_cache_v_root_name));
+  const std::string decode_signature_name =
+      lora_suffix.empty() ? std::string(kDecodeSignatureRunner)
+                          : absl::StrCat(kDecodeSignatureRunner, lora_suffix);
   LITERT_ASSIGN_OR_RETURN(auto decode_signature,
-                          litert_model->FindSignature(kDecodeSignatureRunner));
+                          litert_model->FindSignature(decode_signature_name));
   ASSIGN_OR_RETURN(
       ModelSignatures signatures,
       GetModelSignaturesFromInputOutputNames(decode_signature.InputNames(),
@@ -1723,7 +1745,7 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
         !absl::StartsWith(input_name, kv_cache_v_root_name)) {
       LITERT_ASSIGN_OR_RETURN(
           auto input_buffer,
-          compiled_model.CreateInputBuffer(kDecodeSignatureRunner, input_name));
+          compiled_model.CreateInputBuffer(decode_signature_name, input_name));
       decode_input_buffers[input_name] = std::move(input_buffer);
     }
   }
@@ -1732,7 +1754,7 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
         !absl::StartsWith(output_name, kv_cache_v_root_name)) {
       LITERT_ASSIGN_OR_RETURN(auto output_buffer,
                               compiled_model.CreateOutputBuffer(
-                                  kDecodeSignatureRunner, output_name));
+                                  decode_signature_name, output_name));
       decode_output_buffers[output_name] = std::move(output_buffer);
     }
   }
@@ -1762,7 +1784,7 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
           absl::StartsWith(input_name, kv_cache_v_root_name)) {
         LITERT_ASSIGN_OR_RETURN(auto input_buffer,
                                 compiled_model.CreateInputBuffer(
-                                    kDecodeSignatureRunner, input_name));
+                                    decode_signature_name, input_name));
         if (clear_kv_cache_before_prefill) {
           LITERT_RETURN_IF_ERROR(input_buffer.Clear());
         }
@@ -1774,24 +1796,45 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
           absl::StartsWith(output_name, kv_cache_v_root_name)) {
         LITERT_ASSIGN_OR_RETURN(auto output_buffer,
                                 compiled_model.CreateOutputBuffer(
-                                    kDecodeSignatureRunner, output_name));
+                                    decode_signature_name, output_name));
         (*decode_output_kv_cache_buffers)[output_name] =
             std::move(output_buffer);
       }
     }
   }
 
-  ASSIGN_OR_RETURN(auto prefill_runner_set,
-                   GetPrefillRunnerSetFromModel(
-                       *litert_model, kPrefillSignatureRunner,
-                       /*input_positions_name=*/signatures.input_positions));
+  // When LoRA is active, prefer LoRA-suffixed prefill signatures (e.g.
+  // "prefill_64_lora_r4" over "prefill_64"). Try the LoRA-specific set first;
+  // if no LoRA prefill signatures exist, fall back to base signatures.
+  SortedPrefillSignatureMap prefill_runner_set;
+  if (!lora_suffix.empty()) {
+    // First try: get only LoRA-suffixed prefill signatures by using a
+    // temporary filter. We get all "prefill_" signatures and then keep only
+    // those ending with the lora_suffix.
+    auto all_prefill = GetPrefillRunnerSetFromModel(
+        *litert_model, absl::StrCat(kPrefillSignatureRunner, "_"),
+        /*input_positions_name=*/signatures.input_positions);
+    if (all_prefill.ok()) {
+      for (auto& [seq_len, sig_name] : *all_prefill) {
+        if (absl::EndsWith(sig_name, lora_suffix)) {
+          prefill_runner_set[seq_len] = std::move(sig_name);
+        }
+      }
+    }
+  }
+  if (prefill_runner_set.empty()) {
+    ASSIGN_OR_RETURN(prefill_runner_set,
+                     GetPrefillRunnerSetFromModel(
+                         *litert_model, kPrefillSignatureRunner,
+                         /*input_positions_name=*/signatures.input_positions));
+  }
   RET_CHECK(!prefill_runner_set.empty()) << "No prefill runner available.";
 
   std::unique_ptr<EmbeddingLookupManager> embedding_lookup;
   std::unique_ptr<EmbeddingLookupManager> per_layer_embedding_lookup;
   RETURN_IF_ERROR(InitializeEmbeddingLookups(resources, embedding_lookup,
                                              per_layer_embedding_lookup));
-  return absl::WrapUnique(new LlmLiteRtCompiledModelExecutorStatic(
+  auto executor = absl::WrapUnique(new LlmLiteRtCompiledModelExecutorStatic(
       std::move(executor_settings), lrt_env, litert_model,
       std::move(compiled_model), std::move(decode_input_buffers),
       std::move(decode_output_buffers), std::move(input_kv_cache_buffers),
@@ -1801,6 +1844,8 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
       signatures, batch_size, std::move(cache_path),
       std::move(embedding_lookup), std::move(per_layer_embedding_lookup),
       use_fp16_precision, activation_data_type));
+  executor->decode_signature_name_ = decode_signature_name;
+  return executor;
 }
 
 /* ===========================================================================*/
@@ -2041,8 +2086,14 @@ LlmLiteRtCompiledModelExecutorDynamic::Create(
   absl::flat_hash_map<absl::string_view, TensorBuffer> decode_input_buffers;
   absl::flat_hash_map<absl::string_view, TensorBuffer> decode_output_buffers;
 
+  const uint32_t dyn_lora_rank = executor_settings.GetLoraRank();
+  const std::string dyn_lora_suffix =
+      dyn_lora_rank > 0 ? absl::StrCat("_lora_r", dyn_lora_rank) : "";
+  const std::string dyn_decode_sig_name =
+      dyn_lora_suffix.empty() ? std::string(kDecodeSignatureRunner)
+                              : absl::StrCat(kDecodeSignatureRunner, dyn_lora_suffix);
   LITERT_ASSIGN_OR_RETURN(auto decode_signature,
-                          litert_model->FindSignature(kDecodeSignatureRunner));
+                          litert_model->FindSignature(dyn_decode_sig_name));
   std::string kv_cache_k_root_name;
   std::string kv_cache_v_root_name;
   RETURN_IF_ERROR(GetKVCacheRootNames(
@@ -2075,7 +2126,7 @@ LlmLiteRtCompiledModelExecutorDynamic::Create(
     if (!is_kv_cache_input && !is_attn_mask_input) {
       LITERT_ASSIGN_OR_RETURN(
           auto input_buffer,
-          compiled_model.CreateInputBuffer(kDecodeSignatureRunner, input_name));
+          compiled_model.CreateInputBuffer(dyn_decode_sig_name, input_name));
       decode_input_buffers[input_name] = std::move(input_buffer);
     }
   }
@@ -2084,7 +2135,7 @@ LlmLiteRtCompiledModelExecutorDynamic::Create(
         !absl::StartsWith(output_name, kv_cache_v_root_name)) {
       LITERT_ASSIGN_OR_RETURN(auto output_buffer,
                               compiled_model.CreateOutputBuffer(
-                                  kDecodeSignatureRunner, output_name));
+                                  dyn_decode_sig_name, output_name));
       decode_output_buffers[output_name] = std::move(output_buffer);
     }
   }
@@ -2110,7 +2161,7 @@ LlmLiteRtCompiledModelExecutorDynamic::Create(
   RETURN_IF_ERROR(InitializeEmbeddingLookups(resources, embedding_lookup,
                                              per_layer_embedding_lookup));
 
-  return absl::WrapUnique(new LlmLiteRtCompiledModelExecutorDynamic(
+  auto executor = absl::WrapUnique(new LlmLiteRtCompiledModelExecutorDynamic(
       std::move(executor_settings), lrt_env, litert_model,
       std::move(compiled_model), std::move(decode_input_buffers),
       std::move(decode_output_buffers), prefill_chunk_size, k_dynamic_dim,
@@ -2118,6 +2169,8 @@ LlmLiteRtCompiledModelExecutorDynamic::Create(
       std::move(value_cache_input_names), signatures, batch_size,
       std::move(weight_cache_path), std::move(embedding_lookup),
       std::move(per_layer_embedding_lookup), /*use_fp16_precision=*/false));
+  executor->decode_signature_name_ = dyn_decode_sig_name;
+  return executor;
 }
 
 }  // namespace litert::lm

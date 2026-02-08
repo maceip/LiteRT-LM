@@ -149,6 +149,11 @@ SessionBasic::~SessionBasic() {
 namespace {
 
 // Concrete TrainableParameterHandle that holds LoRA TensorBuffers alive.
+// The TensorBuffers are duplicated from the LoRA manager and keep the
+// underlying ref-counted memory alive. We lock briefly to discover the host
+// address, then immediately unlock so the executor's forward pass can also
+// lock the same buffers. The raw float* stays valid as long as the
+// TensorBuffer is alive (CPU buffers use stable host-memory addresses).
 class LoraTrainableParameterHandle : public TrainableParameterHandle {
  public:
   // Takes ownership of the duplicated TensorBuffer map.
@@ -157,12 +162,16 @@ class LoraTrainableParameterHandle : public TrainableParameterHandle {
     auto handle = std::make_unique<LoraTrainableParameterHandle>();
 
     for (auto& [name, buffer] : buffers) {
-      // Lock briefly to discover the float* address.
-      LITERT_ASSIGN_OR_RETURN(
-          auto lock_and_addr,
-          TensorBufferScopedLock::Create(
-              buffer, TensorBuffer::LockMode::kWrite));
-      float* data = static_cast<float*>(lock_and_addr.second);
+      // Lock briefly to discover the float* address, then release the lock
+      // so the executor can register the same buffers during forward pass.
+      float* data = nullptr;
+      {
+        LITERT_ASSIGN_OR_RETURN(
+            auto lock_and_addr,
+            TensorBufferScopedLock::Create(
+                buffer, TensorBuffer::LockMode::kRead));
+        data = static_cast<float*>(const_cast<void*>(lock_and_addr.second));
+      }  // lock released here
 
       LITERT_ASSIGN_OR_RETURN(auto tensor_type, buffer.TensorType());
       LITERT_ASSIGN_OR_RETURN(auto num_elements,
@@ -177,9 +186,7 @@ class LoraTrainableParameterHandle : public TrainableParameterHandle {
       param.is_bias_or_layernorm = is_bias_or_ln;
       handle->parameters_.push_back(std::move(param));
 
-      // Keep the lock alive to maintain the float* validity.
-      handle->locks_.push_back(std::move(lock_and_addr.first));
-      // Keep the TensorBuffer alive.
+      // Keep the TensorBuffer alive to maintain the underlying memory.
       handle->buffers_.push_back(std::move(buffer));
     }
 
@@ -194,7 +201,6 @@ class LoraTrainableParameterHandle : public TrainableParameterHandle {
   friend class std::unique_ptr<LoraTrainableParameterHandle>;
   std::vector<TrainableParameter> parameters_;
   std::vector<TensorBuffer> buffers_;
-  std::vector<TensorBufferScopedLock> locks_;
 };
 
 }  // namespace
@@ -646,6 +652,14 @@ absl::StatusOr<BenchmarkInfo*> SessionBasic::GetMutableBenchmarkInfo() {
   return absl::InternalError(
       "Benchmark is not enabled. Please make sure the BenchmarkParams is set "
       "in the EngineSettings.");
+}
+
+absl::Status SessionBasic::Reset() {
+  RETURN_IF_ERROR(executor_.Reset());
+  last_prefill_token_id_ = 0;
+  cancelled_ = false;
+  session_state_ = SessionState::kFresh;
+  return absl::OkStatus();
 }
 
 }  // namespace litert::lm
