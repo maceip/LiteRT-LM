@@ -148,6 +148,9 @@ class SessionBasic : public Engine::Session {
     return absl::FailedPreconditionError("Audio modality is not enabled.");
   }
 
+  absl::StatusOr<std::unique_ptr<TrainableParameterHandle>>
+  GetTrainableParameters() override;
+
   // Util function for creating the combined ExecutorInputs from the
   // preprocessed contents.
   // TODO - b/436674053: Modularize the preprocessing logic into a separate
