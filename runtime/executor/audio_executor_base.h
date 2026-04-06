@@ -15,6 +15,8 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_AUDIO_EXECUTOR_BASE_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_EXECUTOR_AUDIO_EXECUTOR_BASE_H_
 
+#include <memory>
+
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/engine/io_types.h"
@@ -37,6 +39,28 @@ class AudioExecutorBase {
   // Reset the audio executor to its initial state. It must be called for
   // streaming audio models after finishing an audio stream.
   virtual absl::Status Reset() {
+    return absl::UnimplementedError("Not implemented.");
+  }
+
+  // Create a new audio context for the audio executor.
+  virtual absl::StatusOr<std::unique_ptr<AudioContext>> CreateNewContext() {
+    return absl::UnimplementedError("Not implemented.");
+  };
+
+  // Clone the audio context for the audio executor.
+  virtual absl::StatusOr<std::unique_ptr<AudioContext>> CloneContext() {
+    return absl::UnimplementedError("Not implemented.");
+  }
+
+  // Clone the audio context from the given audio context.
+  virtual absl::StatusOr<std::unique_ptr<AudioContext>> CloneContext(
+      const AudioContext& audio_context) {
+    return absl::UnimplementedError("Not implemented.");
+  }
+
+  // Restore the audio context for the audio executor.
+  virtual absl::Status RestoreContext(
+      std::unique_ptr<AudioContext> audio_context) {
     return absl::UnimplementedError("Not implemented.");
   }
 

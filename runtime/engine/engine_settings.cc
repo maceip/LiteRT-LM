@@ -30,7 +30,6 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/str_split.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
-#include "litert/cc/internal/scoped_file.h"  // from @litert
 #include "runtime/components/tokenizer.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -42,6 +41,7 @@
 #include "runtime/proto/sampler_params.pb.h"
 #include "runtime/proto/token.pb.h"
 #include "runtime/util/model_type_utils.h"
+#include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
 
 namespace litert::lm {
@@ -105,11 +105,11 @@ absl::Status ValidateBackendConstraint(
 // static
 absl::StatusOr<EngineSettings> EngineSettings::CreateDefault(
     ModelAssets model_assets, Backend backend,
-    std::optional<Backend> vision_backend,
-    std::optional<Backend> audio_backend) {
+    std::optional<Backend> vision_backend, std::optional<Backend> audio_backend,
+    std::optional<Backend> sampler_backend) {
   ASSIGN_OR_RETURN(  // NOLINT
-      auto executor_settings,
-      LlmExecutorSettings::CreateDefault(model_assets, backend));
+      auto executor_settings, LlmExecutorSettings::CreateDefault(
+                                  model_assets, backend, sampler_backend));
   std::optional<VisionExecutorSettings> vision_executor_settings;
   if (vision_backend.has_value()) {
     ASSIGN_OR_RETURN(
@@ -131,8 +131,12 @@ absl::StatusOr<EngineSettings> EngineSettings::CreateDefault(
                         std::move(audio_executor_settings));
 }
 
+// TODO(b/488067258): Refactor the method to smaller methods.
+// For now, support 2 use cases:
+// 1. The tokenizer is available.
+// 2. The tokenizer is not available, when it is nullptr.
 absl::Status EngineSettings::MaybeUpdateAndValidate(
-    Tokenizer& tokenizer,
+    Tokenizer* tokenizer,
     const proto::LlmMetadata* absl_nullable metadata_from_file,
     absl::string_view input_prompt_as_hint,
     const std::optional<std::string>& text_backend_constraint,
@@ -145,41 +149,52 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
   }
 
   // Convert the start/stop tokens from string to token ids.
-  for (auto& stop_token : *metadata.mutable_stop_tokens()) {
-    if (stop_token.has_token_str()) {
-      auto stop_token_id = tokenizer.TokenToId(stop_token.token_str());
-      if (stop_token_id.ok()) {
-        stop_token.mutable_token_ids()->mutable_ids()->Add(*stop_token_id);
-      } else {
-        auto stop_token_ids = tokenizer.TextToTokenIds(stop_token.token_str());
-        if (stop_token_ids.ok()) {
-          stop_token.mutable_token_ids()->mutable_ids()->Add(
-              stop_token_ids->begin(), stop_token_ids->end());
+  if (tokenizer != nullptr) {
+    for (auto& stop_token : *metadata.mutable_stop_tokens()) {
+      if (stop_token.has_token_str()) {
+        auto stop_token_id = tokenizer->TokenToId(stop_token.token_str());
+        if (stop_token_id.ok()) {
+          stop_token.mutable_token_ids()->mutable_ids()->Add(*stop_token_id);
+        } else {
+          auto stop_token_ids =
+              tokenizer->TextToTokenIds(stop_token.token_str());
+          if (stop_token_ids.ok()) {
+            stop_token.mutable_token_ids()->mutable_ids()->Add(
+                stop_token_ids->begin(), stop_token_ids->end());
+          }
         }
       }
     }
-  }
-  if (metadata.start_token().has_token_str()) {
-    auto start_token_id =
-        tokenizer.TokenToId(metadata.start_token().token_str());
-    if (start_token_id.ok()) {
-      metadata.mutable_start_token()->mutable_token_ids()->mutable_ids()->Add(
-          *start_token_id);
-    } else {
-      auto start_token_ids =
-          tokenizer.TextToTokenIds(metadata.start_token().token_str());
-      if (start_token_ids.ok()) {
+    if (metadata.start_token().has_token_str()) {
+      auto start_token_id =
+          tokenizer->TokenToId(metadata.start_token().token_str());
+      if (start_token_id.ok()) {
         metadata.mutable_start_token()->mutable_token_ids()->mutable_ids()->Add(
-            start_token_ids->begin(), start_token_ids->end());
+            *start_token_id);
+      } else {
+        auto start_token_ids =
+            tokenizer->TextToTokenIds(metadata.start_token().token_str());
+        if (start_token_ids.ok()) {
+          metadata.mutable_start_token()
+              ->mutable_token_ids()
+              ->mutable_ids()
+              ->Add(start_token_ids->begin(), start_token_ids->end());
+        }
       }
     }
   }
 
   int num_prompt_tokens = 0;
   if (!input_prompt_as_hint.empty()) {
-    num_prompt_tokens = tokenizer.TextToTokenIds(input_prompt_as_hint)
-                            .value_or(std::vector<int>())
-                            .size();
+    if (tokenizer == nullptr) {
+      // If the tokenizer is not available, we estimate the number of tokens
+      // in the input prompt by dividing the number of characters by 4.
+      num_prompt_tokens = 1 + input_prompt_as_hint.size() / 4;
+    } else {
+      num_prompt_tokens = tokenizer->TextToTokenIds(input_prompt_as_hint)
+                              .value_or(std::vector<int>())
+                              .size();
+    }
   }
 
   // Load the max num tokens from the model file.
@@ -194,6 +209,14 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
       max_num_tokens = metadata.max_num_tokens();
     }
     main_executor_settings_.SetMaxNumTokens(max_num_tokens);
+  }
+
+  // By default, the audio executor is configured to use the same max num
+  // tokens as the main executor.
+  if (audio_executor_settings_.has_value() &&
+      audio_executor_settings_->GetMaxSequenceLength() == 0) {
+    audio_executor_settings_->SetMaxSequenceLength(
+        main_executor_settings_.GetMaxNumTokens());
   }
 
   if (num_prompt_tokens > 0) {
@@ -233,8 +256,13 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
   if (!metadata.has_llm_model_type()) {
     const auto& model_assets = main_executor_settings_.GetModelAssets();
     auto model_path = model_assets.GetPath();
-    ASSIGN_OR_RETURN(*metadata.mutable_llm_model_type(),
-                     InferLlmModelType(metadata, tokenizer));
+    if (tokenizer != nullptr) {
+      ASSIGN_OR_RETURN(*metadata.mutable_llm_model_type(),
+                       InferLlmModelType(metadata, tokenizer));
+    } else {
+      return absl::InvalidArgumentError(
+          "Tokenizer is null and LLM model type is not set.");
+    }
   }
 
   // Set allow_src_quantized_fc_conv_ops to default values depending on the
@@ -252,10 +280,35 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
     main_executor_settings_.SetAdvancedSettings(advanced_settings);
   }
 
+  if (!advanced_settings.hint_waiting_for_completion.has_value()) {
+    // Enable a hint for waiting for completion for generic models on GPU.
+    advanced_settings.hint_waiting_for_completion =
+        metadata.has_llm_model_type() &&
+        metadata.llm_model_type().has_generic_model();
+    main_executor_settings_.SetAdvancedSettings(advanced_settings);
+  }
+
   // TODO: b/482450588 - Remove this once the bug is fixed.
   if (metadata.has_llm_model_type() &&
       metadata.llm_model_type().has_function_gemma()) {
     advanced_settings.convert_weights_on_gpu = false;
+    main_executor_settings_.SetAdvancedSettings(advanced_settings);
+  }
+
+  // Disable delegate clustering for Gemma 4 models.
+  if (metadata.has_llm_model_type() && metadata.llm_model_type().has_gemma4()) {
+    advanced_settings.disable_delegate_clustering = true;
+    main_executor_settings_.SetAdvancedSettings(advanced_settings);
+  }
+  if (IsBenchmarkEnabled()) {
+    advanced_settings.is_benchmark = true;
+    main_executor_settings_.SetAdvancedSettings(advanced_settings);
+  } else if (!advanced_settings.gpu_context_low_priority.has_value()) {
+    // When we are not in benchmark mode, we set the OpenCL context low priority
+    // for generic models, such that the UI thread can be smoother.
+    advanced_settings.gpu_context_low_priority =
+        metadata.has_llm_model_type() &&
+        metadata.llm_model_type().has_generic_model();
     main_executor_settings_.SetAdvancedSettings(advanced_settings);
   }
 
@@ -372,6 +425,8 @@ std::ostream& operator<<(std::ostream& os, const EngineSettings& settings) {
   } else {
     os << "  AudioExecutorSettings: Not set" << std::endl;
   }
+  os << "  ParallelFileSectionLoading: "
+     << settings.GetParallelFileSectionLoading() << std::endl;
   return os;
 }
 
@@ -380,6 +435,15 @@ proto::LlmMetadata& EngineSettings::GetMutableLlmMetadata() {
     metadata_ = proto::LlmMetadata();
   }
   return metadata_.value();
+}
+
+bool EngineSettings::GetParallelFileSectionLoading() const {
+  return parallel_file_section_loading_;
+}
+
+void EngineSettings::SetParallelFileSectionLoading(
+    bool parallel_file_section_loading) {
+  parallel_file_section_loading_ = parallel_file_section_loading;
 }
 
 SessionConfig SessionConfig::CreateDefault() {
@@ -530,13 +594,12 @@ proto::LlmModelType& SessionConfig::GetMutableLlmModelType() {
   return llm_model_type_;
 }
 
-std::shared_ptr<::litert::ScopedFile> SessionConfig::GetScopedLoraFile()
-    const {
+std::shared_ptr<ScopedFile> SessionConfig::GetScopedLoraFile() const {
   return scoped_lora_file_;
 }
 
 void SessionConfig::SetScopedLoraFile(
-    std::shared_ptr<::litert::ScopedFile> scoped_lora_file) {
+    std::shared_ptr<ScopedFile> scoped_lora_file) {
   scoped_lora_file_ = std::move(scoped_lora_file);
 }
 

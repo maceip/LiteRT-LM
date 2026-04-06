@@ -18,7 +18,6 @@ include_guard(GLOBAL)
 include("${LITERTLM_MODULES_DIR}/utils.cmake")
 include("${LITERTLM_PACKAGES_DIR}/packages.cmake")
 
-
 list(APPEND LITERTLM_INCLUDE_PATHS
   ${OPENCL_HDR_DIR}
   ${ABSL_INCLUDE_DIR}
@@ -26,7 +25,7 @@ list(APPEND LITERTLM_INCLUDE_PATHS
   ${GTEST_INCLUDE_DIR}
   ${PROTO_INCLUDE_DIR}
   ${RE2_INCLUDE_DIR}
-  ${SENTENCE_INCLUDE_DIR}
+  ${SENTENCE_INCLUDE_PATHS}
   ${TOKENIZER_INCLUDE_DIR}
   ${TFLITE_INCLUDE_DIR}
   ${TFLITE_SRC_DIR}
@@ -35,8 +34,9 @@ list(APPEND LITERTLM_INCLUDE_PATHS
   ${LITERT_INCLUDE_PATHS}
   ${FETCHCONTENT_MODULE_SRC_DIRS}
   ${FETCHCONTENT_MODULE_INCLUDE_DIR}
-  ${CMAKE_CURRENT_BINARY_DIR}/antlr_generated
+  ${CMAKE_BINARY_DIR}/antlr_generated
 )
+
 
 add_library(LITERTLM_DEPS INTERFACE)
 add_dependencies(LITERTLM_DEPS
@@ -44,6 +44,7 @@ add_dependencies(LITERTLM_DEPS
     tflite_external
     opencl_headers_external
     re2_external
+    litertlm_cxx_bridge
     tokenizers-cpp_external
     sentencepiece_external
     flatbuffers_external
@@ -59,6 +60,9 @@ target_link_libraries(LITERTLM_DEPS INTERFACE
     minja_lib
     antlr_lib
     zlib_lib
+
+    litertlm_cxx_bridge
+    litert_lm_deps
 
     LiteRTLM::litert::shim
     LiteRTLM::tflite::shim

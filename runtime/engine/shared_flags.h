@@ -31,6 +31,7 @@ ABSL_DECLARE_FLAG(std::string, sampler_backend);
 ABSL_DECLARE_FLAG(std::string, expected_output);
 ABSL_DECLARE_FLAG(std::optional<std::string>, log_sink_file);
 ABSL_DECLARE_FLAG(int, max_num_tokens);
+ABSL_DECLARE_FLAG(int, max_output_tokens);
 ABSL_DECLARE_FLAG(int, max_num_images);
 ABSL_DECLARE_FLAG(std::vector<std::string>, prefill_batch_sizes);
 ABSL_DECLARE_FLAG(int, num_output_candidates);
@@ -54,11 +55,16 @@ ABSL_DECLARE_FLAG(std::string, preferred_device_substr);
 ABSL_DECLARE_FLAG(int, num_threads_to_upload);
 ABSL_DECLARE_FLAG(int, num_threads_to_compile);
 ABSL_DECLARE_FLAG(bool, convert_weights_on_gpu);
+ABSL_DECLARE_FLAG(bool, wait_for_weights_conversion_complete_in_benchmark);
 ABSL_DECLARE_FLAG(bool, optimize_shader_compilation);
 ABSL_DECLARE_FLAG(bool, share_constant_tensors);
 ABSL_DECLARE_FLAG(int, num_iterations);
 ABSL_DECLARE_FLAG(std::string, litert_dispatch_lib_dir);
 ABSL_DECLARE_FLAG(bool, sampler_handles_input);
 ABSL_DECLARE_FLAG(std::string, conv_type);
+ABSL_DECLARE_FLAG(bool, cache_compiled_shaders_only);
+ABSL_DECLARE_FLAG(std::string, constraint_regex);
+ABSL_DECLARE_FLAG(bool, use_submodel);
+ABSL_DECLARE_FLAG(bool, enable_speculative_decoding);
 
 #endif  // THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_SHARED_FLAGS_H_

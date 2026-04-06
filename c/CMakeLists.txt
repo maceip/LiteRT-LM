@@ -19,8 +19,8 @@ set(PKG_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 #    Bazel: cc_library(name = "engine", ...)
 # ==============================================================================
 add_litertlm_library(c_engine STATIC
-  "${GEN_C_DIR}/engine.cc"
-  "${GEN_C_DIR}/litert_lm_logging.cc"
+  engine.cc
+  litert_lm_logging.cc
 )
 add_library(LiteRTLM::C::Engine ALIAS c_engine)
 

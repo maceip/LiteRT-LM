@@ -42,7 +42,7 @@ suspend fun main(args: Array<String>) {
 
   Engine.setNativeMinLogSeverity(LogSeverity.ERROR) // silence noisy log for the TUI.
 
-  val engineConfig = EngineConfig(modelPath = modelPath, backend = Backend.CPU)
+  val engineConfig = EngineConfig(modelPath = modelPath, backend = Backend.CPU())
   Engine(engineConfig).use { engine ->
     engine.initialize()
 

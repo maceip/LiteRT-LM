@@ -18,7 +18,7 @@
 // Example usage:
 //
 // bazel run
-// //third_party/odml/litert_lm/schema:litertlm_writer \
+// //schema:litertlm_writer \
 //   -- --output_path=/path/to/output.litertlm \
 //   /path/to/tokenizer.spiece \
 //   /path/to/model.tflite \

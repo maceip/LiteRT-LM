@@ -42,6 +42,8 @@ ABSL_FLAG(int, max_num_tokens, 0,
           "length will be determined by some heuristic. On benchmark mode, it "
           "will be set to one equal to or greater than "
           "benchmark_prefill_tokens + benchmark_decode_tokens.");
+ABSL_FLAG(int, max_output_tokens, -1,
+          "Maximum number of output tokens for generation.");
 ABSL_FLAG(int, max_num_images, 1,
           "Maximum number of images to use for LLM execution.");
 ABSL_FLAG(std::vector<std::string>, prefill_batch_sizes, {},
@@ -106,11 +108,14 @@ ABSL_FLAG(int, num_threads_to_upload, -1,
 ABSL_FLAG(int, num_threads_to_compile, -1,
           "Number of threads for WebGPU kernel compilation. By default (-1), "
           "it's determined by the runtime.");
-ABSL_FLAG(
-    bool, convert_weights_on_gpu, true,
-    "If true, the executor will convert weights on GPU. It is not supported by "
-    "the all backends so this flag is ignored when using non-OpenCL and "
-    "non-WebGPU backends.");
+ABSL_FLAG(bool, convert_weights_on_gpu, true,
+          "If true, the executor will convert weights on GPU. It is not "
+          "supported by the all backends so this flag is ignored when using "
+          "non-OpenCL and non-WebGPU backends.");
+ABSL_FLAG(bool, wait_for_weights_conversion_complete_in_benchmark, true,
+          "If false, the executor does not wait for weights conversion on GPU "
+          "to complete during benchmark. It's meaningful only when benchmark "
+          "and convert_weights_on_gpu are true.");
 ABSL_FLAG(bool, optimize_shader_compilation, true,
           "If true, optimize Vulkan shader compilation.");
 ABSL_FLAG(bool, share_constant_tensors, true,
@@ -129,3 +134,13 @@ ABSL_FLAG(std::string, conv_type, "auto",
           "be either float32 or float16 depending on the activation data type. "
           "See --force_f32. int8 would have better latency with lower "
           "accuracy. auto will choose the best type based on the model.");
+ABSL_FLAG(bool, cache_compiled_shaders_only, false,
+          "If true, only the compiled shaders will be cached. If false, gpu "
+          "graph info including work group sizes (and all compiled shaders "
+          "depending on backend) will be cached.");
+ABSL_FLAG(std::string, constraint_regex, "",
+          "Regular expression to constrain the output generation.");
+ABSL_FLAG(bool, use_submodel, false,
+          "Whether the submodel should be used if available.");
+ABSL_FLAG(bool, enable_speculative_decoding, false,
+          "Whether to use speculative decoding.");

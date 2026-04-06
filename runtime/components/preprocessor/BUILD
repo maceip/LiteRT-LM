@@ -70,6 +70,8 @@ cc_library(
     deps = [
         ":audio_preprocessor",
         ":mel_filterbank",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
         "@litert//litert/cc:litert_tensor_buffer_types",
         "@com_google_absl//absl/memory",
@@ -290,6 +292,9 @@ cc_library(
     hdrs = ["stb_image_preprocessor.h"],
     deps = [
         ":image_preprocessor",
+        "@com_google_absl//absl/algorithm:container",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -297,7 +302,7 @@ cc_library(
         "//runtime/engine:io_types",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:litert_status_util",
-        "@stb//:stb_image_hdrs",
+        "@stb//:stblib",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
@@ -306,6 +311,7 @@ cc_library(
             "@litert//litert/cc:litert_layout",
             "@litert//litert/cc:litert_macros",
             "@litert//litert/cc:litert_model",
+            "@litert//litert/cc:litert_ranked_tensor_type",
             "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),

@@ -26,15 +26,43 @@ set(protobuf_ABSL_PROVIDER "package" CACHE INTERNAL "" FORCE)
 set(protobuf_ABSL_USED_TARGETS "LiteRTLM::absl::absl" CACHE INTERNAL "" FORCE)
 set(protobuf_ABSL_USED_TEST_TARGETS "LiteRTLM::absl::absl" CACHE INTERNAL "" FORCE)
 
-
 include_directories(${ABSL_INCLUDE_DIR})
 link_libraries(LiteRTLM::absl::shim)
 
+# [TODO] Refactor into macro for DRY principle.
+# --- Toolchain-Specific Linker Flags ---
+set(_LITERTLM_LINK_MULTIDEF "")
+set(_LITERTLM_LINK_GROUP_START "")
+set(_LITERTLM_LINK_GROUP_END "")
+set(_LITERTLM_SYSLIBS "")
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    if(APPLE)
+        # AppleClang / Mach-O Linker
+        set(_LITERTLM_LINK_MULTIDEF "-Wl,-multiply_defined,suppress")
+        set(_LITERTLM_SYSLIBS "-lz -lpthread -ldl")
+    elseif(ANDROID)
+        # Android / Bionic (NO standalone rt or pthread)
+        set(_LITERTLM_LINK_MULTIDEF "-Wl,--allow-multiple-definition")
+        set(_LITERTLM_LINK_GROUP_START "-Wl,--start-group")
+        set(_LITERTLM_LINK_GROUP_END "-Wl,--end-group")
+        set(_LITERTLM_SYSLIBS "-lz -ldl -llog")
+    else()
+        # Linux / ELF Linker (GNU ld or LLD)
+        set(_LITERTLM_LINK_MULTIDEF "-Wl,--allow-multiple-definition")
+        set(_LITERTLM_LINK_GROUP_START "-Wl,--start-group")
+        set(_LITERTLM_LINK_GROUP_END "-Wl,--end-group")
+        set(_LITERTLM_SYSLIBS "-lz -lrt -lpthread -ldl")
+    endif()
+elseif(MSVC)
+    # MSVC Linker
+    set(_LITERTLM_LINK_MULTIDEF "/FORCE:MULTIPLE")
+    set(_LITERTLM_SYSLIBS "") 
+endif()
 
 set(CMAKE_CXX_STANDARD_LIBRARIES
-    "${CMAKE_CXX_STANDARD_LIBRARIES} -Wl,--start-group ${_ABSL_PAYLOAD} -lz -lrt -lpthread -ldl -Wl,--end-group"
+    "${CMAKE_CXX_STANDARD_LIBRARIES} ${_LITERTLM_LINK_MULTIDEF} ${_LITERTLM_LINK_GROUP_START} ${_ABSL_PAYLOAD} ${_LITERTLM_SYSLIBS} ${_LITERTLM_LINK_GROUP_END}"
     CACHE STRING "Forced Abseil aggregate for Protobuf internal linking" FORCE
 )
 
 add_definitions(-DABSL_LTS_GROUP_EXPORT)
-add_definitions(-DABSL_20250814_LTS)

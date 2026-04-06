@@ -27,6 +27,10 @@ jobs:
       actions: write  # For gh cache delete.
       contents: write  # For gh release upload.
     env:
+      MODEL_KEY: gemma-3-1b-it-v1
+      MODEL_PATH: ./models/gemma3-1b-it-int4.litertlm
+      MODEL_URL: https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.litertlm
+
       GH_TOKEN: ${{ github.token }}  # For gh release upload.
       REFRESH_CACHE: ${{ github.event_name == 'schedule' ||
                          (github.event_name == 'workflow_dispatch' && inputs.REFRESH_CACHE) }}
@@ -76,6 +80,18 @@ jobs:
           echo "Cache Primary Key: ${{ steps.bazel-cache.outputs.cache-primary-key }}"
           echo "Cache Matched Key: ${{ steps.bazel-cache.outputs.cache-matched-key }}"
 
+      - name: Download Model
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          mkdir -p ./models
+          echo "Downloading model from Hugging Face..."
+          curl -L --retry 5 -f \
+            -H "Authorization: Bearer $HF_TOKEN" \
+            -o ${{ env.MODEL_PATH }} \
+            "${{ env.MODEL_URL }}"
+          ls -lh ${{ env.MODEL_PATH }}
+
       - name: Run bazel build on Linux.
         run: |
           bazel build --disk_cache=~/.cache/bazel-linux --config=linux_x86_64 \
@@ -106,6 +122,12 @@ jobs:
             --define=resolve_symbols_in_exec=false \
             //runtime/engine:litert_lm_main
 
+      - name: Install pytest
+        run: python3 -m pip install --break-system-packages pytest==8.3.4
+
+      - name: Run pytest
+        run: pytest tools/test/ --model-path=${{ env.MODEL_PATH }} --build-system=bazel
+
       - name: Check if litert_lm_main has only LiteRt symbols undefined.
         # Return exit code 1 if libLiteRt.so has LiteRt symbols except for LiteRtTopK
         # and some exceptions listed explictly here.
@@ -114,10 +136,14 @@ jobs:
           ! readelf -sW bazel-bin/runtime/engine/litert_lm_main \
             | grep " LiteRt" | grep -v " UND LiteRt" | grep -v " LiteRtTopK" \
             | grep -v -e LiteRtIsSameLayout -e LiteRtGetNumLayoutElements \
-                      -e "LiteRt.*MinLoggerSeverity" -e "LiteRt.*OpaqueOptions" \
+                      -e "LiteRt.*Logger" -e "LiteRt.*Metric" -e "LiteRt.*OpaqueOptions" \
                       -e "LiteRt.*EnvironmentOptions" -e LiteRtGetLogSeverityName \
-                      -e LiteRtGetDefaultLogger -e LiteRtCompareApiVersion \
-                      -e LiteRtGetStatusString -e "LiteRt.*Metric"
+                      -e LiteRtCompareApiVersion -e LiteRtGetStatusString \
+                      -e LiteRtGetNumModelSignatures -e LiteRtGetModelSignature \
+                      -e LiteRtGetSignatureKey -e LiteRtGetSignatureOutputTensor \
+                      -e LiteRtGetQuantizationTypeId -e LiteRtGetPerTensorQuantization \
+                      -e TensorBufferRequirements
+
       - name: Setup Android NDK.
         uses: nttld/setup-ndk@v1
         id: setup-ndk
@@ -133,6 +159,7 @@ jobs:
             @litert//litert/vendors/mediatek/dispatch:dispatch_api_so \
             @litert//litert/vendors/qualcomm/dispatch:dispatch_api_so \
             -- \
+            -//python/... \
             -//schema/py:* \
             -//kotlin/java/com/google/ai/edge/litertlm/example/...
         env:

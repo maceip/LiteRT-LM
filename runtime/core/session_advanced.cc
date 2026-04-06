@@ -32,6 +32,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
 #include "runtime/core/session_utils.h"
 #include "runtime/engine/engine.h"
@@ -52,8 +53,7 @@ using TaskController = Engine::Session::TaskController;
 absl::StatusOr<std::unique_ptr<SessionAdvanced>> SessionAdvanced::Create(
     std::weak_ptr<ExecutionManager> execution_manager,
     Tokenizer* absl_nonnull tokenizer, const SessionConfig& session_config,
-    std::optional<BenchmarkInfo> benchmark_info,
-    std::optional<AudioExecutorProperties> audio_executor_properties) {
+    std::optional<BenchmarkInfo> benchmark_info) {
   auto execution_manager_lock = execution_manager.lock();
   if (execution_manager_lock == nullptr) {
     return absl::FailedPreconditionError("Execution manager is not available.");
@@ -65,8 +65,7 @@ absl::StatusOr<std::unique_ptr<SessionAdvanced>> SessionAdvanced::Create(
   return absl::WrapUnique(new SessionAdvanced(
       session_id, execution_manager, tokenizer, session_info_,
       /*session_state=*/SessionState::kFresh,
-      /*last_task_ids=*/{},
-      /*audio_executor_properties=*/audio_executor_properties));
+      /*last_task_ids=*/{}));
 }
 
 absl::Status SessionAdvanced::RunPrefill(
@@ -85,6 +84,7 @@ absl::StatusOr<std::unique_ptr<TaskController>>
 SessionAdvanced::RunPrefillAsync(
     const std::vector<InputData>& contents,
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
+  absl::MutexLock lock(mutex_);
   auto cancelled = std::make_shared<std::atomic<bool>>(false);
 
   auto execution_manager_lock = execution_manager_.lock();
@@ -152,6 +152,7 @@ absl::StatusOr<Responses> SessionAdvanced::RunDecode(
   int num_decode_tokens = 0;
   auto decode_sync_callback = [&collected_responses, &num_decode_tokens](
                                   absl::StatusOr<Responses> responses) {
+    if (!collected_responses.ok()) return;
     if (!responses.ok()) {
       collected_responses = responses.status();
       return;
@@ -208,6 +209,7 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionAdvanced::RunDecodeAsync(
 absl::StatusOr<std::unique_ptr<TaskController>> SessionAdvanced::RunDecodeAsync(
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
     const DecodeConfig& decode_config) {
+  absl::MutexLock lock(mutex_);
   if (session_state_ != SessionState::kPrefilled) {
     return absl::InternalError("Session is not prefilled yet.");
   }
@@ -248,7 +250,9 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionAdvanced::RunDecodeAsync(
 
   RETURN_IF_ERROR(execution_manager_lock->AddDecodeTask(
       session_id_, task_id, last_task_ids_, decode_config.GetConstraint(),
-      cancelled, std::move(callback)));
+      cancelled, std::move(callback),
+      decode_config.GetMaxOutputTokens().value_or(
+          session_info_->session_config.GetMaxOutputTokens())));
 
   last_task_ids_ = {task_id};
 
@@ -287,6 +291,7 @@ SessionAdvanced::RunTextScoringAsync(
     const std::vector<absl::string_view>& target_text,
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
     bool store_token_lengths) {
+  absl::MutexLock lock(mutex_);
   if (target_text.size() != 1) {
     return absl::InvalidArgumentError("Target text size should be 1.");
   }
@@ -349,6 +354,7 @@ absl::Status SessionAdvanced::GenerateContentStream(
 }
 
 absl::StatusOr<BenchmarkInfo> SessionAdvanced::GetBenchmarkInfo() {
+  absl::MutexLock lock(mutex_);
   if (session_info_->benchmark_info.has_value()) {
     return session_info_->benchmark_info.value();
   }
@@ -367,16 +373,28 @@ absl::StatusOr<BenchmarkInfo*> SessionAdvanced::GetMutableBenchmarkInfo() {
 
 absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::Clone() {
   absl::Status status = absl::OkStatus();
-  ASSIGN_OR_RETURN(auto session,
-                   CloneAsync([&status](absl::StatusOr<Responses> responses) {
-                     status = responses.status();
-                   }));
+  std::unique_ptr<Engine::Session> session;
+  {
+    absl::MutexLock lock(mutex_);
+    ASSIGN_OR_RETURN(session,
+                     CloneAsyncLocked([&status](
+                                        absl::StatusOr<Responses> responses) {
+                       status = responses.status();
+                     }));
+  }
   RETURN_IF_ERROR(WaitUntilDone());
   RETURN_IF_ERROR(status);
   return session;
 }
 
 absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::CloneAsync(
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
+  absl::MutexLock lock(mutex_);
+  return CloneAsyncLocked(std::move(callback));
+}
+
+absl::StatusOr<std::unique_ptr<Engine::Session>>
+SessionAdvanced::CloneAsyncLocked(
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
   auto execution_manager_lock = execution_manager_.lock();
   if (execution_manager_lock == nullptr) {
@@ -402,5 +420,18 @@ absl::StatusOr<std::unique_ptr<Engine::Session>> SessionAdvanced::CloneAsync(
                                               tokenizer_, session_info,
                                               session_state_, last_task_ids_));
 }
+
+SessionAdvanced::~SessionAdvanced() {
+  WaitUntilDone().IgnoreError();
+  auto execution_manager_lock = execution_manager_.lock();
+  if (execution_manager_lock == nullptr) {
+    ABSL_LOG(ERROR) << "Execution manager is not available.";
+    return;
+  }
+  auto status = execution_manager_lock->ReleaseSession(session_id_);
+  if (!status.ok()) {
+    ABSL_LOG(ERROR) << "Error occurred when releasing session: " << status;
+  }
+};
 
 }  // namespace litert::lm

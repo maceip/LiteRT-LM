@@ -30,6 +30,7 @@
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/util/memory_mapped_file.h"
@@ -162,11 +163,12 @@ class LitertLmLoader {
   // recording the section locations for on-demand loading later.
   absl::Status Initialize();
   absl::Status MapSection(BufferKey buffer_key, uint64_t begin_offset,
-                          uint64_t end_offset);
+                          uint64_t end_offset)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(section_buffers_mutex_);
   // Returns the section buffer for the given buffer key. Will map the section
   // if it has not been mapped yet. If not found, returns std::nullopt.
   std::optional<litert::BufferRef<uint8_t>> GetSectionBuffer(
-      BufferKey buffer_key);
+      BufferKey buffer_key) ABSL_LOCKS_EXCLUDED(section_buffers_mutex_);
 
   // The model file to be loaded, can be either a ScopedFile or a
   // memory-mapped file.
@@ -183,17 +185,19 @@ class LitertLmLoader {
       BufferKey, std::pair</*begin_offset*/ uint64_t, /*end_offset=*/uint64_t>,
       BufferKeyHash>
       section_locations_;
+
+  absl::Mutex section_buffers_mutex_;
   // The section memory mapped files - stored here to ensure they are not
   // unmapped while in use. On Windows, these MemoryMappedFiles may contain more
   // than the current section's data because Windows has a data alignment of
   // 64KB but the LiteRT LM file has a 16KB alignment.
   ::std::unordered_map<BufferKey, std::unique_ptr<MemoryMappedFile>,
                        BufferKeyHash>
-      section_memory_mapped_files_;
+      section_memory_mapped_files_ ABSL_GUARDED_BY(section_buffers_mutex_);
   // The section buffers. Unlike the section_memory_mapped_files_, these
   // buffers point to only the data of the each section, even on Windows.
   ::std::unordered_map<BufferKey, litert::BufferRef<uint8_t>, BufferKeyHash>
-      section_buffers_;
+      section_buffers_ ABSL_GUARDED_BY(section_buffers_mutex_);
 
   // Map of all the sections' metadata, for now, focusing on the backend
   // constraints

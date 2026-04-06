@@ -175,14 +175,14 @@ fun tool(openApiTool: OpenApiTool): ToolProvider {
         try {
           JsonParser.parseString(openApiTool.getToolDescriptionJsonString()).asJsonObject
         } catch (e: JsonParseException) {
-          throw ToolException("Failed to parse JSON. {${e}.message}")
+          throw ToolException("Failed to parse JSON. ${e.message}", e)
         }
 
       val name: String =
         try {
           toolDescription.get("name").asString
         } catch (e: Throwable) {
-          throw ToolException("Failed to parse field \"name\" as String. {${e}.message}")
+          throw ToolException("Failed to parse field \"name\" as String. ${e.message}", e)
         }
 
       val jsonTool =
@@ -206,32 +206,10 @@ fun tool(openApiTool: OpenApiTool): ToolProvider {
  *
  * @property tools A list of [ToolProvider].
  */
-class ToolManager(val tools: List<Any>) {
-
-  @OptIn(ExperimentalApi::class)
-  private val useSnakeCase = ExperimentalFlags.convertCamelToSnakeCaseInToolDescription
+class ToolManager(val tools: List<ToolProvider> = emptyList()) {
 
   private val internalTools: Map<String, InternalJsonTool> =
-    tools.fold(mapOf()) { acc, tool ->
-      acc +
-        when (tool) {
-          is ToolProvider -> tool.provideTools()
-          else -> {
-            // For backward compatibility, handle tool that does not implement ToolProvider similar
-            // to ToolSet.
-            //
-            // TODO(b/476130607): Remove this once all tools implement ToolProvider.
-            val toolClass = tool.javaClass.kotlin
-            toolClass.functions
-              .filter { function -> function.annotations.any { annotation -> annotation is Tool } }
-              .map { function ->
-                (if (useSnakeCase) function.name.camelToSnakeCase() else function.name) to
-                  ReflectionTool(tool, function, useSnakeCase)
-              }
-              .toMap()
-          }
-        }
-    }
+    tools.fold(mapOf()) { acc, tool -> acc + tool.provideTools() }
 
   /**
    * Executes a tool function by its name with the given parameters.
@@ -246,7 +224,7 @@ class ToolManager(val tools: List<Any>) {
       val tool =
         internalTools[functionName]
           ?: throw IllegalArgumentException("Tool not found: ${functionName}")
-      return convertKotlinValueToJsonValue(tool.execute(params))
+      return tool.execute(params).toJsonElement()
     } catch (e: Exception) {
       return JsonPrimitive("Error occured. ${e.toString()}")
     }
@@ -269,34 +247,6 @@ class ToolManager(val tools: List<Any>) {
         )
       }
     }
-
-  private fun convertKotlinValueToJsonValue(kValue: Any?): JsonElement {
-    return when (kValue) {
-      is List<*> -> {
-        val array = JsonArray()
-        for (item in kValue) {
-          if (item != null) {
-            array.add(convertKotlinValueToJsonValue(item))
-          }
-        }
-        array
-      }
-      is Map<*, *> -> {
-        val obj = JsonObject()
-        for ((key, value) in kValue) {
-          if (key != null && value != null) {
-            obj.add(key.toString(), convertKotlinValueToJsonValue(value))
-          }
-        }
-        obj
-      }
-      is String -> JsonPrimitive(kValue)
-      is Number -> JsonPrimitive(kValue)
-      is Boolean -> JsonPrimitive(kValue)
-      is kotlin.Unit -> JsonPrimitive("") // special case when a Kotlin function return nothing.
-      else -> JsonPrimitive(kValue.toString())
-    }
-  }
 }
 
 /** Internal use only. */
@@ -476,4 +426,4 @@ private fun String.snakeToCamelCase(): String {
 }
 
 /** Exception related to tool calling. */
-class ToolException(message: String) : RuntimeException(message)
+class ToolException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)

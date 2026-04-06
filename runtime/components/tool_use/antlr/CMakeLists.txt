@@ -13,9 +13,11 @@
 # limitations under the License.
 
 
-set(PKG_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
-set(ANTLR_TOOL_JAR "${PROJECT_ROOT}/antlr-4.13.2-complete.jar")
 
+set(PKG_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
+
+# TODO(totero): Refactor anltr generation step into generators.cmake file.
+# --- ANTLR GENERATION ---
 set(ANTLR_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/antlr_generated)
 file(MAKE_DIRECTORY ${ANTLR_GENERATED_DIR})
 
@@ -27,7 +29,7 @@ add_custom_command(
         ${ANTLR_GENERATED_DIR}/AntlrJsonParser.cpp
         ${ANTLR_GENERATED_DIR}/AntlrJsonParserBaseListener.h
         ${ANTLR_GENERATED_DIR}/AntlrJsonParserListener.h
-    COMMAND java -jar ${ANTLR_TOOL_JAR}
+    COMMAND java -jar ${ANTLR_JAR_PATH}
             -Dlanguage=Cpp
             -listener -visitor
             -o ${ANTLR_GENERATED_DIR}
@@ -63,7 +65,7 @@ add_custom_command(
         ${ANTLR_GENERATED_DIR}/AntlrPythonParser.cpp
         ${ANTLR_GENERATED_DIR}/AntlrPythonParserBaseListener.h
         ${ANTLR_GENERATED_DIR}/AntlrPythonParserListener.h
-    COMMAND java -jar ${ANTLR_TOOL_JAR}
+    COMMAND java -jar ${ANTLR_JAR_PATH}
             -Dlanguage=Cpp
             -listener -visitor
             -o ${ANTLR_GENERATED_DIR}
@@ -91,10 +93,47 @@ target_link_libraries(antlr_python_tool_call_parser
         antlr4_static
 )
 
+add_custom_command(
+    OUTPUT
+        ${ANTLR_GENERATED_DIR}/AntlrFcLexer.h
+        ${ANTLR_GENERATED_DIR}/AntlrFcParser.h
+        ${ANTLR_GENERATED_DIR}/AntlrFcLexer.cpp
+        ${ANTLR_GENERATED_DIR}/AntlrFcParser.cpp
+        ${ANTLR_GENERATED_DIR}/AntlrFcParserBaseListener.h
+        ${ANTLR_GENERATED_DIR}/AntlrFcParserListener.h
+    COMMAND java -jar ${ANTLR_JAR_PATH}
+            -Dlanguage=Cpp
+            -listener -visitor
+            -o ${ANTLR_GENERATED_DIR}
+            -package antlr_python_tool_call_parser
+            ${PKG_ROOT}/AntlrFcLexer.g4
+            ${PKG_ROOT}/AntlrFcParser.g4
+    DEPENDS ${PKG_ROOT}/AntlrFcLexer.g4 ${PKG_ROOT}/AntlrFcParser.g4
+    COMMENT "Generating Fc Parser C++ code..."
+)
+
+add_litertlm_library(antlr_fc_tool_call_parser STATIC
+    ${ANTLR_GENERATED_DIR}/AntlrFcLexer.cpp
+    ${ANTLR_GENERATED_DIR}/AntlrFcParser.cpp
+)
+add_library(LiteRTLM::Runtime::Components::ToolUse::Antlr::Fc ALIAS antlr_fc_tool_call_parser)
+
+target_include_directories(antlr_fc_tool_call_parser
+    PUBLIC
+        ${ANTLR_GENERATED_DIR}
+        ${PKG_ROOT}
+)
+
+target_link_libraries(antlr_fc_tool_call_parser
+    PUBLIC
+        antlr4_static
+)
+
 add_library(runtime_components_tool_use_antlr_libs INTERFACE)
 add_library(LiteRTLM::Runtime::Components::ToolUse::Antlr ALIAS runtime_components_tool_use_antlr_libs)
 
 target_link_libraries(runtime_components_tool_use_antlr_libs INTERFACE
     LiteRTLM::Runtime::Components::ToolUse::Antlr::Json
     LiteRTLM::Runtime::Components::ToolUse::Antlr::Python
+    LiteRTLM::Runtime::Components::ToolUse::Antlr::Fc
 )

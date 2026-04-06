@@ -15,6 +15,7 @@
 import io
 import os
 import pathlib
+import zlib
 from absl.testing import absltest
 from absl.testing import parameterized
 from google.protobuf import text_format
@@ -157,7 +158,11 @@ class LitertlmBuilderTest(parameterized.TestCase):
     with self.assertRaises(AssertionError):
       builder.add_llm_metadata(metadata_path)
 
-  def test_add_tflite_model(self):
+  @parameterized.named_parameters(
+      ("prefill_decode", litertlm_builder.TfLiteModelType.PREFILL_DECODE),
+      ("mtp_drafter", litertlm_builder.TfLiteModelType.MTP_DRAFTER),
+  )
+  def test_add_tflite_model(self, model_type: litertlm_builder.TfLiteModelType):
     """Tests that a TFLite model can be added correctly."""
     tflite_path = self._create_dummy_file(
         "model.tflite", b"dummy tflite content"
@@ -167,7 +172,7 @@ class LitertlmBuilderTest(parameterized.TestCase):
     self._add_system_metadata(builder)
     builder.add_tflite_model(
         tflite_path,
-        litertlm_builder.TfLiteModelType.PREFILL_DECODE,
+        model_type,
         additional_metadata=[
             litertlm_builder.Metadata(
                 key="test_key",
@@ -179,7 +184,7 @@ class LitertlmBuilderTest(parameterized.TestCase):
     ss = self._build_and_read_litertlm(builder)
     self.assertIn("Sections (1)", ss)
     self.assertIn("Data Type:    TFLiteModel", ss)
-    self.assertIn("Key: model_type, Value (String): tf_lite_prefill_decode", ss)
+    self.assertIn(f"Key: model_type, Value (String): {model_type.value}", ss)
     self.assertIn("Key: test_key, Value (String): test_value", ss)
 
   def test_add_tflite_model_with_backend_constraint(self):
@@ -304,7 +309,8 @@ class LitertlmBuilderTest(parameterized.TestCase):
 
   def test_add_hf_tokenizer(self):
     """Tests that a HuggingFace tokenizer can be added correctly."""
-    hf_path = self._create_dummy_file("tokenizer.json", b'{"version": "1.0"}')
+    hf_content = b'{"version": "1.0"}'
+    hf_path = self._create_dummy_file("tokenizer.json", hf_content)
     additional_metadata = [
         litertlm_builder.Metadata(
             key="test_key",
@@ -319,6 +325,49 @@ class LitertlmBuilderTest(parameterized.TestCase):
     self.assertIn("Sections (1)", ss)
     self.assertIn("Data Type:    HF_Tokenizer_Zlib", ss)
     self.assertIn("Key: test_key, Value (String): test_value", ss)
+
+    # Verify content compression
+    with litertlm_core.open_file(
+        os.path.join(self.temp_dir, "litertlm.litertlm"), "rb"
+    ) as f:
+      f.seek(litertlm_core.BLOCK_SIZE)
+      # Read uncompressed size (8 bytes)
+      uncompressed_size = int.from_bytes(f.read(8), "little")
+      self.assertLen(hf_content, uncompressed_size)
+      # Read remaining data (compressed)
+      compressed_data = f.read()
+      # Decompress and verify. zlib.decompress will stop at end of stream,
+      # ignoring padding
+      decompressed = zlib.decompress(compressed_data)
+      self.assertEqual(decompressed, hf_content)
+
+  def test_add_hf_tokenizer_zlib(self):
+    """Tests that a zipped HuggingFace tokenizer is handled correctly."""
+    zlib_content = b"dummy zlib content"
+    hf_path = self._create_dummy_file("tokenizer.zlib", zlib_content)
+    additional_metadata = [
+        litertlm_builder.Metadata(
+            key="test_key",
+            value="test_value",
+            dtype=litertlm_builder.DType.STRING,
+        )
+    ]
+    builder = litertlm_builder.LitertLmFileBuilder()
+    self._add_system_metadata(builder)
+    builder.add_hf_tokenizer(hf_path, additional_metadata=additional_metadata)
+    ss = self._build_and_read_litertlm(builder)
+    self.assertIn("Sections (1)", ss)
+    self.assertIn("Data Type:    HF_Tokenizer_Zlib", ss)
+    self.assertIn("Key: test_key, Value (String): test_value", ss)
+
+    # Verify content is raw (not re-compressed and no size prefix)
+    with litertlm_core.open_file(
+        os.path.join(self.temp_dir, "litertlm.litertlm"), "rb"
+    ) as f:
+      f.seek(litertlm_core.BLOCK_SIZE)
+      # Should match exact content immediately
+      read_content = f.read(len(zlib_content))
+      self.assertEqual(read_content, zlib_content)
 
   def test_add_tokenizer_already_added(self):
     """Tests that adding a tokenizer more than once raises an AssertionError."""

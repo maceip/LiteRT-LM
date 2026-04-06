@@ -30,6 +30,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_join.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "litert/test/matchers.h"  // from @litert
 #include "runtime/components/sentencepiece_tokenizer.h"
 #include "runtime/components/tokenizer.h"
@@ -470,6 +471,87 @@ TEST_F(SessionUtilsTest, PreprocessContents) {
                               ReferTensorBufferAsSpan<int>(*text_tensor));
   EXPECT_THAT(std::vector<int>(token_ids_span.begin(), token_ids_span.end()),
               testing::ElementsAre(2, 90, 547, 58, 735, 210, 466, 2294));
+}
+
+TEST_F(SessionUtilsTest, PreprocessContentsMultimodal) {
+  SessionConfig session_config = SessionConfig::CreateDefault();
+  session_config.SetStartTokenId(2);
+  std::vector<InputData> contents;
+  contents.emplace_back(InputText("</s>Hello World!"));
+
+  std::vector<float> dummy_image_data = {0.1f, 0.2f, 0.3f};
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto image_tensor,
+      CopyToTensorBuffer<float>(dummy_image_data, {1, 1, 1, 3}));
+  contents.emplace_back(InputImage(std::move(image_tensor)));
+  contents.emplace_back(InputImageEnd());
+
+  absl::flat_hash_map<std::string, litert::TensorBuffer> tensor_map;
+  std::vector<float> map_data = {0.7f, 0.8f};
+  LITERT_ASSERT_OK_AND_ASSIGN(auto map_tensor,
+                              CopyToTensorBuffer<float>(map_data, {1, 2}));
+  tensor_map["key1"] = std::move(map_tensor);
+  contents.emplace_back(InputImage(std::move(tensor_map)));
+  contents.emplace_back(InputImageEnd());
+
+  std::vector<float> dummy_audio_data = {0.4f, 0.5f, 0.6f};
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto audio_tensor,
+      CopyToTensorBuffer<float>(dummy_audio_data, {1, 3, 1}));
+  contents.emplace_back(InputAudio(std::move(audio_tensor)));
+  contents.emplace_back(InputAudioEnd());
+
+  std::optional<BenchmarkInfo> benchmark_info;
+  ASSERT_OK_AND_ASSIGN(auto preprocessed_contents,
+                       PreprocessContents(contents, session_config, *tokenizer_,
+                                          benchmark_info));
+  ASSERT_EQ(preprocessed_contents.size(), 7);
+  ASSERT_TRUE(std::holds_alternative<InputText>(preprocessed_contents[0]));
+  const auto& text_data = std::get<InputText>(preprocessed_contents[0]);
+  ASSERT_TRUE(text_data.IsTensorBuffer());
+  ASSERT_OK_AND_ASSIGN(auto text_tensor, text_data.GetPreprocessedTextTensor());
+  ASSERT_NE(text_tensor, nullptr);
+  LITERT_ASSERT_OK_AND_ASSIGN(auto token_ids_span,
+                              ReferTensorBufferAsSpan<int>(*text_tensor));
+  EXPECT_THAT(std::vector<int>(token_ids_span.begin(), token_ids_span.end()),
+              testing::ElementsAre(2, 90, 547, 58, 735, 210, 466, 2294));
+
+  ASSERT_TRUE(std::holds_alternative<InputImage>(preprocessed_contents[1]));
+  const auto& image_data = std::get<InputImage>(preprocessed_contents[1]);
+  ASSERT_TRUE(image_data.IsTensorBuffer());
+  ASSERT_OK_AND_ASSIGN(auto img_tensor_out,
+                       image_data.GetPreprocessedImageTensor());
+  LITERT_ASSERT_OK_AND_ASSIGN(auto img_span,
+                              ReferTensorBufferAsSpan<float>(*img_tensor_out));
+  EXPECT_THAT(std::vector<float>(img_span.begin(), img_span.end()),
+              testing::ElementsAre(0.1f, 0.2f, 0.3f));
+
+  ASSERT_TRUE(std::holds_alternative<InputImageEnd>(preprocessed_contents[2]));
+
+  ASSERT_TRUE(std::holds_alternative<InputImage>(preprocessed_contents[3]));
+  const auto& image_map_data = std::get<InputImage>(preprocessed_contents[3]);
+  ASSERT_TRUE(image_map_data.IsTensorBufferMap());
+  ASSERT_OK_AND_ASSIGN(auto img_map_out,
+                       image_map_data.GetPreprocessedImageTensorMap());
+  ASSERT_TRUE(img_map_out->contains("key1"));
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto map_span, ReferTensorBufferAsSpan<float>(img_map_out->at("key1")));
+  EXPECT_THAT(std::vector<float>(map_span.begin(), map_span.end()),
+              testing::ElementsAre(0.7f, 0.8f));
+
+  ASSERT_TRUE(std::holds_alternative<InputImageEnd>(preprocessed_contents[4]));
+
+  ASSERT_TRUE(std::holds_alternative<InputAudio>(preprocessed_contents[5]));
+  const auto& audio_data = std::get<InputAudio>(preprocessed_contents[5]);
+  ASSERT_TRUE(audio_data.IsTensorBuffer());
+  ASSERT_OK_AND_ASSIGN(auto audio_tensor_out,
+                       audio_data.GetPreprocessedAudioTensor());
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      auto audio_span, ReferTensorBufferAsSpan<float>(*audio_tensor_out));
+  EXPECT_THAT(std::vector<float>(audio_span.begin(), audio_span.end()),
+              testing::ElementsAre(0.4f, 0.5f, 0.6f));
+
+  ASSERT_TRUE(std::holds_alternative<InputAudioEnd>(preprocessed_contents[6]));
 }
 
 TEST_F(SessionUtilsTest, PreprocessContentsWithEmptyInputText) {

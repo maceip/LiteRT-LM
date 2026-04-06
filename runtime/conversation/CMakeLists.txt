@@ -37,7 +37,7 @@ target_link_libraries(runtime_conversation_conversation
     LiteRTLM::Runtime::Conversation::Processor::Interface
 
     LiteRTLM::Runtime::Components::PromptTemplate
-    LiteRTLM::Runtime::Components::ConstrainedDecoding::Constraint
+    LiteRTLM::Runtime::Components::ConstrainedDecoding
     runtime_util_litert_status_util
     LITERTLM_DEPS
 )
@@ -68,7 +68,7 @@ add_library(LiteRTLM::Runtime::Conversation::IoTypes ALIAS runtime_conversation_
 
 target_include_directories(runtime_conversation_io_types
   PUBLIC
-    ${PKG_ROOT}
+    ${GENERATED_SRC_DIR}
     ${LITERTLM_INCLUDE_PATHS}
 )
 
@@ -77,6 +77,24 @@ target_link_libraries(runtime_conversation_io_types
     LITERTLM_DEPS
 )
 
+
+add_litertlm_library(runtime_conversation_prompt_utils STATIC
+  prompt_utils.cc
+)
+add_library(LiteRTLM::Runtime::Conversation::PromptUtils ALIAS runtime_conversation_prompt_utils)
+
+target_include_directories(runtime_conversation_prompt_utils
+  PUBLIC
+    ${GENERATED_SRC_DIR}
+    ${LITERTLM_INCLUDE_PATHS}
+)
+
+target_link_libraries(runtime_conversation_prompt_utils
+  PUBLIC
+    LITERTLM_DEPS
+)
+
+
 add_library(runtime_conversation_libs INTERFACE)
 add_library(LiteRTLM::Runtime::Conversation ALIAS runtime_conversation_libs)
 
@@ -84,5 +102,6 @@ target_link_libraries(runtime_conversation_libs INTERFACE
   LiteRTLM::Runtime::Conversation::Conversation
   LiteRTLM::Runtime::Conversation::InternalCallbackUtil
   LiteRTLM::Runtime::Conversation::IoTypes
+  LiteRTLM::Runtime::Conversation::PromptUtils
   LiteRTLM::Runtime::Conversation::Processor
 )

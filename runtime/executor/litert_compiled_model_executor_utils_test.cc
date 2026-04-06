@@ -25,6 +25,7 @@
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/types/span.h"  // from @com_google_absl
 #include "litert/cc/litert_element_type.h"  // from @litert
 #include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_layout.h"  // from @litert
@@ -177,6 +178,38 @@ TEST(LlmLiteRTCompiledModelExecutorUtilsTest, GetKVCacheRootNames_NotFound) {
   EXPECT_THAT(
       GetKVCacheRootNames(input_names, output_names, k_root_name, v_root_name),
       StatusIs(absl::StatusCode::kFailedPrecondition));
+}
+
+TEST(LlmLiteRTCompiledModelExecutorUtilsTest, GetKVCacheRootNames_KvCacheC) {
+  std::vector<absl::string_view> input_names = {"kv_cache_c_0"};
+  std::vector<absl::string_view> output_names = {};
+  std::string k_root_name;
+  std::string v_root_name;
+  ASSERT_OK(
+      GetKVCacheRootNames(input_names, output_names, k_root_name, v_root_name));
+  EXPECT_EQ(k_root_name, "kv_cache_c_");
+  EXPECT_EQ(v_root_name, "kv_cache_c_");
+}
+
+TEST(LlmLiteRTCompiledModelExecutorUtilsTest,
+     FillSingleBufferCacheParamTensor) {
+  LITERT_ASSERT_OK_AND_ASSIGN(auto env, ::litert::Environment::Create({}));
+  auto layout = ::litert::Layout(::litert::Dimensions({12}));
+  RankedTensorType ranked_tensor_type(ElementType::Int32, std::move(layout));
+  auto param_tensor = TensorBuffer::CreateManaged(
+      env, ::litert::TensorBufferType::kHostMemory, ranked_tensor_type,
+      sizeof(int) * 12);
+  ASSERT_TRUE(param_tensor);
+
+  ASSERT_OK(FillSingleBufferCacheParamTensor(*param_tensor, /*start_index=*/5,
+                                             /*update_length=*/10));
+  auto lock = litert::TensorBufferScopedLock::Create(
+      *param_tensor, litert::TensorBuffer::LockMode::kRead);
+  ASSERT_TRUE(lock);
+  int* param_ptr = static_cast<int*>(lock->second);
+  EXPECT_EQ(param_ptr[0], 5);
+  EXPECT_EQ(param_ptr[1], 15);
+  EXPECT_EQ(param_ptr[2], 15);
 }
 
 TEST(LlmLiteRTCompiledModelExecutorUtilsTest,

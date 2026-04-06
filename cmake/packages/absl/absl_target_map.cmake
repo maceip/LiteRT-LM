@@ -18,6 +18,7 @@
 # ==============================================================================
 set(ABSL_TARGET_MAP
     "absl::base=${ABSL_LIB_DIR}/libabsl_base.a"
+    "absl::borrowed_fixup_buffer=${ABSL_LIB_DIR}/libabsl_borrowed_fixup_buffer.a"
     "absl::city=${ABSL_LIB_DIR}/libabsl_city.a"
     "absl::civil_time=${ABSL_LIB_DIR}/libabsl_civil_time.a"
     "absl::cord=${ABSL_LIB_DIR}/libabsl_cord.a"
@@ -49,6 +50,7 @@ set(ABSL_TARGET_MAP
     "absl::flags_reflection=${ABSL_LIB_DIR}/libabsl_flags_reflection.a"
     "absl::flags_usage=${ABSL_LIB_DIR}/libabsl_flags_usage.a"
     "absl::flags_usage_internal=${ABSL_LIB_DIR}/libabsl_flags_usage_internal.a"
+    "absl::generic_printer_internal=${ABSL_LIB_DIR}/libabsl_generic_printer_internal.a"
     "absl::graphcycles_internal=${ABSL_LIB_DIR}/libabsl_graphcycles_internal.a"
     "absl::hash=${ABSL_LIB_DIR}/libabsl_hash.a"
     "absl::hashtable_profiler=${ABSL_LIB_DIR}/libabsl_hashtable_profiler.a"
@@ -98,7 +100,6 @@ set(ABSL_TARGET_MAP
     "absl::str_format_internal=${ABSL_LIB_DIR}/libabsl_str_format_internal.a"
     "absl::strings=${ABSL_LIB_DIR}/libabsl_strings.a"
     "absl::strings_internal=${ABSL_LIB_DIR}/libabsl_strings_internal.a"
-    "absl::string_view=${ABSL_LIB_DIR}/libabsl_string_view.a"
     "absl::symbolize=${ABSL_LIB_DIR}/libabsl_symbolize.a"
     "absl::synchronization=${ABSL_LIB_DIR}/libabsl_synchronization.a"
     "absl::throw_delegate=${ABSL_LIB_DIR}/libabsl_throw_delegate.a"

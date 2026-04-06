@@ -14,7 +14,7 @@
 
 
 if(VENDOR STREQUAL "MediaTek")
-    message(STATUS "[LITERTLM] MediaTek Shim: Generating Schemas with Global Toolchain...")
+    message(STATUS "[LiteRTLM] MediaTek Shim: Generating Schemas with Global Toolchain...")
 
     set(FLATC_EXECUTABLE flatc)
 
@@ -28,7 +28,7 @@ if(VENDOR STREQUAL "MediaTek")
         OUTPUT "${_mtk_gen_hdr}"
         COMMAND flatc --cpp -o "${_mtk_gen_dir}" "${_mtk_schema}"
         DEPENDS "${_mtk_schema}"
-        COMMENT "[LITERTLM] Generating MediaTek schema: ${_mtk_gen_hdr}"
+        COMMENT "[LiteRTLM] Generating MediaTek schema: ${_mtk_gen_hdr}"
         VERBATIM
     )
 

@@ -15,6 +15,7 @@ on:
         type: boolean
         default: true
 
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
@@ -27,6 +28,10 @@ jobs:
       actions: write  # For gh cache delete.
       contents: write  # For gh release upload.
     env:
+      MODEL_KEY: gemma-3-1b-it-v1
+      MODEL_PATH: ./models/gemma3-1b-it-int4.litertlm
+      MODEL_URL: https://huggingface.co/litert-community/Gemma3-1B-IT/resolve/main/gemma3-1b-it-int4.litertlm
+
       GH_TOKEN: ${{ github.token }}  # For gh release upload.
       REFRESH_CACHE: ${{ github.event_name == 'schedule' ||
                          (github.event_name == 'workflow_dispatch' && inputs.REFRESH_CACHE) }}
@@ -39,7 +44,7 @@ jobs:
       - name : Set up cache keys.
         id: cache-keys
         run: |
-          CACHE_RESTORE_KEY_2="${{ github.workflow }}"
+          CACHE_RESTORE_KEY_2="${GITHUB_WORKFLOW}"
           CACHE_RESTORE_KEY_1="$CACHE_RESTORE_KEY_2-${{ hashFiles('**/WORKSPACE', '**/.bazelrc') }}"
           CACHE_RESTORE_KEY_0="$CACHE_RESTORE_KEY_1-${{ hashFiles('**/BUILD*') }}"
           # If it's not a pull request, then it will be the same as $CACHE_RESTORE_KEY_1-.
@@ -72,9 +77,25 @@ jobs:
 
       - name: Check cache hit.
         run: |
-          echo "Cache Hit: ${{ steps.bazel-cache.outputs.cache-hit }}"
-          echo "Cache Primary Key: ${{ steps.bazel-cache.outputs.cache-primary-key }}"
-          echo "Cache Matched Key: ${{ steps.bazel-cache.outputs.cache-matched-key }}"
+          echo "Cache Hit: ${STEPS_BAZEL_CACHE_OUTPUTS_CACHE_HIT}"
+          echo "Cache Primary Key: ${STEPS_BAZEL_CACHE_OUTPUTS_CACHE_PRIMARY_KEY}"
+          echo "Cache Matched Key: ${STEPS_BAZEL_CACHE_OUTPUTS_CACHE_MATCHED_KEY}"
+        env:
+          STEPS_BAZEL_CACHE_OUTPUTS_CACHE_HIT: ${{ steps.bazel-cache.outputs.cache-hit }}
+          STEPS_BAZEL_CACHE_OUTPUTS_CACHE_PRIMARY_KEY: ${{ steps.bazel-cache.outputs.cache-primary-key }}
+          STEPS_BAZEL_CACHE_OUTPUTS_CACHE_MATCHED_KEY: ${{ steps.bazel-cache.outputs.cache-matched-key }}
+
+      - name: Download Model
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          mkdir -p ./models
+          echo "Downloading model from Hugging Face..."
+          curl -L --retry 5 -f \
+            -H "Authorization: Bearer $HF_TOKEN" \
+            -o ${{ env.MODEL_PATH }} \
+            "${{ env.MODEL_URL }}"
+          ls -lh ${{ env.MODEL_PATH }}
 
       - name: Run bazel build on MacOS.
         run: |
@@ -86,11 +107,17 @@ jobs:
         if: github.ref_type == 'tag'
         run: |
           cp bazel-bin/runtime/engine/litert_lm_main litert_lm_main.macos_arm64
-          gh release upload ${{ github.ref_name }} litert_lm_main.macos_arm64 --clobber
+          gh release upload ${GITHUB_REF_NAME} litert_lm_main.macos_arm64 --clobber
 
       - name: Run bazel test on MacOS.
         run: |
           bazel test --disk_cache=~/.cache/bazel-macos --test_output=errors //...
+
+      - name: Install pytest
+        run: python3 -m pip install --break-system-packages pytest==8.3.4
+
+      - name: Run pytest
+        run: pytest tools/test/ --model-path=${{ env.MODEL_PATH }} --build-system=bazel
 
       - name: Run bazel build for iOS Simulator.
         run: |
@@ -103,6 +130,7 @@ jobs:
             //... \
             //runtime/engine:litert_lm_main \
             -- \
+            -//python/... \
             -//schema/py:* \
             -//kotlin/...
 
@@ -110,12 +138,14 @@ jobs:
         if: github.ref_type == 'tag'
         run: |
           cp bazel-bin/runtime/engine/litert_lm_main litert_lm_main.ios_sim_arm64
-          gh release upload ${{ github.ref_name }} litert_lm_main.ios_sim_arm64 --clobber
+          gh release upload ${GITHUB_REF_NAME} litert_lm_main.ios_sim_arm64 --clobber
 
       - name: Remove cache if cache is being refreshed.
         if: env.REFRESH_CACHE == 'true'
         continue-on-error: true  # Ignore errors when cache is not found.
-        run: gh cache delete ${{ steps.cache-keys.outputs.CACHE_KEY }}
+        run: gh cache delete ${STEPS_CACHE_KEYS_OUTPUTS_CACHE_KEY}
+        env:
+          STEPS_CACHE_KEYS_OUTPUTS_CACHE_KEY: ${{ steps.cache-keys.outputs.CACHE_KEY }}
 
       - name: Save bazel cache if it's new or being refreshed.
         uses: actions/cache/save@v4

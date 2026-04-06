@@ -12,12 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-set(RE2_TARGET_MAP
-    "re2::re2=${RE2_LIB_DIR}/libre2.a"
-)
-
-
 set(PROTOBUF_TARGET_MAP
   "protobuf::libprotobuf-lite=${PROTO_LIB_DIR}/libprotobuf-lite.a"
   "protobuf::libprotobuf=${PROTO_LIB_DIR}/libprotobuf.a"
@@ -25,5 +19,3 @@ set(PROTOBUF_TARGET_MAP
   "protobuf::libupb=${PROTO_LIB_DIR}/libupb.a"
   "protobuf::libutf8_validity=${PROTO_LIB_DIR}/libutf8_validity.a"
 )
-
-

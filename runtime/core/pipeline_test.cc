@@ -42,7 +42,7 @@
 #include "runtime/framework/threadpool.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/status_macros.h"
-#include "runtime/util/test_utils.h"  // NOLINT
+#include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {
@@ -682,8 +682,9 @@ TEST_F(PipelineCustomSamplingTest, PrefillTooLong) {
 }
 
 TEST_F(PipelineCustomSamplingTest, DecodeCustomSampling) {
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -740,8 +741,9 @@ TEST_F(PipelineCustomSamplingTest, DecodeCustomSampling) {
 
 TEST_F(PipelineCustomSamplingTest,
        DecodeCustomSamplingWithConstrainedDecoding) {
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -937,8 +939,9 @@ TEST_F(PipelineCustomSamplingTest, DecodeCustomSamplingReachMaxNumTokens) {
       Prefill(executor, inputs, /*wait_for_completion=*/true, benchmark_info);
   EXPECT_OK(prefill_responses);
 
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -984,8 +987,9 @@ TEST_F(PipelineCustomSamplingTest, DecodeCustomSamplingWithMaxOutputTokens) {
       Prefill(executor, inputs, /*wait_for_completion=*/true, benchmark_info);
   EXPECT_OK(prefill_responses);
 
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -1008,8 +1012,9 @@ TEST_F(PipelineCustomSamplingTest, DecodeCustomSamplingWithMaxOutputTokens) {
 }
 
 TEST_F(PipelineCustomSamplingTest, DecodeCustomSamplingStreaming) {
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -1095,8 +1100,9 @@ TEST_F(PipelineCustomSamplingTest,
       Prefill(executor, inputs, /*wait_for_completion=*/true, benchmark_info);
   EXPECT_OK(prefill_responses);
 
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -1146,8 +1152,9 @@ TEST_F(PipelineCustomSamplingTest,
       Prefill(executor, inputs, /*wait_for_completion=*/true, benchmark_info);
   EXPECT_OK(prefill_responses);
 
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -1173,8 +1180,9 @@ TEST_F(PipelineCustomSamplingTest,
 }
 
 TEST_F(PipelineCustomSamplingTest, DecodeComplexStopTokenDetector) {
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -1273,8 +1281,9 @@ TEST_F(PipelineCustomSamplingTest,
   // Set the delay long enough not to be flaky.
   delayed_executor.SetDecodeDelay(absl::Milliseconds(1000));
 
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -1315,8 +1324,9 @@ TEST_F(PipelineCustomSamplingTest,
 
 TEST_F(PipelineCustomSamplingTest,
        DecodeCustomSamplingStreamingWithConstrainedDecoding) {
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5, /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 
@@ -1369,9 +1379,10 @@ TEST_F(PipelineCustomSamplingTest,
 }
 
 TEST_F(PipelineCustomSamplingTest, DecodeStopTokenAndBPEDetector) {
-  auto sampler_or = TopPSampler::Create(/*k=*/1, /*p=*/0.5,
-                                        /*temperature=*/1.0,
-                                        /*batch_size=*/2, /*seed=*/1);
+  auto sampler_or =
+      TopPSampler::Create(/*k=*/1, /*p=*/0.5,
+                          /*temperature=*/1.0,
+                          /*batch_size=*/2, /*sequence_size=*/1, /*seed=*/1);
   EXPECT_TRUE(sampler_or.ok());
   std::unique_ptr<TopPSampler> sampler = std::move(sampler_or.value());
 

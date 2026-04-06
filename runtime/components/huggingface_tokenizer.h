@@ -36,7 +36,7 @@ class HuggingFaceTokenizer : public Tokenizer {
 
   // Creates a HuggingFaceTokenizer from a JSON string.
   static absl::StatusOr<std::unique_ptr<HuggingFaceTokenizer>> CreateFromJson(
-      std::string json);
+      const std::string& json);
 
   TokenizerType GetTokenizerType() const override {
     return TokenizerType::kHuggingFace;

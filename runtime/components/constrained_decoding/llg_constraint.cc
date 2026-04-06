@@ -69,15 +69,7 @@ std::unique_ptr<Constraint::State> LlgConstraint::Start() const {
 
 bool LlgConstraint::IsEnded(const LlgConstraint::State& state) const {
   const auto& llg_state = static_cast<const LlgConstraint::LlgState&>(state);
-
-  LlgMaskResult mask_res;
-  if (llg_compute_mask(llg_state.llg_constraint(), &mask_res) != 0) {
-    std::string error_message = llg_get_error(llg_state.llg_constraint());
-    ABSL_LOG(ERROR) << "Failed to compute mask: " << error_message;
-    return false;
-  }
-  return mask_res.is_stop;
-  ;
+  return llg_is_stopped(llg_state.llg_constraint());
 }
 
 int LlgConstraint::GetVocabularySize() const { return vocab_size_; }

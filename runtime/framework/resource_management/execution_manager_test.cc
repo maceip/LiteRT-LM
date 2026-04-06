@@ -29,13 +29,17 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
+#include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/constrained_decoding/fake_constraint.h"
 #include "runtime/components/model_resources.h"
 #include "runtime/components/tokenizer.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/executor/audio_executor.h"
+#include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/fake_llm_executor.h"
+#include "runtime/executor/llm_executor_io_types.h"
 #include "runtime/proto/token.pb.h"
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
 #include "runtime/util/test_utils.h"  // NOLINT
@@ -56,6 +60,14 @@ class MockTokenizer : public Tokenizer {
               (const std::vector<int>& token_ids), (override));
   MOCK_METHOD(TokenizerType, GetTokenizerType, (), (const, override));
   MOCK_METHOD(std::vector<std::string>, GetTokens, (), (const, override));
+};
+
+class FakeAudioExecutor : public AudioExecutor {
+ public:
+  absl::StatusOr<::litert::lm::ExecutorAudioData> Encode(
+      const litert::TensorBuffer& spectrogram_tensor) override {
+    return ::litert::lm::ExecutorAudioData();
+  }
 };
 
 class ExecutionManagerTest : public ::testing::Test {
@@ -91,7 +103,7 @@ class ExecutionManagerTest : public ::testing::Test {
         ->mutable_ids()
         ->Add(6);
     llm_metadata.mutable_llm_model_type()->mutable_gemma3n();
-    EXPECT_OK(settings.MaybeUpdateAndValidate(*tokenizer_, &llm_metadata));
+    EXPECT_OK(settings.MaybeUpdateAndValidate(tokenizer_.get(), &llm_metadata));
     SessionConfig session_config = SessionConfig::CreateDefault();
     EXPECT_OK(session_config.MaybeUpdateAndValidate(settings));
     session_config.SetUseExternalSampler(use_external_sampler);
@@ -100,17 +112,20 @@ class ExecutionManagerTest : public ::testing::Test {
   };
 
   void CreateExecutionManager(
-      std::unique_ptr<FakeLlmExecutor> fake_llm_executor) {
+      std::unique_ptr<FakeLlmExecutor> fake_llm_executor,
+      std::unique_ptr<AudioExecutorSettings> audio_executor_settings = nullptr,
+      std::unique_ptr<AudioExecutor> audio_executor = nullptr) {
     // The objects are moved to execution_manager_ so we can't access them
     // after creation.
-    ASSERT_OK_AND_ASSIGN(execution_manager_,
-                         ExecutionManager::Create(
-                             /*tokenizer=*/tokenizer_.get(),
-                             /*model_resources=*/model_resources_.get(),
-                             /*llm_executor=*/std::move(fake_llm_executor),
-                             /*vision_executor_settings=*/nullptr,
-                             /*audio_executor_settings=*/nullptr,
-                             /*litert_env=*/nullptr));
+    ASSERT_OK_AND_ASSIGN(
+        execution_manager_,
+        ExecutionManager::Create(
+            /*tokenizer=*/tokenizer_.get(),
+            /*model_resources=*/model_resources_.get(),
+            /*llm_executor=*/std::move(fake_llm_executor),
+            /*vision_executor_settings=*/nullptr,
+            std::move(audio_executor_settings),
+            /*litert_env=*/nullptr, std::move(audio_executor)));
   }
 
   std::unique_ptr<FakeLlmExecutor> CreateDefaultFakeLlmExecutor(
@@ -188,6 +203,46 @@ TEST_F(ExecutionManagerTest, AddPrefillTask) {
                           TaskState::kProcessing, TaskState::kDone));
 }
 
+TEST_F(ExecutionManagerTest, AddPrefillTaskWithAudioModality) {
+  auto fake_llm_executor = CreateDefaultFakeLlmExecutor();
+
+  ASSERT_OK_AND_ASSIGN(auto* settings,
+                       fake_llm_executor->GetMutableExecutorSettings());
+  EXPECT_OK(settings->SetBackend(Backend::GPU_ARTISAN));
+
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create("test_model_path_2"));
+  ASSERT_OK_AND_ASSIGN(auto audio_settings,
+                       AudioExecutorSettings::CreateDefault(
+                           model_assets, 128, Backend::GPU_ARTISAN));
+
+  CreateExecutionManager(
+      std::move(fake_llm_executor),
+      std::make_unique<AudioExecutorSettings>(std::move(audio_settings)),
+      std::make_unique<FakeAudioExecutor>());
+
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  session_config.SetAudioModalityEnabled(true);
+
+  // Trigger RegisterNewSession which previously acquired nested locks
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+
+  std::vector<InputData> inputs;
+  ASSERT_OK_AND_ASSIGN(auto input_text,
+                       tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
+  inputs.push_back(InputText(std::move(input_text)));
+  inputs.push_back(InputAudioEnd());
+
+  ASSERT_OK_AND_ASSIGN(const TaskId task_id,
+                       execution_manager_->GetNewTaskId());
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_id, std::move(inputs), {},
+      std::make_shared<std::atomic<bool>>(false), nullptr));
+
+  EXPECT_OK(execution_manager_->WaitUntilDone(task_id, absl::Seconds(3)));
+}
+
 TEST_F(ExecutionManagerTest, AddPrefillTaskInvalidAudioInput) {
   CreateExecutionManager(CreateDefaultFakeLlmExecutor());
   ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
@@ -242,10 +297,9 @@ TEST_F(ExecutionManagerTest, AddPrefillTaskInvalidImageInput) {
         if (!responses.ok()) {
           ASSERT_THAT(responses, testing::status::StatusIs(
                                      absl::StatusCode::kFailedPrecondition));
-          ASSERT_THAT(
-              responses.status().message(),
-              testing::Eq(
-                  "The image is not preprocessed and does not have a tensor."));
+          ASSERT_THAT(responses.status().message(),
+                      testing::Eq("Image tensor or tensor map is null in "
+                                  "preprocessed_contents."));
           task_states.push_back(TaskState::kFailed);
         } else {
           ASSERT_OK(responses);

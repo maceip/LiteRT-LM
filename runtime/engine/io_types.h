@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "absl/base/nullability.h"  // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
@@ -33,6 +34,7 @@
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/constrained_decoding/constraint.h"
 #include "runtime/proto/engine.pb.h"
+#include "runtime/util/status_macros.h"
 
 namespace litert::lm {
 
@@ -93,8 +95,13 @@ class InputImage {
  public:
   // Constructs an InputImage from a raw image bytes string or a TensorBuffer of
   // processed image bytes. The InputImage takes ownership of the provided data.
-  explicit InputImage(std::variant<std::string, TensorBuffer> data)
+  explicit InputImage(
+      std::variant<std::string, absl::string_view, TensorBuffer,
+                   absl::flat_hash_map<std::string, TensorBuffer>>
+          data)
       : data_(std::move(data)) {}
+  // Useful for testing with const char* or const char[].
+  explicit InputImage(const char* data) : data_(absl::string_view(data)) {}
 
   // Copy constructor.
   InputImage(const InputImage& other) = delete;
@@ -110,6 +117,12 @@ class InputImage {
     return std::holds_alternative<TensorBuffer>(data_);
   }
 
+  // Returns true if the image is preprocessed into a TensorBuffer map.
+  bool IsTensorBufferMap() const {
+    return std::holds_alternative<
+        absl::flat_hash_map<std::string, TensorBuffer>>(data_);
+  }
+
   // Returns the raw image bytes. Returns an error if the image is preprocessed.
   absl::StatusOr<absl::string_view> GetRawImageBytes() const;
 
@@ -117,18 +130,37 @@ class InputImage {
   // not preprocessed.
   absl::StatusOr<const TensorBuffer*> GetPreprocessedImageTensor() const;
 
+  // Returns the preprocessed image tensor map. Returns an error if the image is
+  // not preprocessed.
+  absl::StatusOr<const absl::flat_hash_map<std::string, TensorBuffer>*>
+  GetPreprocessedImageTensorMap() const;
+
   // Creates a copy of the InputImage.
   // If the image is preprocessed, the copy will be a TensorBuffer shallow copy.
   // Otherwise, the copy will be a string byte deep copy.
   absl::StatusOr<InputImage> CreateCopy() const;
 
  private:
-  std::variant<std::string, TensorBuffer> data_;
+  std::variant<std::string, absl::string_view, TensorBuffer,
+               absl::flat_hash_map<std::string, TensorBuffer>>
+      data_;
 };
 
 inline std::ostream& operator<<(std::ostream& os,
                                 const InputImage& input_image) {
   os << "[InputImage]";
+  return os;
+}
+
+// A signal to indicate the end of input image.
+class InputImageEnd {
+ public:
+  explicit InputImageEnd() = default;
+};
+
+inline std::ostream& operator<<(std::ostream& os,
+                                const InputImageEnd& input_image_end) {
+  os << "[InputImageEnd]";
   return os;
 }
 
@@ -202,8 +234,8 @@ inline std::ostream& operator<<(std::ostream& os,
 
 // A container to host the input data. Will be extended to support more input
 // types in the future.
-using InputData =
-    std::variant<InputText, InputImage, InputAudio, InputAudioEnd>;
+using InputData = std::variant<InputText, InputImage, InputAudio, InputImageEnd,
+                               InputAudioEnd>;
 
 inline std::ostream& operator<<(std::ostream& os, const InputData& input_data) {
   std::visit([&os](const auto& data) { os << data; }, input_data);
@@ -231,9 +263,24 @@ inline absl::StatusOr<InputData> CreateInputDataCopy(const InputData& data) {
     return input_audio->CreateCopy();
   } else if (std::get_if<InputAudioEnd>(&data)) {
     return InputAudioEnd();
+  } else if (std::get_if<InputImageEnd>(&data)) {
+    return InputImageEnd();
   }
   return absl::FailedPreconditionError(
-      "The InputData is not a InputText, InputImage, or InputAudio.");
+      "The InputData is not a InputText, InputImage, InputAudio, "
+      "InputImageEnd, or InputAudioEnd.");
+}
+
+// Creates a copy of the InputData vector.
+inline absl::StatusOr<std::vector<InputData>> CreateInputDataVectorCopy(
+    const std::vector<InputData>& data) {
+  std::vector<InputData> copy;
+  copy.reserve(data.size());
+  for (const auto& input_data : data) {
+    ASSIGN_OR_RETURN(auto input_data_copy, CreateInputDataCopy(input_data));
+    copy.push_back(std::move(input_data_copy));
+  }
+  return copy;
 }
 
 // The state of the task.
@@ -361,21 +408,24 @@ class BenchmarkInfo {
     kTokenizer,
     kSession,
     kConversation,
+    kTotal,
   };
   static constexpr absl::string_view InitPhaseToString(InitPhase phase) {
     switch (phase) {
       case InitPhase::kModelAssets:
-        return "Model assets";
+        return "Init Model assets";
       case InitPhase::kLlmMetadata:
-        return "LLM metadata";
+        return "Init LLM metadata";
       case InitPhase::kExecutor:
-        return "Executor";
+        return "Init Executor";
       case InitPhase::kTokenizer:
-        return "Tokenizer";
+        return "Init Tokenizer";
       case InitPhase::kSession:
-        return "Session";
+        return "Init Session";
       case InitPhase::kConversation:
-        return "Conversation";
+        return "Init Conversation";
+      case InitPhase::kTotal:
+        return "Init Total";
     }
   }
 
@@ -399,6 +449,8 @@ class BenchmarkInfo {
   absl::Status TimePrefillTurnEnd(uint64_t num_prefill_tokens);
   absl::Status TimeDecodeTurnStart();
   absl::Status TimeDecodeTurnEnd(uint64_t num_decode_tokens);
+  absl::Status TimeTextToTokenIdsStart();
+  absl::Status TimeTextToTokenIdsEnd(uint64_t num_tokens);
   // Time the duration between two consecutive marks. Useful for profiling the
   // pipeline at a specific point. For example:
   //   RETURN_IF_ERROR(benchmark_info.TimeMarkDelta("sampling"));
@@ -424,6 +476,10 @@ class BenchmarkInfo {
   absl::StatusOr<BenchmarkTurnData> GetDecodeTurn(int turn_index) const;
   double GetDecodeTokensPerSec(int turn_index) const;
 
+  // --- Calculated metrics and getters for TextToTokenIds ---
+  uint64_t GetTotalTextToTokenIdsTurns() const;
+  absl::StatusOr<BenchmarkTurnData> GetTextToTokenIdsTurn(int turn_index) const;
+
   // --- Gets the time to the first token ---
   // Note that the first time to token doesn't include the time for
   // initialization. It is the sum of the prefill time for the first turn and
@@ -436,14 +492,16 @@ class BenchmarkInfo {
   // Map of phase names to start time.
   std::map<std::string, absl::Time> start_time_map_;
   std::map<std::string, absl::Time> mark_time_map_;
-  // The current index of the prefill / decode turn.
+  // The current index of the prefill / decode / text_to_token_ids turn.
   int prefill_turn_index_ = 0;
   int decode_turn_index_ = 0;
+  int text_to_token_ids_turn_index_ = 0;
 
   std::map<std::string, absl::Duration> init_phases_;
   std::map<std::string, absl::Duration> mark_durations_;
   std::vector<BenchmarkTurnData> prefill_turns_;
   std::vector<BenchmarkTurnData> decode_turns_;
+  std::vector<BenchmarkTurnData> text_to_token_ids_turns_;
 };
 std::ostream& operator<<(std::ostream& os, const BenchmarkInfo& info);
 
@@ -463,11 +521,40 @@ class DecodeConfig {
   // Returns a pointer to the constraint, or nullptr if no constraint is set.
   Constraint* absl_nullable GetConstraint() const { return constraint_; }
 
+  // Sets the max output tokens.
+  void SetMaxOutputTokens(int max_output_tokens) {
+    max_output_tokens_ = max_output_tokens;
+  }
+
+  // Returns the max output tokens.
+  std::optional<int> GetMaxOutputTokens() const { return max_output_tokens_; }
+
  private:
   DecodeConfig() = default;
 
   Constraint* absl_nullable constraint_ = nullptr;
+  std::optional<int> max_output_tokens_ = std::nullopt;
 };
+
+// The properties of the audio model. These properties are populated by
+// inspecting the LiteRT compiled model and provide information about the model
+// parameters.
+struct VisionExecutorProperties {
+  // The number of tokens representing each image fed into the LLM.
+  // Note the start of image token is not counted in this number.
+  int num_tokens_per_image = 256;
+
+  // The ratio of the input image patch number to the output image patch
+  // number. This is used to calculate the number of image tokens fed into the
+  // LLM. For example, if the input image has 2520 patches and the
+  // patch_num_shrink_factor is 9, the image tokens fed into the LLM will be
+  // 2520 / 9 = 280. Only applicable to models that use transformer encoder,
+  // a.k.a. Vision Transformer (ViT).
+  std::optional<int> patch_num_shrink_factor = std::nullopt;
+};
+
+std::ostream& operator<<(std::ostream& os,
+                         const VisionExecutorProperties& properties);
 
 // The properties of the audio model. These properties are populated by
 // inspecting the LiteRT compiled model and provide information about the model
@@ -482,6 +569,12 @@ struct AudioExecutorProperties {
 
   // The overlap size of each streaming chunk.
   int streaming_chunk_overlap_size = 0;
+
+  // The factor by which the audio is shrunk after encoding. This is used to
+  // calculate the number of audio tokens fed into the LLM. For example, if the
+  // input audio has 512 frames and the audio_shrink_factor is 16, the audio
+  // embeddings will have 512 / 16 = 32 tokens.
+  int audio_shrink_factor = 1;
 };
 
 std::ostream& operator<<(std::ostream& os,

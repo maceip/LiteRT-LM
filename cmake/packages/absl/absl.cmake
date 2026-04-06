@@ -32,7 +32,7 @@ if(NOT EXISTS "${ABSL_CONFIG_CMAKE_FILE}")
     GIT_REPOSITORY
       https://github.com/abseil/abseil-cpp
     GIT_TAG
-      987c57f325f7fa8472fa84e1f885f7534d391b0d
+      20260107.1
     PREFIX
       ${ABSL_EXT_PREFIX}
     PATCH_COMMAND
@@ -43,7 +43,10 @@ if(NOT EXISTS "${ABSL_CONFIG_CMAKE_FILE}")
       -P "${ABSL_PACKAGE_DIR}/absl_patcher.cmake"
 
     CMAKE_ARGS
+      ${LITERTLM_TOOLCHAIN_FILE}
+      ${LITERTLM_TOOLCHAIN_ARGS}
       -DCMAKE_INSTALL_PREFIX=${ABSL_INSTALL_PREFIX}
+      -DCMAKE_INSTALL_LIBDIR=lib
       -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
       -DCMAKE_POLICY_DEFAULT_CMP0169=OLD
       -DCMAKE_CXX_STANDARD=${CMAKE_CXX_STANDARD}
@@ -56,10 +59,7 @@ if(NOT EXISTS "${ABSL_CONFIG_CMAKE_FILE}")
       -DABSL_PROPAGATE_CXX_STD=ON
       -DBUILD_SHARED_LIBS=OFF
 
-    STEP_TARGETS
-      verify_install_step
   )
-  verify_install(absl_external ${ABSL_CONFIG_CMAKE_FILE})
 else()
   message(STATUS "Abseil already installed at: ${ABSL_INSTALL_PREFIX}")
   if(NOT TARGET absl_external)

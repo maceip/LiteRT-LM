@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-message(STATUS "[LITERTLM PATCHER] Injecting shim into Abseil-cpp root...")
+message(STATUS "[LiteRTLM] Injecting shim into Abseil-cpp root...")
 
 set(SRC_LIST "${ABSL_SRC_DIR}/absl/CMakeLists.txt")
 if(EXISTS "${SRC_LIST}")
@@ -22,7 +22,7 @@ if(EXISTS "${SRC_LIST}")
     string(PREPEND SRC_CONTENT "include(${ABSL_PACKAGE_DIR}/absl_src_shim.cmake)\n")
 
     file(WRITE "${SRC_LIST}" "${SRC_CONTENT}")
-    message(STATUS "[LITERTLM PATCHER] Injection successful.")
+    message(STATUS "[LiteRTLM] Injection successful.")
 else()
     message(FATAL_ERROR "Could not find Abseil-cpp CMakeLists.txt at ${SRC_LIST}")
 endif()

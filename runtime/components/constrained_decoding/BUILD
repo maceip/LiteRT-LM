@@ -24,11 +24,13 @@ licenses(["notice"])
 cc_library(
     name = "bitmap",
     hdrs = ["bitmap.h"],
+    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "constraint",
     hdrs = ["constraint.h"],
+    visibility = ["//visibility:public"],
     deps = [
         ":bitmap",
         "@com_google_absl//absl/status:statusor",
@@ -77,12 +79,17 @@ cc_library(
     name = "constrained_decoder",
     srcs = ["constrained_decoder.cc"],
     hdrs = ["constrained_decoder.h"],
+    visibility = [
+        "//:__subpackages__",
+    ],
     deps = [
         ":constraint",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/types:span",
+        "@litert//litert/cc:litert_element_type",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:litert_status_util",
+        "@litert//tflite/types:half",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
@@ -123,7 +130,8 @@ cc_import(
 cc_library(
     name = "gemma_model_constraint_provider_shared_lib",
     srcs = select({
-        "@platforms//os:android": ["//prebuilt/android_arm64:libGemmaModelConstraintProvider.so"],
+        "//build_config:android_arm64": ["//prebuilt/android_arm64:libGemmaModelConstraintProvider.so"],
+        "//build_config:android_x86_64": ["//prebuilt/android_x86_64:libGemmaModelConstraintProvider.so"],
         "//build_config:linux_x86_64": ["//prebuilt/linux_x86_64:libGemmaModelConstraintProvider.so"],
         "//build_config:linux_arm64": ["//prebuilt/linux_arm64:libGemmaModelConstraintProvider.so"],
         "//build_config:ios_sim_arm64": ["//prebuilt/ios_sim_arm64:libGemmaModelConstraintProvider.dylib"],

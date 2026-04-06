@@ -268,7 +268,7 @@ class LlguidanceSchemaUtilsTest : public testing::Test {
     EXPECT_OK(provider_or);
     auto provider = std::move(*provider_or);
 
-    auto res = FormatToolsAsLarkGrammar(tools, options);
+    auto res = CreateLarkGrammarForTools(tools, options);
     EXPECT_OK(res);
     auto constraint_or = provider->CreateConstraint(
         LlGuidanceConstraintArg{.constraint_type = LlgConstraintType::kLark,
@@ -477,9 +477,381 @@ TEST_F(LlguidanceSchemaUtilsTest, EmptyTools_TextAndOrFunctionCalls_Lark) {
 
 TEST_F(LlguidanceSchemaUtilsTest, EmptyTools_FunctionCallsOnly_Lark) {
   nlohmann::ordered_json tools = nlohmann::ordered_json::array();
-  auto res = FormatToolsAsLarkGrammar(
+  auto res = CreateLarkGrammarForTools(
       tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
   EXPECT_THAT(res, StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, ParameterNameConstraint) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "get_weather",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string",
+          "enum": ["celsius", "fahrenheit"]
+        }
+      },
+      "required": ["location"]
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Accept valid parameters.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:get_weather{location:<escape>Mountain View<escape>}<end_function_call><start_function_response>)");
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:get_weather{location:<escape>Mountain View<escape>,unit:<escape>celsius<escape>}<end_function_call><start_function_response>)");
+
+  // Reject unexpected parameter name.
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:get_weather{location:<escape>Mountain View<escape>,extra:<escape>data<escape>}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, NoParameters) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "get_time"
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Accept valid call.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:get_time{}<end_function_call><start_function_response>)");
+
+  // Reject call with unexpected parameters.
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:get_time{timezone:<escape>PST<escape>}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, RequiredParameter) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "get_weather",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "string"
+        }
+      },
+      "required": ["location"]
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Accept with required parameter.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:get_weather{location:<escape>Mountain View<escape>}<end_function_call><start_function_response>)");
+
+  // Reject missing required parameter.
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:get_weather{}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, OptionalParameter) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "ping",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "timeout": { "type": "integer" }
+      }
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Valid without optional parameter.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:ping{}<end_function_call><start_function_response>)");
+
+  // Valid with optional parameter.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:ping{timeout:5}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, RequiredAndOptionalParameters) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "set_timer",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "duration": {
+          "type": "integer"
+        },
+        "sound": {
+          "type": "boolean"
+        }
+      },
+      "required": ["duration"]
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Accept with required parameter and optional parameter.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:set_timer{duration:10,sound:true}<end_function_call><start_function_response>)");
+
+  // Accept with required parameter only.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:set_timer{duration:10}<end_function_call><start_function_response>)");
+
+  // Reject with optional parameter only.
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:set_timer{sound:true}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, PrimitiveTypes) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "set_timer",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "duration": {
+          "type": "integer"
+        },
+        "sound": {
+          "type": "boolean"
+        }
+      },
+      "required": ["duration"]
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Accept valid types.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:set_timer{duration:10}<end_function_call><start_function_response>)");
+
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:set_timer{duration:10,sound:true}<end_function_call><start_function_response>)");
+
+  // Reject invalid type (string instead of integer).
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:set_timer{duration:<escape>10<escape>,sound:true}<end_function_call><start_function_response>)");
+
+  // Reject invalid type (string instead of boolean).
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:set_timer{duration:10,sound:<escape>true<escape>}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, EnumParameters) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "set_device_state",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "device": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["on", "off"]
+        }
+      },
+      "required": ["device", "state"]
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Accept valid enum value.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:set_device_state{device:<escape>light<escape>,state:<escape>on<escape>}<end_function_call><start_function_response>)");
+
+  // Reject invalid enum value.
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:set_device_state{device:<escape>light<escape>,state:<escape>dimmed<escape>}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, RequiredParametersStrictOrder) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "set_timer",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "duration": {
+          "type": "integer"
+        },
+        "sound": {
+          "type": "boolean"
+        }
+      },
+      "required": ["sound", "duration"]
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Accept valid order: sound then duration
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:set_timer{sound:true,duration:10}<end_function_call><start_function_response>)");
+
+  // Reject invalid order: duration then sound
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:set_timer{duration:10,sound:true}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, RequiredParametersBeforeOptional) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "set_timer",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "duration": {
+          "type": "integer"
+        },
+        "sound": {
+          "type": "boolean"
+        }
+      },
+      "required": ["duration"]
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Accept valid order (required parameter first).
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:set_timer{duration:10,sound:true}<end_function_call><start_function_response>)");
+
+  // Reject optional parameter before required parameter.
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:set_timer{sound:true,duration:10}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, OptionalParametersFlexibleOrder) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "search",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string" },
+        "filter": { "type": "string" }
+      }
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Valid calls with optional parameters in different order.
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:search{query:<escape>cat<escape>,filter:<escape>images<escape>}<end_function_call><start_function_response>)");
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:search{filter:<escape>images<escape>,query:<escape>cat<escape>}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, DuplicateOptionalParametersAllowed) {
+  nlohmann::ordered_json tool = nlohmann::ordered_json::parse(R"json({
+    "name": "search",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string" },
+        "filter": { "type": "string" }
+      },
+      "required": ["query"]
+    }
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool});
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Valid calls with optional duplicate
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:search{query:<escape>cat<escape>,filter:<escape>images<escape>,filter:<escape>videos<escape>}<end_function_call><start_function_response>)");
+
+  // Invalid (duplicate required parameter)
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:search{query:<escape>cat<escape>,query:<escape>dog<escape>}<end_function_call><start_function_response>)");
+
+  // Invalid (optional before required)
+  AssertRejects(
+      *constraint,
+      R"(<start_function_call>call:search{filter:<escape>images<escape>,query:<escape>cat<escape>}<end_function_call><start_function_response>)");
+}
+
+TEST_F(LlguidanceSchemaUtilsTest, MultipleFunctionCalls) {
+  nlohmann::ordered_json tool1 = nlohmann::ordered_json::parse(R"json({
+    "name": "get_weather",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "location": {
+          "type": "string"
+        }
+      },
+      "required": ["location"]
+    }
+  })json");
+  nlohmann::ordered_json tool2 = nlohmann::ordered_json::parse(R"json({
+    "name": "get_time"
+  })json");
+  nlohmann::ordered_json tools = nlohmann::ordered_json::array({tool1, tool2});
+
+  auto constraint = CreateConstraint(
+      tools, GetDefaultOptions(LlgConstraintMode::kFunctionCallsOnly));
+
+  // Accept multiple different function calls
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:get_weather{location:<escape>Mountain View<escape>}<end_function_call><start_function_call>call:get_time{}<end_function_call><start_function_response>)");
+
+  // Accept multiple same function calls
+  AssertAccepts(
+      *constraint,
+      R"(<start_function_call>call:get_time{}<end_function_call><start_function_call>call:get_time{}<end_function_call><start_function_response>)");
 }
 
 }  // namespace

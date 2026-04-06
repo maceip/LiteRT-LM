@@ -16,6 +16,7 @@
 
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <utility>
 #include <variant>
@@ -41,6 +42,7 @@ std::ostream& operator<<(std::ostream& os, const GpuArtisanConfig& config) {
   os << "enable_decode_logits: " << config.enable_decode_logits << "\n";
   os << "enable_external_embeddings: " << config.enable_external_embeddings
      << "\n";
+  os << "use_submodel: " << config.use_submodel << "\n";
   return os;
 }
 
@@ -73,8 +75,12 @@ std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings) {
   os << "num_threads_to_upload: " << settings.num_threads_to_upload << "\n";
   os << "num_threads_to_compile: " << settings.num_threads_to_compile << "\n";
   os << "convert_weights_on_gpu: " << settings.convert_weights_on_gpu << "\n";
-  os << "optimize_shader_compilation: "
-     << settings.optimize_shader_compilation << "\n";
+  os << "wait_for_weights_conversion_complete_in_benchmark: "
+     << settings.wait_for_weights_conversion_complete_in_benchmark << "\n";
+  os << "optimize_shader_compilation: " << settings.optimize_shader_compilation
+     << "\n";
+  os << "cache_compiled_shaders_only: " << settings.cache_compiled_shaders_only
+     << "\n";
   os << "share_constant_tensors: " << settings.share_constant_tensors << "\n";
   os << "sampler_handles_input: " << settings.sampler_handles_input << "\n";
   if (settings.allow_src_quantized_fc_conv_ops.has_value()) {
@@ -83,6 +89,22 @@ std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings) {
   } else {
     os << "allow_src_quantized_fc_conv_ops: Not set\n";
   }
+  if (settings.hint_waiting_for_completion.has_value()) {
+    os << "hint_waiting_for_completion: "
+       << settings.hint_waiting_for_completion.value() << "\n";
+  } else {
+    os << "hint_waiting_for_completion: Not set\n";
+  }
+  if (settings.gpu_context_low_priority.has_value()) {
+    os << "gpu_context_low_priority: "
+       << settings.gpu_context_low_priority.value() << "\n";
+  } else {
+    os << "gpu_context_low_priority: Not set\n";
+  }
+  os << "enable_speculative_decoding: " << settings.enable_speculative_decoding
+     << "\n";
+  os << "disable_delegate_clustering: " << settings.disable_delegate_clustering
+     << "\n";
   return os;
 }
 
@@ -120,7 +142,8 @@ std::ostream& operator<<(std::ostream& os, const LlmExecutorSettings& config) {
 
 // static
 absl::StatusOr<LlmExecutorSettings> LlmExecutorSettings::CreateDefault(
-    ModelAssets model_assets, Backend backend) {
+    ModelAssets model_assets, Backend backend,
+    std::optional<Backend> sampler_backend) {
   LlmExecutorSettings settings(std::move(model_assets));
   if (backend == Backend::CPU) {
     CpuConfig config;
@@ -150,6 +173,10 @@ absl::StatusOr<LlmExecutorSettings> LlmExecutorSettings::CreateDefault(
   settings.SetMaxNumImages(0);
   // Disable LoRA by default.
   settings.SetLoraRank(0);
+
+  if (sampler_backend.has_value() && *sampler_backend != Backend::UNSPECIFIED) {
+    settings.SetSamplerBackend(*sampler_backend);
+  }
   return settings;
 }
 

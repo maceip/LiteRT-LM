@@ -19,6 +19,8 @@
 #include <string>
 #include <vector>
 
+#include "absl/log/absl_log.h"  // from @com_google_absl
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json_fwd.hpp"  // from @nlohmann_json
@@ -77,6 +79,14 @@ class GenericDataProcessor
   absl::StatusOr<Message> ToMessageImpl(
       const Responses& responses,
       const GenericDataProcessorArguments& args) const override;
+
+  absl::Status CloneStateImpl(
+      const TypeSafeModelDataProcessor<GenericDataProcessorConfig,
+                                       GenericDataProcessorArguments>& other)
+      override {
+    ABSL_LOG(INFO) << "GenericDataProcessor::CloneStateImpl is a no-op.";
+    return absl::OkStatus();
+  }
 
   GenericDataProcessorConfig config_;
   PromptTemplateCapabilities capabilities_;

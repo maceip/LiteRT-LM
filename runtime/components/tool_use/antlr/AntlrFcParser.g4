@@ -6,7 +6,7 @@ options {
 
 start : functionCall EOF;
 
-functionCall: CALL COLON ID object;
+functionCall: CALL COLON ID object?;
 
 object : OPEN_BRACE ( pair (COMMA pair)* )? CLOSE_BRACE;
 

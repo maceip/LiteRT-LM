@@ -50,7 +50,7 @@ struct LlgConstraintsOptions {
 };
 
 // Converts tools to a Lark grammar string.
-absl::StatusOr<std::string> FormatToolsAsLarkGrammar(
+absl::StatusOr<std::string> CreateLarkGrammarForTools(
     const nlohmann::ordered_json& tools, const LlgConstraintsOptions& options);
 }  // namespace litert::lm
 

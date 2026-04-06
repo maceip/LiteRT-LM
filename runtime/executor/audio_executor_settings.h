@@ -15,11 +15,16 @@
 #ifndef THIRD_PARTY_ODML_LITE_RT_LLM_EXECUTOR_AUDIO_EXECUTOR_SETTINGS_H_
 #define THIRD_PARTY_ODML_LITE_RT_LLM_EXECUTOR_AUDIO_EXECUTOR_SETTINGS_H_
 
+#include <memory>
 #include <ostream>
+#include <string>
+#include <utility>
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/executor/executor_settings_base.h"
+#include "runtime/util/scoped_file.h"
 
 namespace litert::lm {
 
@@ -46,6 +51,37 @@ class AudioExecutorSettings : public ExecutorSettingsBase {
   // Setter for num_threads for CPU backend.
   void SetNumThreads(int num_threads) { num_threads_ = num_threads; }
 
+  // Getter for scoped_encoder_cache_file.
+  std::shared_ptr<litert::lm::ScopedFile> GetScopedEncoderCacheFile() const {
+    return scoped_encoder_cache_file_;
+  }
+
+  // Setter for scoped_encoder_cache_file.
+  void SetScopedEncoderCacheFile(
+      std::shared_ptr<litert::lm::ScopedFile> cache_file) {
+    scoped_encoder_cache_file_ = std::move(cache_file);
+  }
+
+  // Getter for scoped_adapter_cache_file.
+  std::shared_ptr<litert::lm::ScopedFile> GetScopedAdapterCacheFile() const {
+    return scoped_adapter_cache_file_;
+  }
+
+  // Setter for scoped_adapter_cache_file.
+  void SetScopedAdapterCacheFile(
+      std::shared_ptr<litert::lm::ScopedFile> cache_file) {
+    scoped_adapter_cache_file_ = std::move(cache_file);
+  }
+
+  // Returns the weight cache file path for the audio encoder or adapter
+  // model.
+  // Note users should not use the ExecutorSettingsBase::GetWeightCacheFile()
+  // method to get the weight cache file for the audio encoder or adapter
+  // model, because the base class does not distinguish between the two
+  // models.
+  absl::StatusOr<std::string> GetWeightCacheFile(
+      absl::string_view suffix) const;
+
  private:
   explicit AudioExecutorSettings(const ModelAssets& model_assets,
                                  int max_sequence_length, int num_threads)
@@ -56,6 +92,12 @@ class AudioExecutorSettings : public ExecutorSettingsBase {
   int max_sequence_length_;
   bool bundled_with_main_model_;
   int num_threads_ = 4;
+
+  // The cache file to use for the audio encoder model.
+  std::shared_ptr<litert::lm::ScopedFile> scoped_encoder_cache_file_;
+
+  // The cache file to use for the audio adapter model.
+  std::shared_ptr<litert::lm::ScopedFile> scoped_adapter_cache_file_;
 };
 
 std::ostream& operator<<(std::ostream& os,

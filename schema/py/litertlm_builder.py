@@ -108,7 +108,9 @@ class TfLiteModelType(enum.Enum):
 
   VISION_ENCODER = "tf_lite_vision_encoder"
   VISION_ADAPTER = "tf_lite_vision_adapter"
+  END_OF_VISION = "tf_lite_end_of_vision"
   ARTISAN_TEXT_DECODER = "tf_lite_artisan_text_decoder"
+  MTP_DRAFTER = "tf_lite_mtp_drafter"
 
   @classmethod
   def get_enum_from_tf_free_value(cls, tf_free_value: str) -> "TfLiteModelType":
@@ -510,10 +512,16 @@ class LitertLmFileBuilder:
     def write_and_compress(stream: BinaryIO):
       with litertlm_core.open_file(hf_tokenizer_path, "rb") as f:
         content = f.read()
-        uncompressed_size = len(content)
-        compressed_content = zlib.compress(content)
-        stream.write(uncompressed_size.to_bytes(8, "little"))
-        stream.write(compressed_content)
+        if hf_tokenizer_path.endswith(".zlib"):
+          stream.write(content)
+        else:
+          assert hf_tokenizer_path.endswith(
+              ".json"
+          ), "HF tokenizer file must be either .json or .zlib format."
+          uncompressed_size = len(content)
+          compressed_content = zlib.compress(content)
+          stream.write(uncompressed_size.to_bytes(8, "little"))
+          stream.write(compressed_content)
 
     section_object = _SectionObject(
         metadata=additional_metadata if additional_metadata else [],

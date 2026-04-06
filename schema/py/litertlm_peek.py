@@ -306,7 +306,7 @@ def _get_generic_section_file_extension(data_type_str: str) -> str:
   if data_type_str == "SP_Tokenizer":
     return ".spiece"
   elif data_type_str == "HF_Tokenizer_Zlib":
-    return ".json"
+    return ".zlib"
   else:
     return ".bin"
 

@@ -16,10 +16,10 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CORE_SESSION_ADVANCED_H_
 
 #include <atomic>
-#include <memory>
 #include <optional>
 #include <vector>
 
+#include "absl/base/thread_annotations.h"  // from @com_google_absl
 #include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/container/flat_hash_set.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
@@ -27,6 +27,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
 #include "runtime/engine/engine.h"
@@ -77,23 +78,14 @@ class SessionAdvanced : public Engine::Session {
   };
 
   // Creates a SessionAdvanced object.
-  // - executor: The initialized LLM Executor to call.
-  // - tokenizer: The tokenizer to encode/decode the text into token ids.
-  // - vision_executor: The vision executor to encode the image input.
-  // - audio_executor: The audio executor to encode the audio input.
-  // - stop_token_ids: The token ids to stop the decoding process.
-  // - sampler_params: The sampler parameters used for decoding. Note that if
-  //   the sampler_params.type is TYPE_UNSPECIFIED, the sampling logic will be
-  //   handled by the LLM Executor.
   static absl::StatusOr<std::unique_ptr<SessionAdvanced>> Create(
       std::weak_ptr<ExecutionManager> execution_manager,
       Tokenizer* absl_nonnull tokenizer, const SessionConfig& session_config,
-      std::optional<BenchmarkInfo> benchmark_info,
-      std::optional<AudioExecutorProperties> audio_executor_properties);
+      std::optional<BenchmarkInfo> benchmark_info);
 
-  // TODO b/409401231 - Call execution manager's release session instead.
-  // Wait until all tasks are done before destroying the session.
-  ~SessionAdvanced() override { WaitUntilDone().IgnoreError(); };
+  // Destroys the SessionAdvanced object. It will wait for all tasks to be
+  // done and release the session from the execution manager.
+  ~SessionAdvanced() override;
 
   absl::StatusOr<Responses> GenerateContent(
       const std::vector<InputData>& contents) override;
@@ -124,13 +116,14 @@ class SessionAdvanced : public Engine::Session {
   RunTextScoringAsync(
       const std::vector<absl::string_view>& target_text,
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
-      bool store_token_lengths) override;
+      bool store_token_lengths) override ABSL_LOCKS_EXCLUDED(mutex_);
 
   absl::Status RunPrefill(const std::vector<InputData>& contents) override;
 
   absl::StatusOr<std::unique_ptr<TaskController>> RunPrefillAsync(
       const std::vector<InputData>& contents,
-      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) override;
+      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) override
+      ABSL_LOCKS_EXCLUDED(mutex_);
 
   absl::StatusOr<Responses> RunDecode() override;
 
@@ -138,23 +131,17 @@ class SessionAdvanced : public Engine::Session {
       const DecodeConfig& decode_config) override;
 
   absl::StatusOr<std::unique_ptr<TaskController>> RunDecodeAsync(
-      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) override;
+      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) override
+      ABSL_LOCKS_EXCLUDED(mutex_);
 
   absl::StatusOr<std::unique_ptr<TaskController>> RunDecodeAsync(
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
-      const DecodeConfig& decode_config) override;
+      const DecodeConfig& decode_config) override ABSL_LOCKS_EXCLUDED(mutex_);
 
-  absl::StatusOr<BenchmarkInfo> GetBenchmarkInfo() override;
+  absl::StatusOr<BenchmarkInfo> GetBenchmarkInfo() override
+      ABSL_LOCKS_EXCLUDED(mutex_);
 
   absl::StatusOr<BenchmarkInfo*> GetMutableBenchmarkInfo() override;
-
-  absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties()
-      const override {
-    if (audio_executor_properties_.has_value()) {
-      return audio_executor_properties_.value();
-    }
-    return absl::FailedPreconditionError("Audio modality is not enabled.");
-  }
 
   // TODO(b/450903294): Add rollback history support for Session and
   // Conversation.
@@ -175,8 +162,6 @@ class SessionAdvanced : public Engine::Session {
     return session_info_->session_config;
   }
 
-  const Tokenizer& GetTokenizer() const override { return *tokenizer_; }
-
   absl::Status WaitUntilDone() override {
     auto execution_manager_lock = execution_manager_.lock();
     if (execution_manager_lock == nullptr) {
@@ -188,11 +173,13 @@ class SessionAdvanced : public Engine::Session {
   }
 
   // TODO b/409401231 - Add unit tests for this function.
-  absl::StatusOr<std::unique_ptr<Session>> Clone() override;
+  absl::StatusOr<std::unique_ptr<Session>> Clone() override
+      ABSL_LOCKS_EXCLUDED(mutex_);
 
   // TODO b/409401231 - Add unit tests for this function.
   absl::StatusOr<std::unique_ptr<Session>> CloneAsync(
-      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) override;
+      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) override
+      ABSL_LOCKS_EXCLUDED(mutex_);
 
  private:
   // The state of the session.
@@ -213,16 +200,18 @@ class SessionAdvanced : public Engine::Session {
                            Tokenizer* absl_nonnull tokenizer,
                            std::shared_ptr<const SessionInfo> session_info,
                            SessionState session_state = SessionState::kFresh,
-                           absl::flat_hash_set<TaskId> last_task_ids = {},
-                           std::optional<AudioExecutorProperties>
-                               audio_executor_properties = std::nullopt)
+                           absl::flat_hash_set<TaskId> last_task_ids = {})
       : session_id_(session_id),
         execution_manager_(execution_manager),
         tokenizer_(tokenizer),
         session_info_(session_info),
         session_state_(session_state),
-        last_task_ids_(last_task_ids),
-        audio_executor_properties_(audio_executor_properties) {}
+        last_task_ids_(last_task_ids) {}
+
+  // The implementation of CloneAsync which assumes mutex_ is locked.
+  absl::StatusOr<std::unique_ptr<Session>> CloneAsyncLocked(
+      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback)
+      ABSL_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   // The session ID used for the session.
   SessionId session_id_;
@@ -237,14 +226,13 @@ class SessionAdvanced : public Engine::Session {
   std::shared_ptr<const SessionInfo> session_info_;
 
   // The state of the session.
-  SessionState session_state_;
+  SessionState session_state_ ABSL_GUARDED_BY(mutex_);
 
   // The last task IDs that might be executing in the session.
-  absl::flat_hash_set<TaskId> last_task_ids_ = {};
+  absl::flat_hash_set<TaskId> last_task_ids_ ABSL_GUARDED_BY(mutex_) = {};
 
-  // The audio executor properties for the session. This is only available if
-  // the session is created with audio modality enabled.
-  std::optional<AudioExecutorProperties> audio_executor_properties_;
+  // Mutex for protecting the session state and last task IDs.
+  absl::Mutex mutex_;
 };
 
 }  // namespace litert::lm

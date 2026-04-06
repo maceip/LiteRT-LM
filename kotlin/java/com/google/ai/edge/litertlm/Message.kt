@@ -25,16 +25,42 @@ enum class Role(val value: String) {
   SYSTEM("system"), // represent the system
   USER("user"), // represent the user
   MODEL("model"), // represent the model
+  TOOL("tool"), // represent a tool response
 }
 
-/** Represents a message in the conversation. A message contain a [Content] list and a [Role]. */
-class Message internal constructor(val contents: Contents, val role: Role) {
+/**
+ * Represents a message in the conversation. A message contains a [Role], a [Content] list, and an
+ * optional list of [ToolCall].
+ */
+class Message
+internal constructor(
+  val role: Role,
+  val contents: Contents = Contents.empty(),
+  val toolCalls: List<ToolCall> = emptyList(),
+  val channels: Map<String, String> = emptyMap(),
+) {
 
   /** Convert to [JsonObject]. Used internally. */
   internal fun toJson() =
     JsonObject().apply {
       addProperty("role", role.value)
-      add("content", contents.toJson())
+      if (contents.contents.isNotEmpty()) {
+        add("content", contents.toJson())
+      }
+      if (toolCalls.isNotEmpty()) {
+        val toolCallsJson = JsonArray()
+        for (toolCall in toolCalls) {
+          toolCallsJson.add(toolCall.toJson())
+        }
+        add("tool_calls", toolCallsJson)
+      }
+      if (channels.isNotEmpty()) {
+        val channelsJson = JsonObject()
+        for ((key, value) in channels) {
+          channelsJson.addProperty(key, value)
+        }
+        add("channels", channelsJson)
+      }
     }
 
   /** Convert the message to a string. */
@@ -42,17 +68,30 @@ class Message internal constructor(val contents: Contents, val role: Role) {
 
   companion object {
 
+    /** Creates a system [Message] from the given text. */
+    fun system(text: String) = system(Contents.of(text))
+
+    /** Creates a system [Message] from the given contents. */
+    fun system(contents: Contents) = Message(Role.SYSTEM, contents)
+
     /** Creates a user [Message] from the given text. */
     fun user(text: String) = user(Contents.of(text))
 
     /** Creates a user [Message] from the given contents. */
-    fun user(contents: Contents) = Message(contents, Role.USER)
+    fun user(contents: Contents) = Message(Role.USER, contents)
 
     /** Creates a model [Message] from the given text. */
     fun model(text: String) = model(Contents.of(text))
 
-    /** Creates a model [Message] from the given contents. */
-    fun model(contents: Contents) = Message(contents, Role.MODEL)
+    /** Creates a model [Message] from the given contents, tool calls, and channels. */
+    fun model(
+      contents: Contents = Contents.empty(),
+      toolCalls: List<ToolCall> = emptyList(),
+      channels: Map<String, String> = emptyMap(),
+    ) = Message(Role.MODEL, contents, toolCalls, channels)
+
+    /** Creates a tool [Message] from the given contents. */
+    fun tool(contents: Contents) = Message(Role.TOOL, contents)
 
     /** Creates a user [Message] from a text string. */
     @Deprecated("Use factory methods like user(), model() or Contents.of().")
@@ -69,10 +108,6 @@ class Message internal constructor(val contents: Contents, val role: Role) {
 }
 
 class Contents private constructor(val contents: List<Content>) {
-  fun init() {
-    check(contents.isNotEmpty()) { "Contents should not be empty." }
-  }
-
   /** Convert to [JsonObject]. Used internally. */
   internal fun toJson() =
     JsonArray().apply {
@@ -86,6 +121,9 @@ class Contents private constructor(val contents: List<Content>) {
 
   companion object {
 
+    /** Creates an empty [Contents] list. */
+    internal fun empty() = Contents(emptyList())
+
     /** Creates a [Contents] from a text string. */
     fun of(text: String) = Contents.of(Content.Text(text))
 
@@ -95,6 +133,20 @@ class Contents private constructor(val contents: List<Content>) {
     /** Creates a [Contents] from a list of [Content]. */
     fun of(contents: List<Content>) = Contents(contents)
   }
+}
+
+/** Tool call returned by the model. ToolCalls are stored in [Message.toolCalls]. */
+data class ToolCall(val name: String, val arguments: Map<String, Any?>) {
+  internal fun toJson() =
+    JsonObject().apply {
+      addProperty("type", "function")
+      val functionObj =
+        JsonObject().apply {
+          addProperty("name", name)
+          add("arguments", arguments.toJsonObject())
+        }
+      add("function", functionObj)
+    }
 }
 
 /** Represents a content in the [Message] of the conversation. */
@@ -148,6 +200,16 @@ sealed class Content {
       JsonObject().apply {
         addProperty("type", "audio")
         addProperty("path", absolutePath)
+      }
+  }
+
+  /** Tool response provided by the user when automatic tool calling is disabled. */
+  data class ToolResponse(val name: String, val response: Any?) : Content() {
+    override fun toJson() =
+      JsonObject().apply {
+        addProperty("type", "tool_response")
+        addProperty("name", name)
+        add("response", response.toJsonElement())
       }
   }
 }

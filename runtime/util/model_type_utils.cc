@@ -57,10 +57,15 @@ void PopulateDefaultGemma3N(proto::Gemma3N& gemma3n) {
 }
 
 absl::StatusOr<proto::LlmModelType> CreateModelType(
-    const std::string& start_turn_text, Tokenizer& tokenizer) {
+    const std::string& start_turn_text, Tokenizer* tokenizer) {
+  if (tokenizer == nullptr) {
+    proto::LlmModelType model_type;
+    model_type.mutable_generic_model();
+    return model_type;
+  }
   proto::LlmModelType model_type;
   ASSIGN_OR_RETURN(auto audio_token_ids,
-                   tokenizer.TextToTokenIds("<start_of_audio>"));
+                   tokenizer->TextToTokenIds("<start_of_audio>"));
   if (IsGemma3nModel(start_turn_text, audio_token_ids)) {
     PopulateDefaultGemma3N(*model_type.mutable_gemma3n());
     return model_type;
@@ -76,11 +81,22 @@ absl::StatusOr<proto::LlmModelType> CreateModelType(
 }  // namespace
 
 absl::StatusOr<proto::LlmModelType> InferLlmModelType(
-    const proto::LlmMetadata& metadata, Tokenizer& tokenizer) {
+    const proto::LlmMetadata& metadata, Tokenizer* tokenizer) {
+  if (metadata.has_llm_model_type()) {
+    return metadata.llm_model_type();
+  }
+
+  if (tokenizer == nullptr) {
+    proto::LlmModelType model_type;
+    model_type.mutable_generic_model();
+    return model_type;
+  }
+
   proto::LlmModelType model_type;
   model_type.mutable_generic_model();
+
   for (int token_id : kStartTurnTokenIdsToCheck) {
-    auto start_turn_text = tokenizer.TokenIdsToText({token_id});
+    auto start_turn_text = tokenizer->TokenIdsToText({token_id});
     if (!start_turn_text.ok()) {
       if (start_turn_text.status().code() == absl::StatusCode::kDataLoss) {
         // If the error is DataLoss, it means the start turn token id coincides
@@ -224,11 +240,135 @@ absl::StatusOr<std::string> GetDefaultJinjaPromptTemplate(
         {{- '<start_of_turn>model\n' -}}
     {%- endif -%}
 {%- endif -%})tmpl";
-    case proto::LlmModelType::kGemma3N:
     case proto::LlmModelType::kGemma3:
+      return R"tmpl({{ bos_token }}
+{%- if messages[0]['role'] == 'system' -%}
+    {%- if messages[0]['content'] is string -%}
+        {%- set first_user_prefix = messages[0]['content'] + '\n\n' -%}
+    {%- else -%}
+        {%- set first_user_prefix = messages[0]['content'][0]['text'] + '\n\n' -%}
+    {%- endif -%}
+    {%- set loop_messages = messages[1:] -%}
+{%- else -%}
+    {%- set first_user_prefix = "" -%}
+    {%- set loop_messages = messages -%}
+{%- endif -%}
+{%- for message in loop_messages -%}
+    {%- if (message['role'] == 'user') != (loop.index0 % 2 == 0) -%}
+        {{ raise_exception("Conversation roles must alternate user/assistant/user/assistant/...") }}
+    {%- endif -%}
+    {%- if (message['role'] == 'assistant') -%}
+        {%- set role = "model" -%}
+    {%- else -%}
+        {%- set role = message['role'] -%}
+    {%- endif -%}
+    {{ '<start_of_turn>' + role + '
+' + (first_user_prefix if loop.first else "") }}
+    {%- if message['content'] is string -%}
+        {{ message['content'] | trim }}
+    {%- elif message['content'] is iterable -%}
+        {%- for item in message['content'] -%}
+            {%- if item['type'] == 'image' -%}
+                {{ '<start_of_image>' }}
+            {%- elif item['type'] == 'text' -%}
+                {{ item['text'] | trim }}
+            {%- endif -%}
+        {%- endfor -%}
+    {%- else -%}
+        {{ raise_exception("Invalid content type") }}
+    {%- endif -%}
+    {{ '<end_of_turn>
+' }}
+{%- endfor -%}
+{%- if add_generation_prompt -%}
+    {{'<start_of_turn>model\n'}}
+{%- endif -%})tmpl";
+    case proto::LlmModelType::kGemma3N:
+      return R"tmpl({{ bos_token }}
+{%- if tools %}
+    {{- '<start_of_turn>system\n' }}
+    {%- for tool in tools %}
+        {{- tool | trim }}
+        {{- "\n\n" }}
+    {%- endfor %}
+    {{- '<end_of_turn>\n'}}
+{%- endif %}
+{%- if messages[0]['role'] == 'system' -%}
+    {%- if messages[0]['content'] is string -%}
+        {%- set first_user_prefix = messages[0]['content'] + '\n\n' -%}
+    {%- else -%}
+        {%- set first_user_prefix = messages[0]['content'][0]['text'] + '\n\n' -%}
+    {%- endif -%}
+    {%- set loop_messages = messages[1:] -%}
+{%- else -%}
+    {%- set first_user_prefix = "" -%}
+    {%- set loop_messages = messages -%}
+{%- endif -%}
+{%- for message in loop_messages -%}
+    {%- if (message['role'] == 'assistant') -%}
+        {%- set role = "model" -%}
+    {%- elif (message['role'] == 'tool') -%}
+        {%- set is_tool = True -%}
+        {%- set role = "user" -%}
+    {%- else -%}
+        {%- set role = message['role'] -%}
+    {%- endif -%}
+    {{ '<start_of_turn>' + role + '\n' + (first_user_prefix if loop.first else "") }}
+    {%- if is_tool -%}
+        {{ '```tool_outputs\n' }}
+    {%- endif -%}
+    {%- if 'content' in message -%}
+        {%- if message['content'] is string -%}
+            {{ message['content'] | trim }}
+        {%- elif message['content'] is iterable -%}
+            {%- for item in message['content'] -%}
+                {%- if item['type'] == 'audio' -%}
+                    {{ '<audio_soft_token>' }}
+                {%- elif item['type'] == 'image' -%}
+                    {{ '<image_soft_token>' }}
+                {%- elif item['type'] == 'text' -%}
+                    {{ item['text'] | trim }}
+                {%- endif -%}
+                {%- if is_tool -%}
+                    {{ '\n' }}
+                {%- endif -%}
+            {%- endfor -%}
+        {%- else -%}
+            {{ raise_exception("Invalid content type") }}
+        {%- endif -%}
+    {%- endif -%}
+    {%- if is_tool -%}
+        {{ '```' }}
+        {%- set is_tool = False -%}
+    {%- endif -%}
+    {%- if 'tool_calls' in message -%}
+        {{- '```tool_code\n' -}}
+        {%- for tool_call in message['tool_calls'] -%}
+            {%- if 'function' in tool_call -%}
+                {%- set tool_call = tool_call['function'] -%}
+            {%- endif -%}
+            {{-  tool_call['name'] + '(' -}}
+            {%- if 'arguments' in tool_call -%}
+                {%- for key in tool_call['arguments'] -%}
+                    {{- key + '=' + tool_call['arguments'][key] -}}
+                    {% if not loop.last %}
+                        {{- ', ' -}}
+                    {% endif %}
+                {%- endfor %}
+            {{- ')\n' -}}
+            {%- endif -%}
+        {%- endfor -%}
+        {{- '```' -}}
+    {%- endif -%}
+    {{ '<end_of_turn>\n' }}
+{%- endfor -%}
+{%- if add_generation_prompt -%}
+    {{'<start_of_turn>model\n'}}
+{%- endif -%})tmpl";
     case proto::LlmModelType::kQwen3:
     case proto::LlmModelType::kQwen2P5:
     case proto::LlmModelType::kGenericModel:
+    case proto::LlmModelType::kGemma4:
       // absl::Substitute takes up to 10 arguments, so we have to split the
       // template into two parts.
       return absl::StrCat(

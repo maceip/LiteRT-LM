@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "absl/base/nullability.h"  // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
@@ -49,13 +50,36 @@
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/audio_executor_utils.h"
+#include "runtime/executor/common_utils.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/litert_compiled_model_executor_utils.h"
 #include "runtime/executor/llm_executor_io_types.h"
+#include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"  //NOLINT
 
 namespace litert::lm {
 namespace {
+
+absl::Status SetCpuCacheOptions(
+    const absl::StatusOr<std::string>& weight_cache_file,
+    std::shared_ptr<litert::lm::ScopedFile> scoped_cache_file,
+    litert::CpuOptions& cpu_options, absl::string_view logging_prefix) {
+  if (scoped_cache_file != nullptr) {
+    ASSIGN_OR_RETURN(auto duplicated, scoped_cache_file->Duplicate());
+    ASSIGN_OR_RETURN(int fd, duplicated.Release());
+    cpu_options.SetXNNPackWeightCacheFileDescriptor(fd);
+    ABSL_LOG(INFO) << logging_prefix
+                   << " use provided cache file descriptor: " << fd;
+  } else if (weight_cache_file.ok()) {
+    const std::string& weight_cache_path = *weight_cache_file;
+    cpu_options.SetXNNPackWeightCachePath(weight_cache_path.c_str());
+    ABSL_LOG(INFO) << logging_prefix
+                   << " use cache path: " << weight_cache_path;
+  } else {
+    ABSL_LOG(INFO) << logging_prefix << " does not use cache.";
+  }
+  return absl::OkStatus();
+}
 
 constexpr absl::string_view kFeaturesName = "features";
 constexpr absl::string_view kMaskName = "mask";
@@ -64,6 +88,7 @@ constexpr absl::string_view kSrcInputsName = "src_inputs";
 constexpr absl::string_view kSegmentValuesName = "segment_values";
 constexpr absl::string_view kSegmentMaskName = "segment_mask";
 constexpr absl::string_view kPrevMaskName = "prev_mask";
+constexpr absl::string_view kPrevPrefix = "prev_";
 constexpr absl::string_view kFeatureStatesNamePattern = "feature_state";
 
 template <typename T>
@@ -87,13 +112,18 @@ absl::StatusOr<int> GetValidCount(const TensorBuffer& mask_buffer) {
   return 0;
 }
 
+absl::Status InitializeBuffer(TensorBuffer& buffer) {
+  LITERT_ASSIGN_OR_RETURN(
+      auto buffer_lock_and_addr,
+      TensorBufferScopedLock::Create(buffer, TensorBuffer::LockMode::kWrite));
+  LITERT_ASSIGN_OR_RETURN(auto packed_size, buffer.PackedSize());
+  memset(buffer_lock_and_addr.second, 0, packed_size);
+  return absl::OkStatus();
+}
+
 absl::Status InitializeBuffers(std::vector<TensorBuffer>& buffers) {
   for (auto& buffer : buffers) {
-    LITERT_ASSIGN_OR_RETURN(
-        auto buffer_lock_and_addr,
-        TensorBufferScopedLock::Create(buffer, TensorBuffer::LockMode::kWrite));
-    LITERT_ASSIGN_OR_RETURN(auto packed_size, buffer.PackedSize());
-    memset(buffer_lock_and_addr.second, 0, packed_size);
+    RETURN_IF_ERROR(InitializeBuffer(buffer));
   }
   return absl::OkStatus();
 }
@@ -105,11 +135,22 @@ bool IsStreamingEncoder(const std::vector<absl::string_view>& input_names) {
   // input names contain the prev_mask name.
   return std::any_of(input_names.begin(), input_names.end(),
                      [](absl::string_view input_name) {
-                       return absl::StrContains(input_name, kPrevMaskName);
+                       return absl::StrContains(input_name, kPrevPrefix);
                      });
 }
 
 }  // namespace
+
+absl::StatusOr<std::unique_ptr<AudioContext>> AudioStreamingContext::Clone()
+    const {
+  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+      new_state_buffers;
+  for (auto& [name, buffer] : state_buffers_) {
+    LITERT_ASSIGN_OR_RETURN(auto new_buffer, buffer.Duplicate());
+    new_state_buffers[name] = std::move(new_buffer);
+  }
+  return std::make_unique<AudioStreamingContext>(std::move(new_state_buffers));
+}
 
 absl::StatusOr<
     std::unique_ptr<AudioLiteRtCompiledModelExecutor::AudioStaticEncoder>>
@@ -125,15 +166,26 @@ AudioLiteRtCompiledModelExecutor::AudioStaticEncoder::Create(
 absl::Status
 AudioLiteRtCompiledModelExecutor::AudioStaticEncoder::Initialize() {
   LITERT_ASSIGN_OR_RETURN(auto options, Options::Create());
+  auto weight_cache_file =
+      executor_settings_.GetWeightCacheFile(".audio_encoder.xnnpack_cache");
   if (executor_settings_.GetBackend() == Backend::GPU) {
     LITERT_ASSIGN_OR_RETURN(auto& gpu_options, options.GetGpuOptions());
     gpu_options.EnableConstantTensorSharing(true);
     gpu_options.SetPrecision(GpuOptions::Precision::kFp32);
     gpu_options.SetPreferTextureWeights(true);
+#if defined(LITERT_USE_WEBGPU_ACCELERATOR)
+    gpu_options.SetBackend(GpuOptions::Backend::kWebGpu);
+#endif  // defined(LITERT_USE_WEBGPU_ACCELERATOR)
     options.SetHardwareAccelerators(litert::HwAccelerators::kGpu);
   } else if (executor_settings_.GetBackend() == Backend::CPU) {
     LITERT_ASSIGN_OR_RETURN(auto& cpu_options, options.GetCpuOptions());
     cpu_options.SetNumThreads(executor_settings_.GetNumThreads());
+    std::shared_ptr<ScopedFile> scoped_encoder_cache_file =
+        executor_settings_.GetScopedEncoderCacheFile();
+    RETURN_IF_ERROR(SetCpuCacheOptions(weight_cache_file,
+                                       scoped_encoder_cache_file, cpu_options,
+                                       "audio_encoder"));
+
     options.SetHardwareAccelerators(litert::HwAccelerators::kCpu);
   } else {
     return absl::InvalidArgumentError(
@@ -142,7 +194,7 @@ AudioLiteRtCompiledModelExecutor::AudioStaticEncoder::Initialize() {
   }
 
   LITERT_ASSIGN_OR_RETURN(compiled_model_,
-                          CompiledModel::Create(env_, model_, options));
+                          CompiledModel::Create(env_, model_.Get(), options));
   LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
   if (signatures.size() != 1) {
     return absl::InvalidArgumentError(
@@ -172,7 +224,8 @@ AudioLiteRtCompiledModelExecutor::AudioStaticEncoder::Initialize() {
   }
   if (!input_buffers_map_.contains(kSrcInputsName)) {
     return absl::InvalidArgumentError(
-        "The Audio Static Encoder model must have a src_inputs input buffer.");
+        "The Audio Static Encoder model must have a src_inputs input "
+        "buffer.");
   }
   input_mask_buffer_ = &input_buffers_map_[kMaskName];
   spectrogram_buffer_ = &input_buffers_map_[kSrcInputsName];
@@ -238,15 +291,27 @@ AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::Create(
 absl::Status
 AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::Initialize() {
   LITERT_ASSIGN_OR_RETURN(auto options, Options::Create());
+  auto weight_cache_file =
+      executor_settings_.GetWeightCacheFile(".audio_encoder.xnnpack_cache");
   if (executor_settings_.GetBackend() == Backend::GPU) {
     LITERT_ASSIGN_OR_RETURN(auto& gpu_options, options.GetGpuOptions());
     gpu_options.EnableConstantTensorSharing(true);
     gpu_options.SetPrecision(GpuOptions::Precision::kFp32);
     gpu_options.SetPreferTextureWeights(true);
+#if defined(LITERT_USE_WEBGPU_ACCELERATOR)
+    gpu_options.SetBackend(GpuOptions::Backend::kWebGpu);
+#endif  // defined(LITERT_USE_WEBGPU_ACCELERATOR)
     options.SetHardwareAccelerators(litert::HwAccelerators::kGpu);
   } else if (executor_settings_.GetBackend() == Backend::CPU) {
     LITERT_ASSIGN_OR_RETURN(auto& cpu_options, options.GetCpuOptions());
     cpu_options.SetNumThreads(executor_settings_.GetNumThreads());
+
+    std::shared_ptr<ScopedFile> scoped_encoder_cache_file =
+        executor_settings_.GetScopedEncoderCacheFile();
+    RETURN_IF_ERROR(SetCpuCacheOptions(weight_cache_file,
+                                       scoped_encoder_cache_file, cpu_options,
+                                       "audio_encoder"));
+
     options.SetHardwareAccelerators(litert::HwAccelerators::kCpu);
   } else {
     return absl::InvalidArgumentError(
@@ -255,7 +320,7 @@ AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::Initialize() {
   }
 
   LITERT_ASSIGN_OR_RETURN(compiled_model_,
-                          CompiledModel::Create(env_, model_, options));
+                          CompiledModel::Create(env_, model_.Get(), options));
   LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
   if (signatures.size() != 1) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -333,17 +398,19 @@ AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::Initialize() {
                           feature_states_tensor_type.Layout().NumElements());
 
   // Initialize the previous mask buffer to all ones.
-  LITERT_ASSIGN_OR_RETURN(auto prev_mask_type,
-                          input_buffers_map_[kPrevMaskName].TensorType());
-  LITERT_ASSIGN_OR_RETURN(int prev_mask_size,
-                          prev_mask_type.Layout().NumElements());
-  input_buffers_map_[kPrevMaskName].Write<uint8_t>(
-      std::vector<uint8_t>(prev_mask_size, 1));
+  if (input_buffers_map_.contains(kPrevMaskName)) {
+    LITERT_ASSIGN_OR_RETURN(auto prev_mask_type,
+                            input_buffers_map_[kPrevMaskName].TensorType());
+    LITERT_ASSIGN_OR_RETURN(int prev_mask_size,
+                            prev_mask_type.Layout().NumElements());
+    input_buffers_map_[kPrevMaskName].Write<uint8_t>(
+        std::vector<uint8_t>(prev_mask_size, 1));
+  }
 
   return absl::OkStatus();
 }
 
-void AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::
+absl::Status AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::
     SwapInternalStateBuffers() {
   std::vector<absl::string_view> all_input_names(input_names_.begin(),
                                                  input_names_.end());
@@ -353,6 +420,7 @@ void AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::
                 output_buffers_map_[input_name]);
     }
   }
+  return absl::OkStatus();
 }
 
 absl::Status
@@ -408,15 +476,27 @@ AudioLiteRtCompiledModelExecutor::AudioAdapter::Create(
 
 absl::Status AudioLiteRtCompiledModelExecutor::AudioAdapter::Initialize() {
   LITERT_ASSIGN_OR_RETURN(auto options, Options::Create());
+  auto weight_cache_file =
+      executor_settings_.GetWeightCacheFile(".audio_adapter.xnnpack_cache");
   if (executor_settings_.GetBackend() == Backend::GPU) {
     LITERT_ASSIGN_OR_RETURN(auto& gpu_options, options.GetGpuOptions());
     gpu_options.EnableConstantTensorSharing(true);
     gpu_options.SetPrecision(GpuOptions::Precision::kFp32);
     gpu_options.SetPreferTextureWeights(true);
+#if defined(LITERT_USE_WEBGPU_ACCELERATOR)
+    gpu_options.SetBackend(GpuOptions::Backend::kWebGpu);
+#endif  // defined(LITERT_USE_WEBGPU_ACCELERATOR)
     options.SetHardwareAccelerators(litert::HwAccelerators::kGpu);
   } else if (executor_settings_.GetBackend() == Backend::CPU) {
     LITERT_ASSIGN_OR_RETURN(auto& cpu_options, options.GetCpuOptions());
     cpu_options.SetNumThreads(executor_settings_.GetNumThreads());
+
+    std::shared_ptr<ScopedFile> scoped_adapter_cache_file =
+        executor_settings_.GetScopedAdapterCacheFile();
+    RETURN_IF_ERROR(SetCpuCacheOptions(weight_cache_file,
+                                       scoped_adapter_cache_file, cpu_options,
+                                       "audio_adapter"));
+
     options.SetHardwareAccelerators(litert::HwAccelerators::kCpu);
   } else {
     return absl::InvalidArgumentError(
@@ -425,7 +505,7 @@ absl::Status AudioLiteRtCompiledModelExecutor::AudioAdapter::Initialize() {
   }
 
   LITERT_ASSIGN_OR_RETURN(compiled_model_,
-                          CompiledModel::Create(env_, model_, options));
+                          CompiledModel::Create(env_, model_.Get(), options));
   LITERT_ASSIGN_OR_RETURN(auto signatures, model_.GetSignatures());
   if (signatures.size() != 1) {
     return absl::InvalidArgumentError(absl::StrCat(
@@ -514,34 +594,23 @@ AudioLiteRtCompiledModelExecutor::Create(
                           audio_adapter->GetOutputBuffers()[0].TensorType());
   const auto dims = adapter_output_tensor_type.Layout().Dimensions();
   const int audio_embedding_dimensions = dims.back();
-  const int output_sequence_length = dims[dims.size() - 2];
-  if (sequence_length % output_sequence_length != 0) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "The sequence length of the audio encoder must be divisible by the "
-        "output sequence length of the audio adapter, but got ",
-        sequence_length, " and ", output_sequence_length));
-  }
-  int encoder_shrinking_factor = 1;
+  LITERT_ASSIGN_OR_RETURN(
+      auto executor_properties,
+      GetAudioExecutorPropertiesFromModelResources(*resources));
+  const int encoder_shrinking_factor = executor_properties.audio_shrink_factor;
   if (!is_streaming_encoder) {
     if (audio_encoder->GetOutputBuffersMap().size() !=
         audio_adapter->GetInputBuffers().size()) {
       return absl::InvalidArgumentError(absl::StrCat(
-          "The number of output buffers of the audio encoder must be equal to "
-          "the number of input buffers of the audio adapter, but got ",
+          "The number of output buffers of the audio encoder must be equal "
+          "to the number of input buffers of the audio adapter, but got ",
           audio_encoder->GetOutputBuffersMap().size(), " and ",
           audio_adapter->GetInputBuffers().size()));
     }
-    encoder_shrinking_factor = sequence_length / output_sequence_length;
-  } else {
-    // shrinking factor is 16 for gemma3n audio streaming.
-    encoder_shrinking_factor =
-        (sequence_length -
-         reinterpret_cast<AudioStreamingEncoder*>(audio_encoder.get())
-             ->GetOverlapSize()) /
-        output_sequence_length;
   }
 
-  // Make the audio adapter take the audio encoder's mask and features as input.
+  // Make the audio adapter take the audio encoder's mask and features as
+  // input.
   LITERT_ASSIGN_OR_RETURN(auto encoder_mask_tensor,
                           audio_encoder->GetOutputMaskBuffer().Duplicate());
   audio_adapter->GetMutableInputBuffers()[0] = std::move(encoder_mask_tensor);
@@ -553,9 +622,6 @@ AudioLiteRtCompiledModelExecutor::Create(
   ABSL_LOG(INFO) << "AudioLiteRtCompiledModelExecutor created with "
                     "encoder_shrinking_factor: "
                  << encoder_shrinking_factor;
-  LITERT_ASSIGN_OR_RETURN(
-      auto executor_properties,
-      GetAudioExecutorPropertiesFromModelResources(*resources));
   return absl::WrapUnique(new AudioLiteRtCompiledModelExecutor(
       std::move(executor_settings), std::move(executor_properties), env,
       std::move(resources), std::move(audio_encoder), std::move(audio_adapter),
@@ -585,9 +651,10 @@ absl::StatusOr<int> AudioLiteRtCompiledModelExecutor::EncodeInternal(
       audio_adapter_->GetMutableOutputBuffers()[0].Read<float>(
           absl::MakeSpan(audio_embeddings.data(),
                          chunk_valid_tokens * audio_embedding_dimensions_)));
-  if (exeuctor_properties_.is_streaming_model) {
-    reinterpret_cast<AudioStreamingEncoder*>(audio_encoder_.get())
-        ->SwapInternalStateBuffers();
+  if (executor_properties_.is_streaming_model) {
+    RETURN_IF_ERROR(
+        reinterpret_cast<AudioStreamingEncoder*>(audio_encoder_.get())
+            ->SwapInternalStateBuffers());
   }
   return chunk_valid_tokens;
 }
@@ -668,6 +735,120 @@ absl::StatusOr<ExecutorAudioData> AudioLiteRtCompiledModelExecutor::Encode(
   std::vector<uint8_t> all_ones(input_sequence_length, 1);
   LITERT_RETURN_IF_ERROR(mask_tensor.Write<uint8_t>(absl::MakeSpan(all_ones)));
   return Encode(spectrogram_tensor, mask_tensor);
+}
+
+absl::StatusOr<std::unique_ptr<AudioStreamingContext>>
+AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::CreateNewContext() {
+  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer> state_buffers;
+  LITERT_ASSIGN_OR_RETURN(auto signature, compiled_model_.GetSignature(0));
+  for (auto& [name, buffer] : input_buffers_map_) {
+    if (name == kSegmentValuesName || name == kSegmentMaskName) {
+      // Skip the segment values and mask buffers as they are not part of the
+      // state.
+      continue;
+    }
+    LITERT_ASSIGN_OR_RETURN(auto new_buffer, compiled_model_.CreateInputBuffer(
+                                                 signature.Key(), name));
+    if (name == kPrevMaskName) {
+      LITERT_ASSIGN_OR_RETURN(auto prev_mask_type, buffer.TensorType());
+      LITERT_ASSIGN_OR_RETURN(int prev_mask_size,
+                              prev_mask_type.Layout().NumElements());
+      input_buffers_map_[kPrevMaskName].Write<uint8_t>(
+          std::vector<uint8_t>(prev_mask_size, 1));
+    } else {
+      LITERT_RETURN_IF_ERROR(InitializeBuffer(new_buffer));
+    }
+    state_buffers[name] = std::move(new_buffer);
+  }
+  auto audio_streaming_context =
+      std::make_unique<AudioStreamingContext>(std::move(state_buffers));
+  return audio_streaming_context;
+}
+
+absl::StatusOr<std::unique_ptr<AudioStreamingContext>>
+AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::CloneContext() {
+  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer> state_buffers;
+  LITERT_ASSIGN_OR_RETURN(auto signature, compiled_model_.GetSignature(0));
+  for (auto& [name, buffer] : input_buffers_map_) {
+    if (name == kSegmentValuesName || name == kSegmentMaskName) {
+      // Skip the segment values and mask buffers as they are not part of the
+      // state.
+      continue;
+    }
+    LITERT_ASSIGN_OR_RETURN(auto new_buffer, compiled_model_.CreateInputBuffer(
+                                                 signature.Key(), name));
+    RETURN_IF_ERROR(CopyBuffer(buffer, new_buffer));
+    state_buffers[name] = std::move(new_buffer);
+  }
+  auto audio_streaming_context =
+      std::make_unique<AudioStreamingContext>(std::move(state_buffers));
+  return audio_streaming_context;
+}
+
+absl::Status
+AudioLiteRtCompiledModelExecutor::AudioStreamingEncoder::RestoreContext(
+    std::unique_ptr<AudioStreamingContext> audio_streaming_context) {
+  for (auto& [name, buffer] : audio_streaming_context->state_buffers()) {
+    if (!input_buffers_map_.contains(name)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("The Audio Streaming Encoder model must have a ", name,
+                       " input buffer."));
+    }
+    if (name == kSegmentValuesName || name == kSegmentMaskName) {
+      // Skip the segment values and mask buffers as they are not part of the
+      // state.
+      continue;
+    }
+    LITERT_ASSIGN_OR_RETURN(auto buffer_copy, buffer.Duplicate());
+    input_buffers_map_[name] = std::move(buffer_copy);
+  }
+  return absl::OkStatus();
+}
+
+absl::StatusOr<std::unique_ptr<AudioContext>>
+AudioLiteRtCompiledModelExecutor::CreateNewContext() {
+  if (!executor_properties_.is_streaming_model) {
+    return absl::UnimplementedError(
+        "CreateNewContext is only supported for streaming models.");
+  }
+  return reinterpret_cast<AudioStreamingEncoder*>(audio_encoder_.get())
+      ->CreateNewContext();
+}
+
+absl::StatusOr<std::unique_ptr<AudioContext>>
+AudioLiteRtCompiledModelExecutor::CloneContext() {
+  if (!executor_properties_.is_streaming_model) {
+    return absl::UnimplementedError(
+        "CloneContext is only supported for streaming models.");
+  }
+  ASSIGN_OR_RETURN(
+      auto audio_encoder_context,
+      reinterpret_cast<AudioStreamingEncoder*>(audio_encoder_.get())
+          ->CloneContext());
+  return std::move(audio_encoder_context);
+}
+
+absl::StatusOr<std::unique_ptr<AudioContext>>
+AudioLiteRtCompiledModelExecutor::CloneContext(
+    const AudioContext& audio_context) {
+  if (!executor_properties_.is_streaming_model) {
+    return absl::UnimplementedError(
+        "CloneContext is only supported for streaming models.");
+  }
+  const AudioStreamingContext& audio_streaming_context =
+      static_cast<const AudioStreamingContext&>(audio_context);
+  return audio_streaming_context.Clone();
+}
+
+absl::Status AudioLiteRtCompiledModelExecutor::RestoreContext(
+    std::unique_ptr<AudioContext> audio_context) {
+  if (!executor_properties_.is_streaming_model) {
+    return absl::UnimplementedError(
+        "RestoreContext is only supported for streaming models.");
+  }
+  return reinterpret_cast<AudioStreamingEncoder*>(audio_encoder_.get())
+      ->RestoreContext(std::unique_ptr<AudioStreamingContext>(
+          static_cast<AudioStreamingContext*>(audio_context.release())));
 }
 
 }  // namespace litert::lm

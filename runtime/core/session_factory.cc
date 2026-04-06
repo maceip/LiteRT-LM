@@ -29,7 +29,6 @@
 #include "runtime/executor/vision_executor.h"
 #include "runtime/framework/threadpool.h"
 #include "runtime/proto/sampler_params.pb.h"
-#include "runtime/util/status_macros.h"  // NOLINT
 
 namespace litert::lm {
 

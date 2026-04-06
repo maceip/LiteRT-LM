@@ -535,3 +535,10 @@ test:bulk_test_cpu --build_tests_only
 
 # TODO: b/397625618 Enable bzlmod
 common --noenable_bzlmod
+
+# --- Fix for Clang 19+ and Strict Layering Checks ---
+build --features=-layering_check
+build --host_features=-layering_check
+
+build --features=-header_modules
+build --host_features=-header_modules

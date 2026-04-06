@@ -30,8 +30,8 @@
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/components/tokenizer.h"
-#include "runtime/util/status_macros.h"  // NOLINT
-#include "runtime/util/test_utils.h"     // NOLINT
+#include "runtime/util/status_macros.h"  // IWYU pragma: keep
+#include "runtime/util/test_utils.h"  // IWYU pragma: keep
 
 namespace litert::lm {
 namespace {

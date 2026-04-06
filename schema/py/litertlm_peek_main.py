@@ -17,7 +17,7 @@ It reads the file's header, system metadata, and section information, and prints
 them to the console.
 
 Example usage:
-  bazel run  third_party/odml/litert_lm/schema/py:litertlm_peek_main -- \
+  bazel run  schema/py:litertlm_peek_main -- \
   --litertlm_file=<path/to/your/file.litertlm>
 """
 
@@ -60,6 +60,10 @@ def main(_):
     print(f"Error processing file: {e}", file=sys.stderr)
     sys.exit(1)
 
+
+def run():
+  """Entry point for console_scripts."""
+  app.run(main, sys.argv[:1])
 
 if __name__ == "__main__":
   app.run(main, sys.argv[:1])

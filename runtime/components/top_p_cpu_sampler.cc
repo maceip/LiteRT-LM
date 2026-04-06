@@ -27,13 +27,13 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
-#include "tflite/types/half.h"  // from @litert
 #include "litert/cc/litert_element_type.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/sampling_cpu_util.h"
 #include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/tensor_buffer_util.h"
+#include "tflite/types/half.h"  // from @litert
 
 namespace litert::lm {
 namespace {
@@ -71,7 +71,8 @@ void ConvertFp16ToFp32(absl::Span<const uint16_t> fp16_values,
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<TopPSampler>> TopPSampler::Create(
-    int k, float p, float temperature, int batch_size, int seed) {
+    int k, float p, float temperature, int batch_size, int sequence_size,
+    int seed) {
   if (k <= 0) {
     return absl::InvalidArgumentError("k must be positive.");
   }
@@ -81,23 +82,27 @@ absl::StatusOr<std::unique_ptr<TopPSampler>> TopPSampler::Create(
   if (batch_size <= 0) {
     return absl::InvalidArgumentError("batch_size must be positive.");
   }
+  if (sequence_size <= 0) {
+    return absl::InvalidArgumentError("sequence_size must be positive.");
+  }
   if (temperature < 0.0) {
     return absl::InvalidArgumentError(
         absl::StrCat("Temperature must be >= 0, but got ", temperature));
   }
-  return absl::WrapUnique(new TopPSampler(k, p, temperature, batch_size, seed));
+  return absl::WrapUnique(
+      new TopPSampler(k, p, temperature, batch_size, sequence_size, seed));
 }
 
 absl::Status TopPSampler::SampleToIdAndScoreBuffer(
     const TensorBuffer& logits_tensor, TensorBuffer& ids_tensor,
     TensorBuffer* scores_tensor) {
-  auto status = ValidateTensor(logits_tensor, /*max_num_dims=*/2, batch_size_,
+  auto status = ValidateTensor(logits_tensor, /*max_num_dims=*/3, batch_size_,
                                "input logits");
   if (!status.ok()) {
     return status;
   }
   status =
-      ValidateTensor(ids_tensor, /*max_num_dims=*/1, batch_size_, "output ids");
+      ValidateTensor(ids_tensor, /*max_num_dims=*/2, batch_size_, "output ids");
   if (!status.ok()) {
     return status;
   }
@@ -127,23 +132,32 @@ absl::Status TopPSampler::SampleToIdAndScoreBuffer(
         "Unsupported logits data type for sampler.");
   }
 
-  std::vector<float> sampled_scores;
-  auto sampled_ids = TopKTopPSampling(logits_data_span, k_, p_, temperature_,
-                                      generator_, batch_size_, sampled_scores);
+  std::vector<std::vector<float>> sampled_scores;
+  auto sampled_ids =
+      TopKTopPSampling(logits_data_span, k_, p_, temperature_, generator_,
+                       batch_size_, sequence_size_, sampled_scores);
   if (!sampled_ids.ok()) {
     return sampled_ids.status();
   }
-  ids_tensor.Write(absl::MakeConstSpan(*sampled_ids));
+  std::vector<int> flat_sampled_ids(batch_size_ * sequence_size_);
+  for (int i = 0; i < batch_size_; ++i) {
+    for (int j = 0; j < sequence_size_; ++j) {
+      flat_sampled_ids[i * sequence_size_ + j] = (*sampled_ids)[i][j];
+    }
+  }
+  ids_tensor.Write(absl::MakeConstSpan(flat_sampled_ids));
   if (scores_tensor != nullptr) {
-    status = ValidateTensor(*scores_tensor, /*max_num_dims=*/1, batch_size_,
+    status = ValidateTensor(*scores_tensor, /*max_num_dims=*/2, batch_size_,
                             "output scores");
     if (!status.ok()) {
       return status;
     }
-    std::vector<float> scores(batch_size_);
+    std::vector<float> scores(batch_size_ * sequence_size_);
     for (int i = 0; i < batch_size_; ++i) {
-      // The scores are the log of the probability of the sampled token.
-      scores[i] = std::log(sampled_scores[i]);
+      for (int j = 0; j < sequence_size_; ++j) {
+        // The scores are the log of the probability of the sampled token.
+        scores[i * sequence_size_ + j] = std::log(sampled_scores[i][j]);
+      }
     }
     scores_tensor->Write(absl::MakeConstSpan(scores));
   }

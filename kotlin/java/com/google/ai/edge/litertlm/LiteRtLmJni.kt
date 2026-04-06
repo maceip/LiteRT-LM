@@ -39,7 +39,12 @@ internal object LiteRtLmJni {
    * @param enableBenchmark Whether to enable benchmark mode or not.
    * @param cacheDir The directory for cache files.
    * @param enableBenchmark Whether to enable benchmark or not.
-   * @param npuLibrariesDir The directory for the NPU libraries.
+   * @param enableSpeculativeDecoding Whether to enable speculative decoding.
+   * @param mainNpuNativeLibraryDir The directory for the main backend NPU libraries.
+   * @param visionNpuNativeLibraryDir The directory for the vision backend NPU libraries.
+   * @param audioNpuNativeLibraryDir The directory for the audio backend NPU libraries.
+   * @param mainBackendNumThreads The number of threads for the main backend (CPU).
+   * @param audioBackendNumThreads The number of threads for the audio backend (CPU).
    * @return A pointer to the native engine instance.
    */
   external fun nativeCreateEngine(
@@ -50,7 +55,32 @@ internal object LiteRtLmJni {
     maxNumTokens: Int,
     cacheDir: String,
     enableBenchmark: Boolean,
-    npuLibrariesDir: String,
+    enableSpeculativeDecoding: Boolean,
+    mainNpuNativeLibraryDir: String,
+    visionNpuNativeLibraryDir: String,
+    audioNpuNativeLibraryDir: String,
+    mainBackendNumThreads: Int,
+    audioBackendNumThreads: Int,
+  ): Long
+
+  /**
+   * Creates a new LiteRT-LM engine for benchmarking.
+   *
+   * @param modelPath The path to the model file.
+   * @param backend The backend to use for the engine.
+   * @param prefillTokens The number of tokens to prefill.
+   * @param decodeTokens The number of tokens to decode.
+   * @param cacheDir The directory for cache files.
+   * @param mainNpuNativeLibraryDir The directory for the main backend NPU libraries.
+   * @return A pointer to the native engine instance.
+   */
+  external fun nativeCreateBenchmark(
+    modelPath: String,
+    backend: String,
+    prefillTokens: Int,
+    decodeTokens: Int,
+    cacheDir: String,
+    mainNpuNativeLibraryDir: String,
   ): Long
 
   /**
@@ -158,6 +188,8 @@ internal object LiteRtLmJni {
    * @param systemMessageJsonString The system instruction to be used in the conversation.
    * @param toolsDescriptionJsonString A json string of a list of tool definitions (Open API json).
    *   could be used.
+   * @param channelsJsonString A json string of a list of channel definitions. If null, use the
+   *   default from the model or engine. If empty, channels will be disabled.
    * @param enableConversationConstrainedDecoding Whether to enable conversation constrained
    *   decoding.
    * @return A pointer to the native conversation instance.
@@ -167,6 +199,8 @@ internal object LiteRtLmJni {
     samplerConfig: SamplerConfig?,
     messageJsonString: String,
     toolsDescriptionJsonString: String,
+    channelsJsonString: String?,
+    extraContextJsonString: String,
     enableConversationConstrainedDecoding: Boolean,
   ): Long
 
@@ -189,6 +223,7 @@ internal object LiteRtLmJni {
   external fun nativeSendMessageAsync(
     conversationPointer: Long,
     messageJsonString: String,
+    extraContextJsonString: String,
     callback: JniMessageCallback,
   )
 
@@ -199,7 +234,11 @@ internal object LiteRtLmJni {
    * @param messageJsonString The message to be processed by the native conversation instance.
    * @return The response message in JSON string format.
    */
-  external fun nativeSendMessage(conversationPointer: Long, messageJsonString: String): String
+  external fun nativeSendMessage(
+    conversationPointer: Long,
+    messageJsonString: String,
+    extraContextJsonString: String,
+  ): String
 
   /**
    * Cancels the ongoing conversation process.
