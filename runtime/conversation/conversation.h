@@ -105,6 +105,9 @@ class ConversationConfig {
     return context_shift_retain_recent_messages_;
   }
 
+  // Returns the target ratio in [0, 1) for context usage after replay.
+  float context_shift_target_ratio() const { return context_shift_target_ratio_; }
+
  public:
   // Builder class for ConversationConfig.
   //
@@ -211,13 +214,22 @@ class ConversationConfig {
       return *this;
     }
 
+    // Sets the target ratio in [0, 1) for context usage after replay.
+    // If replayed history still exceeds this target, older messages are
+    // progressively dropped until it fits the budget.
+    Builder& SetContextShiftTargetRatio(float context_shift_target_ratio) {
+      context_shift_target_ratio_ = context_shift_target_ratio;
+      return *this;
+    }
+
     absl::StatusOr<ConversationConfig> Build(const Engine& engine) {
       return ConversationConfig::CreateInternal(
           engine, session_config_, preface_, overwrite_prompt_template_,
           overwrite_processor_config_, enable_constrained_decoding_,
           prefill_preface_on_init_, constraint_provider_config_, channels_,
           filter_channel_content_from_kv_cache_, context_shift_enabled_,
-          context_shift_trigger_ratio_, context_shift_retain_recent_messages_);
+          context_shift_trigger_ratio_, context_shift_retain_recent_messages_,
+          context_shift_target_ratio_);
     }
 
     // Returns a unique pointer to a ConversationConfig.
@@ -240,6 +252,7 @@ class ConversationConfig {
     bool context_shift_enabled_ = false;
     float context_shift_trigger_ratio_ = 0.9f;
     int context_shift_retain_recent_messages_ = 8;
+    float context_shift_target_ratio_ = 0.8f;
   };
 
   // Returns the constrained decoding config.
@@ -279,6 +292,7 @@ class ConversationConfig {
   //   current_step / max_num_tokens.
   // - `context_shift_retain_recent_messages`: Number of recent messages to
   //   replay after a context shift.
+  // - `context_shift_target_ratio`: Desired context-usage ratio after replay.
   static absl::StatusOr<ConversationConfig> CreateInternal(
       const Engine& engine, const SessionConfig& session_config,
       std::optional<Preface> preface = std::nullopt,
@@ -293,7 +307,8 @@ class ConversationConfig {
       bool filter_channel_content_from_kv_cache = false,
       bool context_shift_enabled = false,
       float context_shift_trigger_ratio = 0.9f,
-      int context_shift_retain_recent_messages = 8);
+      int context_shift_retain_recent_messages = 8,
+      float context_shift_target_ratio = 0.8f);
 
   explicit ConversationConfig(SessionConfig session_config, Preface preface,
                               PromptTemplate prompt_template,
@@ -306,7 +321,8 @@ class ConversationConfig {
                               bool filter_channel_content_from_kv_cache = false,
                               bool context_shift_enabled = false,
                               float context_shift_trigger_ratio = 0.9f,
-                              int context_shift_retain_recent_messages = 8)
+                              int context_shift_retain_recent_messages = 8,
+                              float context_shift_target_ratio = 0.8f)
       : session_config_(std::move(session_config)),
         preface_(std::move(preface)),
         prompt_template_(std::move(prompt_template)),
@@ -320,7 +336,8 @@ class ConversationConfig {
         context_shift_enabled_(context_shift_enabled),
         context_shift_trigger_ratio_(context_shift_trigger_ratio),
         context_shift_retain_recent_messages_(
-            context_shift_retain_recent_messages) {}
+            context_shift_retain_recent_messages),
+        context_shift_target_ratio_(context_shift_target_ratio) {}
 
   SessionConfig session_config_;
   Preface preface_;
@@ -334,6 +351,7 @@ class ConversationConfig {
   bool context_shift_enabled_;
   float context_shift_trigger_ratio_;
   int context_shift_retain_recent_messages_;
+  float context_shift_target_ratio_;
 };
 
 // Optional arguments for sending a message to the LLM.

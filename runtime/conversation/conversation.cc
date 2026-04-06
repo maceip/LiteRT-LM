@@ -133,7 +133,8 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
     std::optional<std::vector<Channel>> overwrite_channels,
     bool filter_channel_content_from_kv_cache, bool context_shift_enabled,
     float context_shift_trigger_ratio,
-    int context_shift_retain_recent_messages) {
+    int context_shift_retain_recent_messages,
+    float context_shift_target_ratio) {
   if (preface.has_value() && !std::holds_alternative<JsonPreface>(*preface)) {
     return absl::InvalidArgumentError("Only JsonPreface is supported for now.");
   }
@@ -145,6 +146,15 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
   if (context_shift_retain_recent_messages < 0) {
     return absl::InvalidArgumentError(
         "context_shift_retain_recent_messages must be >= 0.");
+  }
+  if (context_shift_target_ratio <= 0.0f ||
+      context_shift_target_ratio > 1.0f) {
+    return absl::InvalidArgumentError(
+        "context_shift_target_ratio must be in (0, 1].");
+  }
+  if (context_shift_target_ratio > context_shift_trigger_ratio) {
+    return absl::InvalidArgumentError(
+        "context_shift_target_ratio must be <= context_shift_trigger_ratio.");
   }
   if (context_shift_enabled && !prefill_preface_on_init &&
       preface.has_value() && !IsEmptyPreface(*preface)) {
@@ -215,7 +225,8 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
       processor_config, enable_constrained_decoding, prefill_preface_on_init,
       std::move(constraint_provider_config), std::move(channels),
       filter_channel_content_from_kv_cache, context_shift_enabled,
-      context_shift_trigger_ratio, context_shift_retain_recent_messages);
+      context_shift_trigger_ratio, context_shift_retain_recent_messages,
+      context_shift_target_ratio);
 }
 
 absl::StatusOr<std::string>
@@ -922,39 +933,55 @@ absl::Status Conversation::MaybeApplyContextShift() {
     return absl::OkStatus();
   }
 
-  auto rewind_status =
-      session_->RewindToCheckpoint(kContextShiftAnchorCheckpoint);
-  if (!rewind_status.ok()) {
-    if (absl::IsUnimplemented(rewind_status)) {
-      context_shift_supported_ = false;
-      return absl::OkStatus();
-    }
-    return rewind_status;
-  }
-
-  std::vector<Message> replay_messages;
+  std::vector<Message> candidate_messages;
   {
     absl::MutexLock lock(history_mutex_);  // NOLINT
     const int retain_count =
         std::min(static_cast<int>(history_.size()),
                  config_.context_shift_retain_recent_messages());
     if (retain_count > 0) {
-      replay_messages.assign(history_.end() - retain_count, history_.end());
+      candidate_messages.assign(history_.end() - retain_count, history_.end());
     }
   }
+
   if (config_.filter_channel_content_from_kv_cache()) {
-    for (auto& message : replay_messages) {
+    for (auto& message : candidate_messages) {
       message = MaybeStripChannelContentFromMessage(
           message, /*strip_channel_content=*/true);
     }
   }
 
-  if (!replay_messages.empty()) {
-    ASSIGN_OR_RETURN(std::vector<InputData> replay_inputs,
-                     GetInputDataVectorForMessages(
-                         /*old_messages=*/absl::Span<const Message>(),
-                         replay_messages, OptionalArgs()));
-    RETURN_IF_ERROR(IgnoreEmptyInputError(session_->RunPrefill(replay_inputs)));
+  const int target_step =
+      std::max(1, static_cast<int>(max_context_tokens_ *
+                                   config_.context_shift_target_ratio()));
+  int replay_count = static_cast<int>(candidate_messages.size());
+
+  while (true) {
+    auto rewind_status =
+        session_->RewindToCheckpoint(kContextShiftAnchorCheckpoint);
+    if (!rewind_status.ok()) {
+      if (absl::IsUnimplemented(rewind_status)) {
+        context_shift_supported_ = false;
+        return absl::OkStatus();
+      }
+      return rewind_status;
+    }
+
+    if (replay_count > 0) {
+      ASSIGN_OR_RETURN(std::vector<InputData> replay_inputs,
+                       GetInputDataVectorForMessages(
+                           /*old_messages=*/absl::Span<const Message>(),
+                           absl::MakeSpan(candidate_messages).first(replay_count),
+                           OptionalArgs()));
+      RETURN_IF_ERROR(
+          IgnoreEmptyInputError(session_->RunPrefill(replay_inputs)));
+    }
+
+    ASSIGN_OR_RETURN(int shifted_step, session_->GetCurrentStep());
+    if (shifted_step <= target_step || replay_count == 0) {
+      break;
+    }
+    --replay_count;
   }
 
   checkpoint_message_index_ = std::nullopt;
