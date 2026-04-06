@@ -92,6 +92,19 @@ class ConversationConfig {
     return filter_channel_content_from_kv_cache_;
   }
 
+  // Returns whether context shift is enabled.
+  bool context_shift_enabled() const { return context_shift_enabled_; }
+
+  // Returns the context usage threshold ratio to trigger context shift.
+  float context_shift_trigger_ratio() const {
+    return context_shift_trigger_ratio_;
+  }
+
+  // Returns the number of recent messages to keep during context shift.
+  int context_shift_retain_recent_messages() const {
+    return context_shift_retain_recent_messages_;
+  }
+
  public:
   // Builder class for ConversationConfig.
   //
@@ -176,12 +189,35 @@ class ConversationConfig {
       return *this;
     }
 
+    // Enables session-level context shift when the context usage reaches
+    // a configurable threshold.
+    Builder& SetEnableContextShift(bool context_shift_enabled) {
+      context_shift_enabled_ = context_shift_enabled;
+      return *this;
+    }
+
+    // Sets the ratio in (0, 1] to trigger context shift based on
+    // current_step / max_num_tokens.
+    Builder& SetContextShiftTriggerRatio(float context_shift_trigger_ratio) {
+      context_shift_trigger_ratio_ = context_shift_trigger_ratio;
+      return *this;
+    }
+
+    // Sets how many most recent messages are replayed after a context shift.
+    Builder& SetContextShiftRetainRecentMessages(
+        int context_shift_retain_recent_messages) {
+      context_shift_retain_recent_messages_ =
+          context_shift_retain_recent_messages;
+      return *this;
+    }
+
     absl::StatusOr<ConversationConfig> Build(const Engine& engine) {
       return ConversationConfig::CreateInternal(
           engine, session_config_, preface_, overwrite_prompt_template_,
           overwrite_processor_config_, enable_constrained_decoding_,
           prefill_preface_on_init_, constraint_provider_config_, channels_,
-          filter_channel_content_from_kv_cache_);
+          filter_channel_content_from_kv_cache_, context_shift_enabled_,
+          context_shift_trigger_ratio_, context_shift_retain_recent_messages_);
     }
 
     // Returns a unique pointer to a ConversationConfig.
@@ -201,6 +237,9 @@ class ConversationConfig {
     std::optional<ConstraintProviderConfig> constraint_provider_config_;
     std::optional<std::vector<Channel>> channels_ = std::nullopt;
     bool filter_channel_content_from_kv_cache_ = false;
+    bool context_shift_enabled_ = false;
+    float context_shift_trigger_ratio_ = 0.9f;
+    int context_shift_retain_recent_messages_ = 8;
   };
 
   // Returns the constrained decoding config.
@@ -235,6 +274,11 @@ class ConversationConfig {
   //     true, the preface will be prefilled on init, which will make the first
   //     response faster, but take longer to initialize.
   // - `channels`: The channels configured for the conversation.
+  // - `context_shift_enabled`: Whether to enable session-level context shift.
+  // - `context_shift_trigger_ratio`: Trigger ratio in (0, 1] based on
+  //   current_step / max_num_tokens.
+  // - `context_shift_retain_recent_messages`: Number of recent messages to
+  //   replay after a context shift.
   static absl::StatusOr<ConversationConfig> CreateInternal(
       const Engine& engine, const SessionConfig& session_config,
       std::optional<Preface> preface = std::nullopt,
@@ -246,7 +290,10 @@ class ConversationConfig {
       std::optional<ConstraintProviderConfig> constraint_provider_config =
           std::nullopt,
       std::optional<std::vector<Channel>> channels = std::nullopt,
-      bool filter_channel_content_from_kv_cache = false);
+      bool filter_channel_content_from_kv_cache = false,
+      bool context_shift_enabled = false,
+      float context_shift_trigger_ratio = 0.9f,
+      int context_shift_retain_recent_messages = 8);
 
   explicit ConversationConfig(SessionConfig session_config, Preface preface,
                               PromptTemplate prompt_template,
@@ -256,7 +303,10 @@ class ConversationConfig {
                               std::optional<ConstraintProviderConfig>
                                   constraint_provider_config = std::nullopt,
                               std::vector<Channel> channels = {},
-                              bool filter_channel_content_from_kv_cache = false)
+                              bool filter_channel_content_from_kv_cache = false,
+                              bool context_shift_enabled = false,
+                              float context_shift_trigger_ratio = 0.9f,
+                              int context_shift_retain_recent_messages = 8)
       : session_config_(std::move(session_config)),
         preface_(std::move(preface)),
         prompt_template_(std::move(prompt_template)),
@@ -266,7 +316,11 @@ class ConversationConfig {
         constraint_provider_config_(std::move(constraint_provider_config)),
         channels_(std::move(channels)),
         filter_channel_content_from_kv_cache_(
-            filter_channel_content_from_kv_cache) {}
+            filter_channel_content_from_kv_cache),
+        context_shift_enabled_(context_shift_enabled),
+        context_shift_trigger_ratio_(context_shift_trigger_ratio),
+        context_shift_retain_recent_messages_(
+            context_shift_retain_recent_messages) {}
 
   SessionConfig session_config_;
   Preface preface_;
@@ -277,6 +331,9 @@ class ConversationConfig {
   std::optional<ConstraintProviderConfig> constraint_provider_config_;
   std::vector<Channel> channels_;
   bool filter_channel_content_from_kv_cache_;
+  bool context_shift_enabled_;
+  float context_shift_trigger_ratio_;
+  int context_shift_retain_recent_messages_;
 };
 
 // Optional arguments for sending a message to the LLM.
@@ -595,6 +652,10 @@ class Conversation {
   // and return the input data vector for all messages from that point onward.
   absl::StatusOr<std::vector<InputData>> RewindAndGetInputDataVector();
 
+  // Triggers session-level context shift and replays recent messages when
+  // context usage reaches the configured threshold.
+  absl::Status MaybeApplyContextShift();
+
   // Keep a reference to the creator engine to enable access to the shared
   // resources that might be required for features like cloning.
   Engine& engine_;
@@ -635,9 +696,16 @@ class Conversation {
   //  session_checkpoint_supported_.
   bool session_checkpoint_supported_ = true;
 
+  // Whether context-shift checkpointing and rewinding are supported by
+  // the underlying session implementation.
+  bool context_shift_supported_ = true;
+
   // The index of the message you have to rewind to in order to remove channel
   // content from the KV cache. nullopt means no rewind is needed.
   std::optional<int> checkpoint_message_index_ = std::nullopt;
+
+  // Max number of tokens supported by the model context.
+  int max_context_tokens_ = 0;
 };
 }  // namespace litert::lm
 

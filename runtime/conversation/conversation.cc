@@ -14,6 +14,7 @@
 
 #include "runtime/conversation/conversation.h"
 
+#include <algorithm>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -62,6 +63,8 @@ constexpr absl::string_view kUser = "user";
 constexpr absl::string_view kChannelsKey = "channels";
 constexpr absl::string_view kChannelContentCheckpoint =
     "channel_content_checkpoint";
+constexpr absl::string_view kContextShiftAnchorCheckpoint =
+    "context_shift_anchor_checkpoint";
 
 bool IsEmptyInputError(const absl::Status& status) {
   return absl::IsInvalidArgument(status) &&
@@ -87,6 +90,32 @@ bool IsUserMessage(const nlohmann::ordered_json& json_msg) {
          json_msg[kRoleKey].get<absl::string_view>() == kUser;
 }
 
+bool ContainsUserMessage(const nlohmann::ordered_json& json_msg) {
+  if (json_msg.is_array()) {
+    for (const auto& message : json_msg) {
+      if (message.is_object() && IsUserMessage(message)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return json_msg.is_object() && IsUserMessage(json_msg);
+}
+
+Message MaybeStripChannelContentFromMessage(
+    const Message& message, bool strip_channel_content) {
+  if (!strip_channel_content ||
+      !std::holds_alternative<nlohmann::ordered_json>(message)) {
+    return message;
+  }
+  nlohmann::ordered_json json_message =
+      std::get<nlohmann::ordered_json>(message);
+  if (json_message.is_object()) {
+    json_message.erase(std::string(kChannelsKey));
+  }
+  return json_message;
+}
+
 }  // namespace
 
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
@@ -102,9 +131,26 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
     bool enable_constrained_decoding, bool prefill_preface_on_init,
     std::optional<ConstraintProviderConfig> constraint_provider_config,
     std::optional<std::vector<Channel>> overwrite_channels,
-    bool filter_channel_content_from_kv_cache) {
+    bool filter_channel_content_from_kv_cache, bool context_shift_enabled,
+    float context_shift_trigger_ratio,
+    int context_shift_retain_recent_messages) {
   if (preface.has_value() && !std::holds_alternative<JsonPreface>(*preface)) {
     return absl::InvalidArgumentError("Only JsonPreface is supported for now.");
+  }
+  if (context_shift_trigger_ratio <= 0.0f ||
+      context_shift_trigger_ratio > 1.0f) {
+    return absl::InvalidArgumentError(
+        "context_shift_trigger_ratio must be in (0, 1].");
+  }
+  if (context_shift_retain_recent_messages < 0) {
+    return absl::InvalidArgumentError(
+        "context_shift_retain_recent_messages must be >= 0.");
+  }
+  if (context_shift_enabled && !prefill_preface_on_init &&
+      preface.has_value() && !IsEmptyPreface(*preface)) {
+    return absl::InvalidArgumentError(
+        "Context shift with non-empty preface requires "
+        "prefill_preface_on_init=true.");
   }
 
   SessionConfig session_config_copy = session_config;
@@ -168,7 +214,8 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
       session_config_copy, preface.value_or(JsonPreface()), prompt_template,
       processor_config, enable_constrained_decoding, prefill_preface_on_init,
       std::move(constraint_provider_config), std::move(channels),
-      filter_channel_content_from_kv_cache);
+      filter_channel_content_from_kv_cache, context_shift_enabled,
+      context_shift_trigger_ratio, context_shift_retain_recent_messages);
 }
 
 absl::StatusOr<std::string>
@@ -332,6 +379,8 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
       engine, std::move(session), std::move(model_data_processor),
       config.GetPreface(), config.GetPromptTemplate(), config,
       std::move(constraint_provider)));
+  conversation->max_context_tokens_ =
+      engine.GetEngineSettings().GetMainExecutorSettings().GetMaxNumTokens();
   if (config.prefill_preface_on_init() &&
       !IsEmptyPreface(config.GetPreface())) {
     std::string single_turn_text;
@@ -368,6 +417,12 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
       RETURN_IF_ERROR(conversation->session_->RunPrefill(session_inputs));
     }
   }
+  if (config.context_shift_enabled()) {
+    if (!conversation->session_->SaveCheckpoint(kContextShiftAnchorCheckpoint)
+             .ok()) {
+      conversation->context_shift_supported_ = false;
+    }
+  }
 
   if (engine.GetEngineSettings().IsBenchmarkEnabled()) {
     ASSIGN_OR_RETURN(BenchmarkInfo * benchmark_info,
@@ -394,6 +449,9 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
     return absl::InvalidArgumentError("Json message is required for now.");
   }
   auto json_message = std::get<nlohmann::ordered_json>(message);
+  if (ContainsUserMessage(json_message)) {
+    RETURN_IF_ERROR(MaybeApplyContextShift());
+  }
 
   // Session inputs to be prefilled.
   std::vector<InputData> session_inputs;
@@ -492,6 +550,9 @@ absl::Status Conversation::SendMessageAsync(
     return absl::InvalidArgumentError("Json message is required for now.");
   }
   auto json_message = std::get<nlohmann::ordered_json>(message);
+  if (ContainsUserMessage(json_message)) {
+    RETURN_IF_ERROR(MaybeApplyContextShift());
+  }
 
   // Session inputs to be prefilled.
   std::vector<InputData> session_inputs;
@@ -714,6 +775,8 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
       config_.GetPreface(), config_.GetPromptTemplate(), config_,
       std::move(constraint_provider)));
   new_conversation->is_appending_message_ = is_appending_message_;
+  new_conversation->context_shift_supported_ = context_shift_supported_;
+  new_conversation->max_context_tokens_ = max_context_tokens_;
   {
     absl::MutexLock lock(history_mutex_);  // NOLINT
     new_conversation->history_ = history_;
@@ -835,6 +898,70 @@ Conversation::RewindAndGetInputDataVector() {
   checkpoint_message_index_ = std::nullopt;
 
   return input_data_vector;
+}
+
+absl::Status Conversation::MaybeApplyContextShift() {
+  if (!config_.context_shift_enabled() || !context_shift_supported_ ||
+      max_context_tokens_ <= 0 || is_appending_message_) {
+    return absl::OkStatus();
+  }
+
+  auto current_step_or = session_->GetCurrentStep();
+  if (!current_step_or.ok()) {
+    if (absl::IsUnimplemented(current_step_or.status())) {
+      context_shift_supported_ = false;
+      return absl::OkStatus();
+    }
+    return current_step_or.status();
+  }
+
+  const int trigger_step =
+      std::max(1, static_cast<int>(max_context_tokens_ *
+                                   config_.context_shift_trigger_ratio()));
+  if (*current_step_or < trigger_step) {
+    return absl::OkStatus();
+  }
+
+  auto rewind_status =
+      session_->RewindToCheckpoint(kContextShiftAnchorCheckpoint);
+  if (!rewind_status.ok()) {
+    if (absl::IsUnimplemented(rewind_status)) {
+      context_shift_supported_ = false;
+      return absl::OkStatus();
+    }
+    return rewind_status;
+  }
+
+  std::vector<Message> replay_messages;
+  {
+    absl::MutexLock lock(history_mutex_);  // NOLINT
+    const int retain_count =
+        std::min(static_cast<int>(history_.size()),
+                 config_.context_shift_retain_recent_messages());
+    if (retain_count > 0) {
+      replay_messages.assign(history_.end() - retain_count, history_.end());
+    }
+  }
+  if (config_.filter_channel_content_from_kv_cache()) {
+    for (auto& message : replay_messages) {
+      message = MaybeStripChannelContentFromMessage(
+          message, /*strip_channel_content=*/true);
+    }
+  }
+
+  if (!replay_messages.empty()) {
+    ASSIGN_OR_RETURN(std::vector<InputData> replay_inputs,
+                     GetInputDataVectorForMessages(
+                         /*old_messages=*/absl::Span<const Message>(),
+                         replay_messages, OptionalArgs()));
+    RETURN_IF_ERROR(IgnoreEmptyInputError(session_->RunPrefill(replay_inputs)));
+  }
+
+  checkpoint_message_index_ = std::nullopt;
+  if (!session_->SaveCheckpoint(kContextShiftAnchorCheckpoint).ok()) {
+    context_shift_supported_ = false;
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace litert::lm

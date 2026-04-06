@@ -58,7 +58,9 @@ namespace {
 using ::testing::AllOf;
 using ::testing::ElementsAre;
 using ::testing::HasSubstr;
+using ::testing::InSequence;
 using ::testing::Not;
+using ::testing::ResultOf;
 using ::testing::Return;
 using ::testing::VariantWith;
 
@@ -158,6 +160,7 @@ class MockSession : public Engine::Session {
               (override));
   MOCK_METHOD(absl::Status, RewindToCheckpoint, (absl::string_view label),
               (override));
+  MOCK_METHOD(absl::StatusOr<int>, GetCurrentStep, (), (const, override));
   MOCK_METHOD(const SessionConfig&, GetSessionConfig, (), (const, override));
 };
 
@@ -342,6 +345,37 @@ TEST(ConversationConfigTest, OverwritePromptTemplate) {
             "overwrite template");
 }
 
+TEST(ConversationConfigTest, ContextShiftConfigValidation) {
+  ASSERT_OK_AND_ASSIGN(auto model_assets,
+                       ModelAssets::Create(GetTestdataPath(kTestLlmPath)));
+  ASSERT_OK_AND_ASSIGN(auto engine_settings, EngineSettings::CreateDefault(
+                                                 model_assets, Backend::CPU));
+  engine_settings.GetMutableMainExecutorSettings().SetCacheDir(":nocache");
+  engine_settings.GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  ASSERT_OK_AND_ASSIGN(auto engine, EngineFactory::CreateAny(engine_settings));
+
+  auto invalid_ratio = ConversationConfig::Builder()
+                           .SetEnableContextShift(true)
+                           .SetContextShiftTriggerRatio(0.0f)
+                           .Build(*engine);
+  EXPECT_FALSE(invalid_ratio.ok());
+
+  auto invalid_retain = ConversationConfig::Builder()
+                            .SetEnableContextShift(true)
+                            .SetContextShiftRetainRecentMessages(-1)
+                            .Build(*engine);
+  EXPECT_FALSE(invalid_retain.ok());
+
+  auto invalid_preface = ConversationConfig::Builder()
+                             .SetEnableContextShift(true)
+                             .SetPreface(JsonPreface{
+                                 .messages = {{{"role", "system"},
+                                               {"content", "hi"}}}})
+                             .SetPrefillPrefaceOnInit(false)
+                             .Build(*engine);
+  EXPECT_FALSE(invalid_preface.ok());
+}
+
 struct ConversationTestParams {
   bool enable_constrained_decoding;
   bool prefill_preface_on_init;
@@ -383,6 +417,7 @@ class ConversationTest : public testing::TestWithParam<ConversationTestParams> {
     auto mock_session = std::make_unique<MockSession>();
     EXPECT_CALL(*mock_session, GetSessionConfig())
         .WillRepeatedly(testing::ReturnRef(session_config_));
+    EXPECT_CALL(*mock_session, GetCurrentStep()).WillRepeatedly(Return(0));
     return mock_session;
   }
 
@@ -932,6 +967,69 @@ TEST_P(ConversationTest, SendMessageWithChannelContentFiltering) {
   // Send the second user message.
   JsonMessage user_message_2 = {{"role", "user"}, {"content", "That's great."}};
   ASSERT_OK(conversation->SendMessage(user_message_2));
+}
+
+TEST_P(ConversationTest, SendMessageWithContextShiftReplay) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  // Keep this small so the trigger ratio produces a tiny threshold.
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  auto get_text = [](const InputText& it) -> std::string {
+    auto status_or_view = it.GetRawTextString();
+    if (!status_or_view.ok()) return "";
+    return std::string(*status_or_view);
+  };
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(2)
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(
+                    ResultOf(get_text, HasSubstr("How are you?"))))))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"I am good."})));
+
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(ResultOf(
+                    get_text,
+                    AllOf(HasSubstr("How are you?"), HasSubstr("I am good.")))))))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(
+                    ResultOf(get_text, HasSubstr("That's great."))))))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"Indeed."})));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "How are you?"}}));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "That's great."}}));
 }
 
 TEST_P(ConversationTest, SendMultipleMessagesWithHistory) {
