@@ -105,8 +105,13 @@ class ConversationConfig {
     return context_shift_retain_recent_messages_;
   }
 
-  // Returns the target ratio in [0, 1) for context usage after replay.
+  // Returns the target ratio in (0, 1] for context usage after replay.
   float context_shift_target_ratio() const { return context_shift_target_ratio_; }
+
+  // Returns whether to reset session when replay cannot fit target budget.
+  bool context_shift_reset_on_exhaustion() const {
+    return context_shift_reset_on_exhaustion_;
+  }
 
  public:
   // Builder class for ConversationConfig.
@@ -222,6 +227,15 @@ class ConversationConfig {
       return *this;
     }
 
+    // If true, reset and recreate the session when replay cannot fit the
+    // context budget target. This mirrors Context Manager behavior where
+    // the loop can restart with a fresh context.
+    Builder& SetContextShiftResetOnExhaustion(
+        bool context_shift_reset_on_exhaustion) {
+      context_shift_reset_on_exhaustion_ = context_shift_reset_on_exhaustion;
+      return *this;
+    }
+
     absl::StatusOr<ConversationConfig> Build(const Engine& engine) {
       return ConversationConfig::CreateInternal(
           engine, session_config_, preface_, overwrite_prompt_template_,
@@ -229,7 +243,7 @@ class ConversationConfig {
           prefill_preface_on_init_, constraint_provider_config_, channels_,
           filter_channel_content_from_kv_cache_, context_shift_enabled_,
           context_shift_trigger_ratio_, context_shift_retain_recent_messages_,
-          context_shift_target_ratio_);
+          context_shift_target_ratio_, context_shift_reset_on_exhaustion_);
     }
 
     // Returns a unique pointer to a ConversationConfig.
@@ -253,6 +267,7 @@ class ConversationConfig {
     float context_shift_trigger_ratio_ = 0.9f;
     int context_shift_retain_recent_messages_ = 8;
     float context_shift_target_ratio_ = 0.8f;
+    bool context_shift_reset_on_exhaustion_ = true;
   };
 
   // Returns the constrained decoding config.
@@ -293,6 +308,8 @@ class ConversationConfig {
   // - `context_shift_retain_recent_messages`: Number of recent messages to
   //   replay after a context shift.
   // - `context_shift_target_ratio`: Desired context-usage ratio after replay.
+  // - `context_shift_reset_on_exhaustion`: Whether to reset/recreate session
+  //   if replay cannot fit the target budget.
   static absl::StatusOr<ConversationConfig> CreateInternal(
       const Engine& engine, const SessionConfig& session_config,
       std::optional<Preface> preface = std::nullopt,
@@ -308,7 +325,8 @@ class ConversationConfig {
       bool context_shift_enabled = false,
       float context_shift_trigger_ratio = 0.9f,
       int context_shift_retain_recent_messages = 8,
-      float context_shift_target_ratio = 0.8f);
+      float context_shift_target_ratio = 0.8f,
+      bool context_shift_reset_on_exhaustion = true);
 
   explicit ConversationConfig(SessionConfig session_config, Preface preface,
                               PromptTemplate prompt_template,
@@ -322,7 +340,8 @@ class ConversationConfig {
                               bool context_shift_enabled = false,
                               float context_shift_trigger_ratio = 0.9f,
                               int context_shift_retain_recent_messages = 8,
-                              float context_shift_target_ratio = 0.8f)
+                              float context_shift_target_ratio = 0.8f,
+                              bool context_shift_reset_on_exhaustion = true)
       : session_config_(std::move(session_config)),
         preface_(std::move(preface)),
         prompt_template_(std::move(prompt_template)),
@@ -337,7 +356,9 @@ class ConversationConfig {
         context_shift_trigger_ratio_(context_shift_trigger_ratio),
         context_shift_retain_recent_messages_(
             context_shift_retain_recent_messages),
-        context_shift_target_ratio_(context_shift_target_ratio) {}
+        context_shift_target_ratio_(context_shift_target_ratio),
+        context_shift_reset_on_exhaustion_(
+            context_shift_reset_on_exhaustion) {}
 
   SessionConfig session_config_;
   Preface preface_;
@@ -352,6 +373,7 @@ class ConversationConfig {
   float context_shift_trigger_ratio_;
   int context_shift_retain_recent_messages_;
   float context_shift_target_ratio_;
+  bool context_shift_reset_on_exhaustion_;
 };
 
 // Optional arguments for sending a message to the LLM.
@@ -673,6 +695,9 @@ class Conversation {
   // Triggers session-level context shift and replays recent messages when
   // context usage reaches the configured threshold.
   absl::Status MaybeApplyContextShift();
+
+  // Prefills the configured preface on the current session when enabled.
+  absl::Status PrefillPrefaceIfConfigured();
 
   // Keep a reference to the creator engine to enable access to the shared
   // resources that might be required for features like cloning.

@@ -1122,6 +1122,71 @@ TEST_P(ConversationTest, SendMessageWithContextShiftBudgetShrink) {
       JsonMessage{{"role", "user"}, {"content", "Q3"}}));
 }
 
+TEST_P(ConversationTest, SendMessageWithContextShiftResetOnExhaustion) {
+  auto session1 = std::make_unique<MockSession>();
+  MockSession* session1_ptr = session1.get();
+  EXPECT_CALL(*session1_ptr, GetSessionConfig())
+      .WillRepeatedly(testing::ReturnRef(session_config_));
+
+  auto session2 = std::make_unique<MockSession>();
+  MockSession* session2_ptr = session2.get();
+  EXPECT_CALL(*session2_ptr, GetSessionConfig())
+      .WillRepeatedly(testing::ReturnRef(session_config_));
+
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  auto mock_engine = std::make_unique<MockEngine>();
+  EXPECT_CALL(*mock_engine, GetEngineSettings())
+      .WillRepeatedly(testing::ReturnRef(*engine_settings_));
+  EXPECT_CALL(*mock_engine, GetTokenizer())
+      .WillRepeatedly(testing::ReturnRef(*tokenizer_));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.2f)
+          .SetContextShiftRetainRecentMessages(0)
+          .SetContextShiftResetOnExhaustion(true)
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_engine, CreateSession(testing::_))
+        .WillOnce(testing::Return(std::move(session1)));
+    EXPECT_CALL(*session1_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*session1_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*session1_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*session1_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+
+    EXPECT_CALL(*session1_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*session1_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*session1_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_engine, CreateSession(testing::_))
+        .WillOnce(testing::Return(std::move(session2)));
+    EXPECT_CALL(*session2_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*session2_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*session2_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q2"}}));
+}
+
 TEST_P(ConversationTest, SendMultipleMessagesWithHistory) {
   // Set up mock Session.
   auto mock_session = CreateMockSession();

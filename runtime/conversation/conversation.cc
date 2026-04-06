@@ -134,7 +134,8 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
     bool filter_channel_content_from_kv_cache, bool context_shift_enabled,
     float context_shift_trigger_ratio,
     int context_shift_retain_recent_messages,
-    float context_shift_target_ratio) {
+    float context_shift_target_ratio,
+    bool context_shift_reset_on_exhaustion) {
   if (preface.has_value() && !std::holds_alternative<JsonPreface>(*preface)) {
     return absl::InvalidArgumentError("Only JsonPreface is supported for now.");
   }
@@ -226,7 +227,7 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
       std::move(constraint_provider_config), std::move(channels),
       filter_channel_content_from_kv_cache, context_shift_enabled,
       context_shift_trigger_ratio, context_shift_retain_recent_messages,
-      context_shift_target_ratio);
+      context_shift_target_ratio, context_shift_reset_on_exhaustion);
 }
 
 absl::StatusOr<std::string>
@@ -392,42 +393,7 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
       std::move(constraint_provider)));
   conversation->max_context_tokens_ =
       engine.GetEngineSettings().GetMainExecutorSettings().GetMaxNumTokens();
-  if (config.prefill_preface_on_init() &&
-      !IsEmptyPreface(config.GetPreface())) {
-    std::string single_turn_text;
-    std::vector<Message> tmp_history;
-    bool fallback =
-        !conversation->prompt_template_.GetCapabilities().supports_single_turn;
-    const auto render_result =
-        conversation->model_data_processor_->RenderSingleTurnTemplate(
-            tmp_history, config.GetPreface(), JsonMessage(),
-            config.GetPromptTemplate(),
-            /*current_is_appending_message=*/false,
-            /*append_message=*/false,
-            /*extra_context=*/std::nullopt);
-    if (fallback || absl::IsUnimplemented(render_result.status())) {
-      // Fallback to the old way of prefilling the preface.
-      PromptTemplateInput tmpl_input;
-      RETURN_IF_ERROR(FillPrefaceForPromptTemplateInput(
-          config.GetPreface(), conversation->model_data_processor_.get(),
-          tmpl_input));
-      tmpl_input.add_generation_prompt = false;
-      ASSIGN_OR_RETURN(single_turn_text,
-                       conversation->prompt_template_.Apply(tmpl_input));
-    } else if (render_result.ok()) {
-      single_turn_text = render_result->text;
-    } else {
-      return render_result.status();
-    }
-    ASSIGN_OR_RETURN(const auto session_inputs,
-                     conversation->model_data_processor_->ToInputDataVector(
-                         single_turn_text,
-                         std::get<JsonPreface>(config.GetPreface()).messages,
-                         std::monostate()));
-    if (!session_inputs.empty()) {
-      RETURN_IF_ERROR(conversation->session_->RunPrefill(session_inputs));
-    }
-  }
+  RETURN_IF_ERROR(conversation->PrefillPrefaceIfConfigured());
   if (config.context_shift_enabled()) {
     if (!conversation->session_->SaveCheckpoint(kContextShiftAnchorCheckpoint)
              .ok()) {
@@ -443,6 +409,41 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
   }
 
   return conversation;
+}
+
+absl::Status Conversation::PrefillPrefaceIfConfigured() {
+  if (!config_.prefill_preface_on_init() || IsEmptyPreface(preface_)) {
+    return absl::OkStatus();
+  }
+  std::string single_turn_text;
+  std::vector<Message> tmp_history;
+  bool fallback = !prompt_template_.GetCapabilities().supports_single_turn;
+  const auto render_result = model_data_processor_->RenderSingleTurnTemplate(
+      tmp_history, preface_, JsonMessage(), prompt_template_,
+      /*current_is_appending_message=*/false,
+      /*append_message=*/false,
+      /*extra_context=*/std::nullopt);
+  if (fallback || absl::IsUnimplemented(render_result.status())) {
+    // Fallback to the old way of prefilling the preface.
+    PromptTemplateInput tmpl_input;
+    RETURN_IF_ERROR(
+        FillPrefaceForPromptTemplateInput(preface_, model_data_processor_.get(),
+                                          tmpl_input));
+    tmpl_input.add_generation_prompt = false;
+    ASSIGN_OR_RETURN(single_turn_text, prompt_template_.Apply(tmpl_input));
+  } else if (render_result.ok()) {
+    single_turn_text = render_result->text;
+  } else {
+    return render_result.status();
+  }
+  ASSIGN_OR_RETURN(const auto session_inputs,
+                   model_data_processor_->ToInputDataVector(
+                       single_turn_text, std::get<JsonPreface>(preface_).messages,
+                       std::monostate()));
+  if (!session_inputs.empty()) {
+    RETURN_IF_ERROR(session_->RunPrefill(session_inputs));
+  }
+  return absl::OkStatus();
 }
 
 void Conversation::AddTaskController(
@@ -955,6 +956,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
       std::max(1, static_cast<int>(max_context_tokens_ *
                                    config_.context_shift_target_ratio()));
   int replay_count = static_cast<int>(candidate_messages.size());
+  int shifted_step = *current_step_or;
 
   while (true) {
     auto rewind_status =
@@ -977,11 +979,19 @@ absl::Status Conversation::MaybeApplyContextShift() {
           IgnoreEmptyInputError(session_->RunPrefill(replay_inputs)));
     }
 
-    ASSIGN_OR_RETURN(int shifted_step, session_->GetCurrentStep());
+    ASSIGN_OR_RETURN(shifted_step, session_->GetCurrentStep());
     if (shifted_step <= target_step || replay_count == 0) {
       break;
     }
     --replay_count;
+  }
+
+  if (shifted_step > target_step && replay_count == 0 &&
+      config_.context_shift_reset_on_exhaustion()) {
+    ASSIGN_OR_RETURN(std::unique_ptr<Engine::Session> new_session,
+                     engine_.CreateSession(config_.GetSessionConfig()));
+    session_ = std::move(new_session);
+    RETURN_IF_ERROR(PrefillPrefaceIfConfigured());
   }
 
   checkpoint_message_index_ = std::nullopt;
