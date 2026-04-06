@@ -365,10 +365,56 @@ absl::StatusOr<std::string> GetDefaultJinjaPromptTemplate(
 {%- if add_generation_prompt -%}
     {{'<start_of_turn>model\n'}}
 {%- endif -%})tmpl";
+    case proto::LlmModelType::kGemma4:
+      // Gemma4 defaults to a single-turn-capable template so the runtime can
+      // incrementally append prompt fragments without replaying full history.
+      return absl::Substitute(
+          R"tmpl({%- if extra_context.is_appending_to_prefill -%}
+{%- set message = extra_context.message -%}
+{%- if message.role == 'assistant' -%}
+{%- set role = 'model' -%}
+{%- else -%}
+{%- set role = message.role -%}
+{%- endif -%}
+{%- if extra_context.is_first_part -%}
+{%- if role == 'user' -%}$0{%- elif role == 'model' -%}$1{%- elif role == 'system' -%}$2{%- endif -%}
+{%- endif -%}
+{%- if message.content is string -%}
+{{ message.content }}
+{%- else -%}
+{%- for item in message.content -%}
+{%- if item.type == 'text' -%}{{ item.text }}{%- elif item.type == 'image' -%}{{ '<start_of_image>' }}{%- elif item.type == 'audio' -%}{{ '<start_of_audio>' }}{%- endif -%}
+{%- endfor -%}
+{%- endif -%}
+{%- if extra_context.is_last_part -%}
+{%- if role == 'user' -%}$3{%- elif role == 'model' -%}$4{%- elif role == 'system' -%}$5{%- endif -%}
+{%- endif -%}
+{%- else -%}
+{%- for message in messages -%}
+{%- if message.role == 'assistant' -%}
+{%- set role = 'model' -%}
+{%- else -%}
+{%- set role = message.role -%}
+{%- endif -%}
+{%- if role == 'user' -%}$0{%- elif role == 'model' -%}$1{%- elif role == 'system' -%}$2{%- endif -%}
+{%- if message.content is string -%}
+{{ message.content }}
+{%- else -%}
+{%- for item in message.content -%}
+{%- if item.type == 'text' -%}{{ item.text }}{%- elif item.type == 'image' -%}{{ '<start_of_image>' }}{%- elif item.type == 'audio' -%}{{ '<start_of_audio>' }}{%- endif -%}
+{%- endfor -%}
+{%- endif -%}
+{%- if role == 'user' -%}$3{%- elif role == 'model' -%}$4{%- elif role == 'system' -%}$5{%- endif -%}
+{%- endfor -%}
+{%- endif -%}
+{%- if add_generation_prompt -%}$1{%- endif -%})tmpl",
+          prompt_templates.user().prefix(), prompt_templates.model().prefix(),
+          prompt_templates.system().prefix(), prompt_templates.user().suffix(),
+          prompt_templates.model().suffix(),
+          prompt_templates.system().suffix());
     case proto::LlmModelType::kQwen3:
     case proto::LlmModelType::kQwen2P5:
     case proto::LlmModelType::kGenericModel:
-    case proto::LlmModelType::kGemma4:
       // absl::Substitute takes up to 10 arguments, so we have to split the
       // template into two parts.
       return absl::StrCat(

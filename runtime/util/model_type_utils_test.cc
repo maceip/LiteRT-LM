@@ -182,5 +182,51 @@ TEST(ModelTypeUtilsTest, GetDefaultJinjaPromptTemplateWithImageAndAudio) {
             "<start_of_turn>model\n");
 }
 
+TEST(ModelTypeUtilsTest, GetDefaultJinjaPromptTemplateGemma4) {
+  proto::PromptTemplates prompt_templates;
+  prompt_templates.mutable_user()->set_prefix("<start_of_turn>user\n");
+  prompt_templates.mutable_model()->set_prefix("<start_of_turn>model\n");
+  prompt_templates.mutable_system()->set_prefix("<start_of_turn>system\n");
+  prompt_templates.mutable_user()->set_suffix("<end_of_turn>\n");
+  prompt_templates.mutable_model()->set_suffix("<end_of_turn>\n");
+  prompt_templates.mutable_system()->set_suffix("<end_of_turn>\n");
+  proto::LlmModelType llm_model_type;
+  llm_model_type.mutable_gemma4();
+  ASSERT_OK_AND_ASSIGN(
+      auto jinja_prompt_template,
+      GetDefaultJinjaPromptTemplate(prompt_templates, llm_model_type));
+  PromptTemplate prompt_template(jinja_prompt_template);
+  EXPECT_TRUE(prompt_template.GetCapabilities().supports_single_turn);
+
+  // Full-history rendering: assistant role should be mapped to model role.
+  PromptTemplateInput full_history_input;
+  full_history_input.messages = {
+      {{"role", "system"}, {"content", "This is a system message"}},
+      {{"role", "user"}, {"content", "This is a user message"}},
+      {{"role", "assistant"}, {"content", "This is an assistant message"}}};
+  ASSERT_OK_AND_ASSIGN(auto full_history_rendered,
+                       prompt_template.Apply(full_history_input));
+  EXPECT_EQ(full_history_rendered,
+            "<start_of_turn>system\nThis is a system message<end_of_turn>\n"
+            "<start_of_turn>user\nThis is a user message<end_of_turn>\n"
+            "<start_of_turn>model\nThis is an assistant message<end_of_turn>\n"
+            "<start_of_turn>model\n");
+
+  // Single-turn append rendering: consume one message from extra_context.
+  PromptTemplateInput append_input;
+  append_input.add_generation_prompt = true;
+  append_input.extra_context["is_appending_to_prefill"] = true;
+  append_input.extra_context["is_first_part"] = true;
+  append_input.extra_context["is_last_part"] = true;
+  append_input.extra_context["message"] = {
+      {"role", "user"},
+      {"content", "This is an appended user message"}};
+  ASSERT_OK_AND_ASSIGN(auto append_rendered, prompt_template.Apply(append_input));
+  EXPECT_EQ(
+      append_rendered,
+      "<start_of_turn>user\nThis is an appended user message<end_of_turn>\n"
+      "<start_of_turn>model\n");
+}
+
 }  // namespace
 }  // namespace litert::lm
