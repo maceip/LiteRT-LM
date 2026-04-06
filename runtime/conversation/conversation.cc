@@ -135,7 +135,8 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
     float context_shift_trigger_ratio,
     int context_shift_retain_recent_messages,
     float context_shift_target_ratio,
-    bool context_shift_reset_on_exhaustion) {
+    bool context_shift_reset_on_exhaustion,
+    ContextShiftStrategy context_shift_strategy) {
   if (preface.has_value() && !std::holds_alternative<JsonPreface>(*preface)) {
     return absl::InvalidArgumentError("Only JsonPreface is supported for now.");
   }
@@ -156,6 +157,11 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
   if (context_shift_target_ratio > context_shift_trigger_ratio) {
     return absl::InvalidArgumentError(
         "context_shift_target_ratio must be <= context_shift_trigger_ratio.");
+  }
+  switch (context_shift_strategy) {
+    case ContextShiftStrategy::kReplayRecent:
+    case ContextShiftStrategy::kDropAllButSystem:
+      break;
   }
   if (context_shift_enabled && !prefill_preface_on_init &&
       preface.has_value() && !IsEmptyPreface(*preface)) {
@@ -227,7 +233,8 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
       std::move(constraint_provider_config), std::move(channels),
       filter_channel_content_from_kv_cache, context_shift_enabled,
       context_shift_trigger_ratio, context_shift_retain_recent_messages,
-      context_shift_target_ratio, context_shift_reset_on_exhaustion);
+      context_shift_target_ratio, context_shift_reset_on_exhaustion,
+      context_shift_strategy);
 }
 
 absl::StatusOr<std::string>
@@ -934,8 +941,11 @@ absl::Status Conversation::MaybeApplyContextShift() {
     return absl::OkStatus();
   }
 
+  const bool use_replay_recent =
+      config_.context_shift_strategy() ==
+      ConversationConfig::ContextShiftStrategy::kReplayRecent;
   std::vector<Message> candidate_messages;
-  {
+  if (use_replay_recent) {
     absl::MutexLock lock(history_mutex_);  // NOLINT
     const int retain_count =
         std::min(static_cast<int>(history_.size()),
@@ -943,12 +953,11 @@ absl::Status Conversation::MaybeApplyContextShift() {
     if (retain_count > 0) {
       candidate_messages.assign(history_.end() - retain_count, history_.end());
     }
-  }
-
-  if (config_.filter_channel_content_from_kv_cache()) {
-    for (auto& message : candidate_messages) {
-      message = MaybeStripChannelContentFromMessage(
-          message, /*strip_channel_content=*/true);
+    if (config_.filter_channel_content_from_kv_cache()) {
+      for (auto& message : candidate_messages) {
+        message = MaybeStripChannelContentFromMessage(
+            message, /*strip_channel_content=*/true);
+      }
     }
   }
 
@@ -969,7 +978,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
       return rewind_status;
     }
 
-    if (replay_count > 0) {
+    if (use_replay_recent && replay_count > 0) {
       ASSIGN_OR_RETURN(std::vector<InputData> replay_inputs,
                        GetInputDataVectorForMessages(
                            /*old_messages=*/absl::Span<const Message>(),
@@ -980,7 +989,8 @@ absl::Status Conversation::MaybeApplyContextShift() {
     }
 
     ASSIGN_OR_RETURN(shifted_step, session_->GetCurrentStep());
-    if (shifted_step <= target_step || replay_count == 0) {
+    if (shifted_step <= target_step ||
+        (!use_replay_recent || replay_count == 0)) {
       break;
     }
     --replay_count;
