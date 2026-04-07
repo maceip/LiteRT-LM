@@ -11,3 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+"""Python API for LiteRT-LM schema."""
+
+from . import litertlm_builder
+from . import litertlm_peek
+
+LitertLmFileBuilder = litertlm_builder.LitertLmFileBuilder
+Metadata = litertlm_builder.Metadata
+DType = litertlm_builder.DType
+TfLiteModelType = litertlm_builder.TfLiteModelType
+Backend = litertlm_builder.Backend
+peek_litertlm_file = litertlm_peek.peek_litertlm_file
+
+__all__ = [
+    "LitertLmFileBuilder",
+    "Metadata",
+    "DType",
+    "TfLiteModelType",
+    "Backend",
+    "peek_litertlm_file",
+]
+
+
+
+

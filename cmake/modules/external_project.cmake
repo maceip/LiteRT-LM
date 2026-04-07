@@ -15,7 +15,8 @@
 
 # --- Dependency Orchestration ---
 # Warning: Order matters to satisfy inter-dependency requirements
-message(VERBOSE "[DEBUG] LITERTLM_PACKAGES_DIR: ${LITERTLM_PACKAGES_DIR}")
+message(DEBUG "[DEBUG] LITERTLM_PACKAGES_DIR: ${LITERTLM_PACKAGES_DIR}")
+include("${LITERTLM_PACKAGES_DIR}/packages.cmake")
 
 set(LITERTLM_DEPENDENCY_ORDER
     opencl

@@ -32,9 +32,6 @@ macro(generate_absl_aggregate)
                 "${_absl_lib_paths}"
             INTERFACE_LINK_LIBRARIES
                 "${_absl_lib_paths}"
-
-            # INTERFACE_LINK_LIBRARIES
-            #     "-Wl,--start-group -Wl,--whole-archive ${_absl_lib_paths} -Wl,--no-whole-archive -lz -lrt -lpthread -ldl -Wl,--end-group"
             INTERFACE_INCLUDE_DIRECTORIES
                 "${ABSL_INCLUDE_DIR}"
         )
@@ -52,8 +49,6 @@ macro(generate_absl_aggregate)
             endif()
         endforeach()
 
-
-
         foreach(_target IN ITEMS ${_absl_exhaustive_targets})
             if(NOT TARGET ${_target})
                 add_library(${_target} ALIAS LiteRTLM::absl::shim)
@@ -63,8 +58,6 @@ macro(generate_absl_aggregate)
         set(absl_FOUND TRUE CACHE BOOL "" FORCE)
         set(Abseil_FOUND TRUE CACHE BOOL "" FORCE)
         set(absl_DIR "Abseil merged archive" CACHE PATH "" FORCE)
-
-
 
         get_target_property(_ABSL_PAYLOAD LiteRTLM::absl::absl INTERFACE_LINK_LIBRARIES)
         string(REPLACE ";" " " _ABSL_LINK_FLAGS "${_ABSL_PAYLOAD}")

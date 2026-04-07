@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -24,6 +25,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/time/clock.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
@@ -406,6 +408,26 @@ TEST(CreateInputDataCopyTest, InputImage) {
   ASSERT_OK_AND_ASSIGN(copied_data, CreateInputDataCopy(original_data));
   ASSERT_TRUE(std::holds_alternative<InputImage>(copied_data));
   EXPECT_TRUE(std::get<InputImage>(copied_data).IsTensorBuffer());
+
+  absl::flat_hash_map<std::string, TensorBuffer> original_tensor_map;
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      TensorBuffer original_tensor_buffer_1,
+      TensorBuffer::CreateManaged(env, kTensorBufferType, kTensorType,
+                                  kTensorSize));
+  LITERT_ASSERT_OK_AND_ASSIGN(
+      TensorBuffer original_tensor_buffer_2,
+      TensorBuffer::CreateManaged(env, kTensorBufferType, kTensorType,
+                                  kTensorSize));
+  original_tensor_map["test_key_1"] = std::move(original_tensor_buffer_1);
+  original_tensor_map["test_key_2"] = std::move(original_tensor_buffer_2);
+  original_data = InputImage(std::move(original_tensor_map));
+  ASSERT_OK_AND_ASSIGN(copied_data, CreateInputDataCopy(original_data));
+  ASSERT_TRUE(std::holds_alternative<InputImage>(copied_data));
+  EXPECT_TRUE(std::get<InputImage>(copied_data).IsTensorBufferMap());
+  EXPECT_TRUE(
+      std::get<InputImage>(copied_data).GetPreprocessedImageTensorMap().ok());
+  EXPECT_THAT(std::get<InputImage>(copied_data).GetPreprocessedImageTensor(),
+              StatusIs(absl::StatusCode::kFailedPrecondition));
 }
 
 TEST(CreateInputDataCopyTest, InputAudio) {
@@ -448,6 +470,45 @@ TEST(CreateInputDataCopyTest, InputAudioEnd) {
   ASSERT_OK_AND_ASSIGN(InputData copied_data,
                        CreateInputDataCopy(original_data));
   ASSERT_TRUE(std::holds_alternative<InputAudioEnd>(copied_data));
+}
+
+TEST(CreateInputDataCopyTest, InputImageEnd) {
+  InputData original_data = InputImageEnd();
+  ASSERT_OK_AND_ASSIGN(InputData copied_data,
+                       CreateInputDataCopy(original_data));
+  ASSERT_TRUE(std::holds_alternative<InputImageEnd>(copied_data));
+}
+
+TEST(CreateInputDataVectorCopyTest, CopyVector) {
+  std::vector<InputData> original_vector;
+  original_vector.push_back(InputText("Test Text"));
+  original_vector.push_back(InputImage("Test Image"));
+  original_vector.push_back(InputAudio("Test Audio"));
+  original_vector.push_back(InputAudioEnd());
+  original_vector.push_back(InputImageEnd());
+
+  ASSERT_OK_AND_ASSIGN(std::vector<InputData> copied_vector,
+                       CreateInputDataVectorCopy(original_vector));
+
+  ASSERT_EQ(copied_vector.size(), 5);
+  ASSERT_TRUE(std::holds_alternative<InputText>(copied_vector[0]));
+  EXPECT_THAT(std::get<InputText>(copied_vector[0]).GetRawTextString(),
+              IsOkAndHolds("Test Text"));
+  ASSERT_TRUE(std::holds_alternative<InputImage>(copied_vector[1]));
+  EXPECT_THAT(std::get<InputImage>(copied_vector[1]).GetRawImageBytes(),
+              IsOkAndHolds("Test Image"));
+  ASSERT_TRUE(std::holds_alternative<InputAudio>(copied_vector[2]));
+  EXPECT_THAT(std::get<InputAudio>(copied_vector[2]).GetRawAudioBytes(),
+              IsOkAndHolds("Test Audio"));
+  ASSERT_TRUE(std::holds_alternative<InputAudioEnd>(copied_vector[3]));
+  ASSERT_TRUE(std::holds_alternative<InputImageEnd>(copied_vector[4]));
+}
+
+TEST(CreateInputDataVectorCopyTest, EmptyVector) {
+  std::vector<InputData> original_vector;
+  ASSERT_OK_AND_ASSIGN(std::vector<InputData> copied_vector,
+                       CreateInputDataVectorCopy(original_vector));
+  EXPECT_TRUE(copied_vector.empty());
 }
 
 TEST(ResponsesTest, GetTaskState) {
@@ -798,6 +859,28 @@ TEST(BenchmarkInfoTests, AddDecodeTurnError) {
               StatusIs(absl::StatusCode::kInternal));
 }
 
+TEST(BenchmarkInfoTests, AddTextToTokenIdsTurn) {
+  BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(benchmark_info.TimeTextToTokenIdsStart());
+  EXPECT_OK(benchmark_info.TimeTextToTokenIdsEnd(10));
+  EXPECT_OK(benchmark_info.TimeTextToTokenIdsStart());
+  EXPECT_OK(benchmark_info.TimeTextToTokenIdsEnd(20));
+  EXPECT_EQ(benchmark_info.GetTotalTextToTokenIdsTurns(), 2);
+}
+
+TEST(BenchmarkInfoTests, AddTextToTokenIdsTurnError) {
+  BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(benchmark_info.TimeTextToTokenIdsStart());
+  // Starting the turn twice should fail.
+  EXPECT_THAT(benchmark_info.TimeTextToTokenIdsStart(),
+              StatusIs(absl::StatusCode::kInternal));
+
+  EXPECT_OK(benchmark_info.TimeTextToTokenIdsEnd(10));
+  // Ending a turn that has not started should fail.
+  EXPECT_THAT(benchmark_info.TimeTextToTokenIdsEnd(20),
+              StatusIs(absl::StatusCode::kInternal));
+}
+
 TEST(BenchmarkInfoTests, AddMarks) {
   BenchmarkInfo benchmark_info(GetBenchmarkParams());
   EXPECT_OK(benchmark_info.TimeMarkDelta("sampling"));
@@ -859,6 +942,8 @@ TEST(BenchmarkInfoTests, GetTimeToFirstTokenValid) {
 
 TEST(BenchmarkInfoTests, OperatorOutputWithData) {
   BenchmarkInfo benchmark_info(GetBenchmarkParams());
+  EXPECT_OK(
+      benchmark_info.TimeInitPhaseStart(BenchmarkInfo::InitPhase::kTotal));
   EXPECT_OK(benchmark_info.TimeInitPhaseStart(
       BenchmarkInfo::InitPhase::kModelAssets));
   EXPECT_OK(
@@ -867,6 +952,7 @@ TEST(BenchmarkInfoTests, OperatorOutputWithData) {
       benchmark_info.TimeInitPhaseEnd(BenchmarkInfo::InitPhase::kModelAssets));
   EXPECT_OK(
       benchmark_info.TimeInitPhaseEnd(BenchmarkInfo::InitPhase::kTokenizer));
+  EXPECT_OK(benchmark_info.TimeInitPhaseEnd(BenchmarkInfo::InitPhase::kTotal));
 
   EXPECT_OK(benchmark_info.TimePrefillTurnStart());
   EXPECT_OK(benchmark_info.TimePrefillTurnEnd(100));
@@ -876,13 +962,16 @@ TEST(BenchmarkInfoTests, OperatorOutputWithData) {
   EXPECT_OK(benchmark_info.TimeDecodeTurnStart());
   EXPECT_OK(benchmark_info.TimeDecodeTurnEnd(100));
 
+  EXPECT_OK(benchmark_info.TimeTextToTokenIdsStart());
+  EXPECT_OK(benchmark_info.TimeTextToTokenIdsEnd(50));
+
   std::stringstream ss;
   ss << benchmark_info;
   const std::string expected_output = R"(BenchmarkInfo:
-  Init Phases \(2\):
-    - Model assets: .* ms
-    - Tokenizer: .* ms
-    Total init time: .* ms
+  Init Phases \(3\):
+    - Init Model assets: .* ms
+    - Init Tokenizer: .* ms
+    - Init Total: .* ms
 --------------------------------------------------
   Time to first token: .* s
 --------------------------------------------------
@@ -896,6 +985,10 @@ TEST(BenchmarkInfoTests, OperatorOutputWithData) {
     Decode Turn 1: Processed 100 tokens in .* duration.
       Decode Speed: .* tokens/sec.
 --------------------------------------------------
+  TextToTokenIds Turns \(Total 1 turns\):
+    Turn 1: .*, 50 tokens
+--------------------------------------------------
+--------------------------------------------------
 )";
   EXPECT_THAT(ss.str(), ContainsRegex(expected_output));
 }
@@ -903,6 +996,7 @@ TEST(BenchmarkInfoTests, OperatorOutputWithData) {
 TEST(DecodeConfigTest, CreateDefault) {
   DecodeConfig decode_config = DecodeConfig::CreateDefault();
   EXPECT_EQ(decode_config.GetConstraint(), nullptr);
+  EXPECT_EQ(decode_config.GetMaxOutputTokens(), std::nullopt);
 }
 
 TEST(DecodeConfigTest, SetAndGetConstraint) {
@@ -910,6 +1004,49 @@ TEST(DecodeConfigTest, SetAndGetConstraint) {
   auto constraint = FakeConstraint({1, 2, 3}, /*vocabulary_size=*/10);
   decode_config.SetConstraint(&constraint);
   EXPECT_EQ(decode_config.GetConstraint(), &constraint);
+}
+
+TEST(DecodeConfigTest, SetAndGetMaxOutputTokens) {
+  DecodeConfig decode_config = DecodeConfig::CreateDefault();
+  EXPECT_EQ(decode_config.GetMaxOutputTokens(), std::nullopt);
+
+  decode_config.SetMaxOutputTokens(42);
+  EXPECT_EQ(decode_config.GetMaxOutputTokens(), 42);
+}
+
+TEST(VisionExecutorPropertiesTest, OperatorOutput) {
+  VisionExecutorProperties properties;
+  properties.num_tokens_per_image = 128;
+  properties.patch_num_shrink_factor = 4;
+
+  std::stringstream ss;
+  ss << properties;
+  EXPECT_THAT(ss.str(), ContainsRegex("num_tokens_per_image: 128"));
+  EXPECT_THAT(ss.str(), ContainsRegex("patch_num_shrink_factor: 4"));
+}
+
+TEST(VisionExecutorPropertiesTest, OperatorOutputDefault) {
+  VisionExecutorProperties properties;
+
+  std::stringstream ss;
+  ss << properties;
+  EXPECT_THAT(ss.str(), ContainsRegex("num_tokens_per_image: 256"));
+  EXPECT_THAT(ss.str(), ContainsRegex("patch_num_shrink_factor: not set"));
+}
+
+TEST(AudioExecutorPropertiesTest, OperatorOutput) {
+  AudioExecutorProperties properties;
+  properties.is_streaming_model = true;
+  properties.streaming_chunk_size = 1024;
+  properties.streaming_chunk_overlap_size = 256;
+  properties.audio_shrink_factor = 8;
+
+  std::stringstream ss;
+  ss << properties;
+  EXPECT_THAT(ss.str(), ContainsRegex("is_streaming_model: 1"));
+  EXPECT_THAT(ss.str(), ContainsRegex("streaming_chunk_size: 1024"));
+  EXPECT_THAT(ss.str(), ContainsRegex("streaming_chunk_overlap_size: 256"));
+  EXPECT_THAT(ss.str(), ContainsRegex("audio_shrink_factor: 8"));
 }
 
 }  // namespace

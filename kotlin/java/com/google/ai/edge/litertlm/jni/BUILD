@@ -25,11 +25,13 @@ cc_binary(
     linkshared = 1,
     deps = [
         "@com_google_absl//absl/base:log_severity",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/log:globals",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/time",
         "@nlohmann_json//:json",
         "@litert//litert/c/internal:litert_logging",
         "//runtime/conversation",
@@ -40,6 +42,7 @@ cc_binary(
         "//runtime/engine:engine_settings",
         "//runtime/engine:io_types",
         "//runtime/executor:executor_settings_base",
+        "//runtime/executor:llm_executor_settings",
         "//runtime/proto:sampler_params_cc_proto",
         "@litert//tflite:minimal_logging",
     ] + select({

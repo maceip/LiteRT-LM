@@ -28,6 +28,7 @@
 #include "absl/log/globals.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/time/time.h"  // from @com_google_absl
 #include "nlohmann/json_fwd.hpp"  // from @nlohmann_json
 #include "litert/c/internal/litert_logging.h"  // from @litert
 #include "runtime/conversation/conversation.h"
@@ -37,6 +38,7 @@
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/executor_settings_base.h"
+#include "runtime/executor/llm_executor_settings.h"
 #include "runtime/proto/sampler_params.pb.h"
 #include "tflite/logger.h"  // from @litert
 #include "tflite/minimal_logging.h"  // from @litert
@@ -98,19 +100,34 @@ void ThrowLiteRtLmJniException(JNIEnv* env, const std::string& message) {
 jstring NewStringStandardUTF(JNIEnv* env, std::string standard_utf8_str) {
   // Create a jbyteArray from the UTF-8 string
   jbyteArray bytes = env->NewByteArray(standard_utf8_str.length());
+  if (bytes == nullptr) return nullptr;
   env->SetByteArrayRegion(
       bytes, 0, standard_utf8_str.length(),
       reinterpret_cast<const jbyte*>(standard_utf8_str.c_str()));
 
   // Get the java.lang.String class
   jclass string_class = env->FindClass("java/lang/String");
+  if (string_class == nullptr) {
+    env->DeleteLocalRef(bytes);
+    return nullptr;
+  }
 
   // Get the constructor for String(byte[], String)
   jmethodID string_ctor =
       env->GetMethodID(string_class, "<init>", "([BLjava/lang/String;)V");
+  if (string_ctor == nullptr) {
+    env->DeleteLocalRef(string_class);
+    env->DeleteLocalRef(bytes);
+    return nullptr;
+  }
 
   // Create a jstring for the charset name "UTF-8"
   jstring charset_name = env->NewStringUTF("UTF-8");
+  if (charset_name == nullptr) {
+    env->DeleteLocalRef(string_class);
+    env->DeleteLocalRef(bytes);
+    return nullptr;
+  }
 
   // Create the new String object
   jstring result =
@@ -154,13 +171,20 @@ jobject CreateBenchmarkInfoJni(
   jclass benchmark_info_cls =
       env->FindClass("com/google/ai/edge/litertlm/BenchmarkInfo");
   jmethodID benchmark_info_ctor =
-      env->GetMethodID(benchmark_info_cls, "<init>", "(DIIDD)V");
+      env->GetMethodID(benchmark_info_cls, "<init>", "(DDIIDD)V");
 
-  return env->NewObject(benchmark_info_cls, benchmark_info_ctor,
-                        benchmark_info.GetTimeToFirstToken(),
-                        last_prefill_token_count, last_decode_token_count,
-                        last_prefill_tokens_per_second,
-                        last_decode_tokens_per_second);
+  double total_init_time_ms = 0.0;
+  for (const auto& phase : benchmark_info.GetInitPhases()) {
+    ABSL_LOG(INFO) << "Init phase: " << phase.first << " took "
+                   << absl::ToDoubleMilliseconds(phase.second) << " ms";
+    total_init_time_ms += absl::ToDoubleMilliseconds(phase.second);
+  }
+
+  return env->NewObject(
+      benchmark_info_cls, benchmark_info_ctor, total_init_time_ms / 1000.0,
+      benchmark_info.GetTimeToFirstToken(), last_prefill_token_count,
+      last_decode_token_count, last_prefill_tokens_per_second,
+      last_decode_tokens_per_second);
 }
 
 // Converts a Java InputData array to a C++ vector of InputData.
@@ -286,6 +310,19 @@ SamplerParameters CreateSamplerParamsFromJni(JNIEnv* env,
 
   return sampler_params;
 }
+
+nlohmann::ordered_json GetExtraContextJson(JNIEnv* env,
+                                           jstring extra_context_json_string) {
+  const char* extra_context_chars =
+      env->GetStringUTFChars(extra_context_json_string, nullptr);
+  nlohmann::ordered_json extra_context_json;
+  if (extra_context_chars != nullptr) {
+    extra_context_json = nlohmann::ordered_json::parse(extra_context_chars);
+  }
+  env->ReleaseStringUTFChars(extra_context_json_string, extra_context_chars);
+  return extra_context_json;
+}
+
 }  // namespace
 
 extern "C" {
@@ -349,11 +386,13 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSetMinLogSeverity)(
       tflite_log_severity);
 }
 
-// __declspec( dllexport )
 LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateEngine)(
     JNIEnv* env, jclass thiz, jstring model_path, jstring backend,
     jstring vision_backend, jstring audio_backend, jint max_num_tokens,
-    jstring cache_dir, jboolean enable_benchmark, jstring npu_libraries_dir) {
+    jstring cache_dir, jboolean enable_benchmark,
+    jboolean enable_speculative_decoding, jstring main_npu_native_library_dir,
+    jstring vision_npu_native_library_dir, jstring audio_npu_native_library_dir,
+    jint main_backend_num_threads, jint audio_backend_num_threads) {
   const char* model_path_chars = env->GetStringUTFChars(model_path, nullptr);
   std::string model_path_str(model_path_chars);
   env->ReleaseStringUTFChars(model_path, model_path_chars);
@@ -438,30 +477,143 @@ LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateEngine)(
     }
   }
 
-  const char* npu_libraries_dir_chars =
-      env->GetStringUTFChars(npu_libraries_dir, nullptr);
-  std::string npu_libraries_dir_str(npu_libraries_dir_chars);
-  env->ReleaseStringUTFChars(npu_libraries_dir, npu_libraries_dir_chars);
-  if (!npu_libraries_dir_str.empty()) {
+  const char* main_npu_native_library_dir_chars =
+      env->GetStringUTFChars(main_npu_native_library_dir, nullptr);
+  std::string main_npu_native_library_dir_str(
+      main_npu_native_library_dir_chars);
+  env->ReleaseStringUTFChars(main_npu_native_library_dir,
+                             main_npu_native_library_dir_chars);
+  if (!main_npu_native_library_dir_str.empty()) {
     settings->GetMutableMainExecutorSettings().SetLitertDispatchLibDir(
-        npu_libraries_dir_str);
-    if (vision_backend_optional.has_value()) {
-      settings->GetMutableVisionExecutorSettings()->SetLitertDispatchLibDir(
-          npu_libraries_dir_str);
-    }
-    if (audio_backend_optional.has_value()) {
-      settings->GetMutableAudioExecutorSettings()->SetLitertDispatchLibDir(
-          npu_libraries_dir_str);
-    }
+        main_npu_native_library_dir_str);
+  }
+
+  const char* vision_npu_native_library_dir_chars =
+      env->GetStringUTFChars(vision_npu_native_library_dir, nullptr);
+  std::string vision_npu_native_library_dir_str(
+      vision_npu_native_library_dir_chars);
+  env->ReleaseStringUTFChars(vision_npu_native_library_dir,
+                             vision_npu_native_library_dir_chars);
+  if (!vision_npu_native_library_dir_str.empty() &&
+      vision_backend_optional.has_value()) {
+    settings->GetMutableVisionExecutorSettings()->SetLitertDispatchLibDir(
+        vision_npu_native_library_dir_str);
+  }
+
+  const char* audio_npu_native_library_dir_chars =
+      env->GetStringUTFChars(audio_npu_native_library_dir, nullptr);
+  std::string audio_npu_native_library_dir_str(
+      audio_npu_native_library_dir_chars);
+  env->ReleaseStringUTFChars(audio_npu_native_library_dir,
+                             audio_npu_native_library_dir_chars);
+  if (!audio_npu_native_library_dir_str.empty() &&
+      audio_backend_optional.has_value()) {
+    settings->GetMutableAudioExecutorSettings()->SetLitertDispatchLibDir(
+        audio_npu_native_library_dir_str);
   }
 
   if (max_num_tokens > 0) {
     settings->GetMutableMainExecutorSettings().SetMaxNumTokens(max_num_tokens);
   }
 
+  if (main_backend_num_threads > 0) {
+    auto cpu_config = settings->GetMutableMainExecutorSettings()
+                          .MutableBackendConfig<litert::lm::CpuConfig>();
+    if (cpu_config.ok()) {
+      litert::lm::CpuConfig config = *cpu_config;
+      config.number_of_threads = main_backend_num_threads;
+      settings->GetMutableMainExecutorSettings().SetBackendConfig(config);
+    }
+  }
+
+  if (audio_backend_optional.has_value() && audio_backend_num_threads > 0) {
+    settings->GetMutableAudioExecutorSettings()->SetNumThreads(
+        audio_backend_num_threads);
+  }
+
   if (enable_benchmark) {
     settings->GetMutableBenchmarkParams();
   }
+
+  if (enable_speculative_decoding) {
+    auto advanced_settings =
+        settings->GetMainExecutorSettings().GetAdvancedSettings().value_or(
+            litert::lm::AdvancedSettings());
+    advanced_settings.enable_speculative_decoding = true;
+    settings->GetMutableMainExecutorSettings().SetAdvancedSettings(
+        advanced_settings);
+  }
+
+  auto engine = EngineFactory::CreateAny(*settings);
+  if (!engine.ok()) {
+    ThrowLiteRtLmJniException(
+        env, "Failed to create engine: " + engine.status().ToString());
+    return 0;
+  }
+
+  return reinterpret_cast<jlong>(engine->release());
+}
+
+LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateBenchmark)(
+    JNIEnv* env, jclass thiz, jstring model_path, jstring backend,
+    jint prefill_tokens, jint decode_tokens, jstring cache_dir,
+    jstring main_npu_native_library_dir) {
+  const char* model_path_chars = env->GetStringUTFChars(model_path, nullptr);
+  std::string model_path_str(model_path_chars);
+  env->ReleaseStringUTFChars(model_path, model_path_chars);
+
+  // Check if the file exists.
+  struct stat buffer;
+  if (stat(model_path_str.c_str(), &buffer) != 0) {
+    ThrowLiteRtLmJniException(env, "Model file not found: " + model_path_str);
+    return 0;
+  }
+
+  auto model_assets = ModelAssets::Create(model_path_str);
+  if (!model_assets.ok()) {
+    ThrowLiteRtLmJniException(env, "Failed to create model assets: " +
+                                       model_assets.status().ToString());
+    return 0;
+  }
+
+  const char* backend_chars = env->GetStringUTFChars(backend, nullptr);
+  std::string backend_str(backend_chars);
+  env->ReleaseStringUTFChars(backend, backend_chars);
+
+  auto backend_enum = litert::lm::GetBackendFromString(backend_str);
+  if (!backend_enum.ok()) {
+    ThrowLiteRtLmJniException(env, backend_enum.status().ToString());
+    return 0;
+  }
+
+  auto settings = EngineSettings::CreateDefault(*model_assets, *backend_enum);
+  if (!settings.ok()) {
+    ThrowLiteRtLmJniException(env, "Failed to create engine settings: " +
+                                       settings.status().ToString());
+    return 0;
+  }
+
+  const char* cache_dir_chars = env->GetStringUTFChars(cache_dir, nullptr);
+  std::string cache_dir_str(cache_dir_chars);
+  env->ReleaseStringUTFChars(cache_dir, cache_dir_chars);
+  if (!cache_dir_str.empty()) {
+    settings->GetMutableMainExecutorSettings().SetCacheDir(cache_dir_str);
+  }
+
+  const char* main_npu_native_library_dir_chars =
+      env->GetStringUTFChars(main_npu_native_library_dir, nullptr);
+  std::string main_npu_native_library_dir_str(
+      main_npu_native_library_dir_chars);
+  env->ReleaseStringUTFChars(main_npu_native_library_dir,
+                             main_npu_native_library_dir_chars);
+  if (!main_npu_native_library_dir_str.empty()) {
+    settings->GetMutableMainExecutorSettings().SetLitertDispatchLibDir(
+        main_npu_native_library_dir_str);
+  }
+
+  auto& benchmark_params = settings->GetMutableBenchmarkParams();
+  benchmark_params.set_num_prefill_tokens(prefill_tokens);
+  benchmark_params.set_num_decode_tokens(decode_tokens);
 
   auto engine = EngineFactory::CreateAny(*settings);
   if (!engine.ok()) {
@@ -686,6 +838,7 @@ JNI_METHOD(nativeConversationGetBenchmarkInfo)(JNIEnv* env, jclass thiz,
 LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversation)(
     JNIEnv* env, jclass thiz, jlong engine_pointer, jobject sampler_config_obj,
     jstring messages_json_string, jstring tools_description_json_string,
+    jstring channels_json_string, jstring extra_context_json_string,
     jboolean enable_constrained_decoding) {
   Engine* engine = reinterpret_cast<Engine*>(engine_pointer);
 
@@ -721,13 +874,43 @@ LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateConversation)(
     return 0;
   }
 
-  // Create the conversation
-  auto conversation_config =
+  nlohmann::ordered_json extra_context =
+      GetExtraContextJson(env, extra_context_json_string);
+  if (!extra_context.is_null() && !extra_context.empty()) {
+    json_preface.extra_context = extra_context;
+  }
+
+  // Create a ConversationConfig::Builder
+  auto conversation_config_builder =
       ConversationConfig::Builder()
           .SetSessionConfig(session_config)
           .SetPreface(json_preface)
-          .SetEnableConstrainedDecoding(enable_constrained_decoding)
-          .Build(*engine);
+          .SetEnableConstrainedDecoding(enable_constrained_decoding);
+
+  // Set the channels, if provided.
+  // If channels is nullptr, the Conversation will use the channels defined in
+  // the LlmMetadata or the default channels for the model type.
+  // If channels is an empty array, channels will be disabled.
+  if (channels_json_string != nullptr) {
+    const char* channels_chars =
+        env->GetStringUTFChars(channels_json_string, nullptr);
+    std::string channels_json_str(channels_chars);
+    env->ReleaseStringUTFChars(channels_json_string, channels_chars);
+    auto channels_json = nlohmann::ordered_json::parse(channels_json_str);
+
+    std::vector<litert::lm::Channel> channels;
+    if (channels_json.is_array()) {
+      for (const auto& channel_item : channels_json) {
+        channels.push_back({channel_item["channel_name"].get<std::string>(),
+                            channel_item["start"].get<std::string>(),
+                            channel_item["end"].get<std::string>()});
+      }
+    }
+    conversation_config_builder.SetChannels(channels);
+  }
+
+  // Build the conversation
+  auto conversation_config = conversation_config_builder.Build(*engine);
 
   if (!conversation_config.ok()) {
     ThrowLiteRtLmJniException(env, "Failed to create conversation config: " +
@@ -751,7 +934,8 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeDeleteConversation)(
 
 LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
     JNIEnv* env, jclass thiz, jlong conversation_pointer,
-    jstring messageJSONString, jobject callback) {
+    jstring messageJSONString, jstring extraContextJsonString,
+    jobject callback) {
   JavaVM* jvm = nullptr;
   if (env->GetJavaVM(&jvm) != JNI_OK) {
     ThrowLiteRtLmJniException(env, "Failed to get JavaVM");
@@ -766,8 +950,20 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
       nlohmann::ordered_json::parse(json_chars);
   env->ReleaseStringUTFChars(messageJSONString, json_chars);
 
+  litert::lm::OptionalArgs optional_args;
+  nlohmann::ordered_json extra_context =
+      GetExtraContextJson(env, extraContextJsonString);
+  if (!extra_context.is_null() && !extra_context.empty()) {
+    optional_args.extra_context = extra_context;
+  }
+
   jobject callback_global = env->NewGlobalRef(callback);
   jclass callback_class = env->GetObjectClass(callback_global);
+  if (callback_class == nullptr) {
+    env->DeleteGlobalRef(callback_global);
+    ThrowLiteRtLmJniException(env, "Failed to get callback class");
+    return;
+  }
   jmethodID on_message_mid =
       env->GetMethodID(callback_class, "onMessage", "(Ljava/lang/String;)V");
   jmethodID on_complete_mid = env->GetMethodID(callback_class, "onDone", "()V");
@@ -775,15 +971,27 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
       env->GetMethodID(callback_class, "onError", "(ILjava/lang/String;)V");
   env->DeleteLocalRef(callback_class);
 
+  if (on_message_mid == nullptr || on_complete_mid == nullptr ||
+      on_error_mid == nullptr) {
+    env->DeleteGlobalRef(callback_global);
+    ThrowLiteRtLmJniException(env, "Failed to get callback method IDs");
+    return;
+  }
+
+  auto terminal_reached = std::make_shared<bool>(false);
+
   absl::AnyInvocable<void(absl::StatusOr<Message>)> callback_fn =
-      [jvm, callback_global, on_message_mid, on_complete_mid,
-       on_error_mid](absl::StatusOr<Message> message) {
+      [jvm, callback_global, on_message_mid, on_complete_mid, on_error_mid,
+       terminal_reached](absl::StatusOr<Message> message) {
+        if (*terminal_reached) return;
         bool attached = false;
         JNIEnv* env = GetJniEnvAndAttach(jvm, &attached);
         if (!env) return;
 
         // This lambda is to clean up the global reference.
-        auto on_done_fn = [jvm, callback_global]() {
+        auto on_done_fn = [jvm, callback_global, terminal_reached]() {
+          if (*terminal_reached) return;
+          *terminal_reached = true;
           bool attached = false;
           JNIEnv* env = GetJniEnvAndAttach(jvm, &attached);
           if (env) {
@@ -832,8 +1040,8 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
         }
       };
 
-  auto status =
-      conversation->SendMessageAsync(json_message, std::move(callback_fn));
+  auto status = conversation->SendMessageAsync(
+      json_message, std::move(callback_fn), std::move(optional_args));
 
   if (!status.ok()) {
     ThrowLiteRtLmJniException(
@@ -843,7 +1051,7 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
 
 LITERTLM_JNIEXPORT jstring JNICALL JNI_METHOD(nativeSendMessage)(
     JNIEnv* env, jclass thiz, jlong conversation_pointer,
-    jstring messageJSONString) {
+    jstring messageJSONString, jstring extraContextJsonString) {
   Conversation* conversation =
       reinterpret_cast<Conversation*>(conversation_pointer);
 
@@ -852,7 +1060,15 @@ LITERTLM_JNIEXPORT jstring JNICALL JNI_METHOD(nativeSendMessage)(
       nlohmann::ordered_json::parse(json_chars);
   env->ReleaseStringUTFChars(messageJSONString, json_chars);
 
-  auto response = conversation->SendMessage(json_message);
+  litert::lm::OptionalArgs optional_args;
+  nlohmann::ordered_json extra_context =
+      GetExtraContextJson(env, extraContextJsonString);
+  if (!extra_context.is_null() && !extra_context.empty()) {
+    optional_args.extra_context = extra_context;
+  }
+
+  auto response =
+      conversation->SendMessage(json_message, std::move(optional_args));
   if (!response.ok()) {
     ThrowLiteRtLmJniException(env, "Failed to call nativeSendMessage: " +
                                        response.status().ToString());

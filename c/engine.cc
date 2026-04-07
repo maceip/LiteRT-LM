@@ -28,6 +28,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/time/time.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
 #include "runtime/conversation/conversation.h"
 #include "runtime/conversation/io_types.h"
@@ -36,6 +37,7 @@
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
 #include "runtime/executor/executor_settings_base.h"
+#include "runtime/executor/llm_executor_settings.h"
 #include "runtime/proto/sampler_params.pb.h"
 
 namespace {
@@ -86,6 +88,18 @@ CreateConversationCallback(LiteRtLmStreamCallback callback, void* user_data) {
       callback(user_data, nullptr, true, const_cast<char*>(error_str.c_str()));
     }
   };
+}
+
+litert::lm::OptionalArgs CreateOptionalArgs(const char* extra_context) {
+  litert::lm::OptionalArgs optional_args;
+  if (extra_context) {
+    auto extra_context_json =
+        nlohmann::ordered_json::parse(extra_context, nullptr, false);
+    if (!extra_context_json.is_null() && !extra_context_json.empty()) {
+      optional_args.extra_context = extra_context_json;
+    }
+  }
+  return optional_args;
 }
 
 }  // namespace
@@ -250,10 +264,12 @@ LiteRtLmConversationConfig* litert_lm_conversation_config_create(
     }
   }
 
-  auto conversation_config = litert::lm::ConversationConfig::Builder()
-                                 .SetSessionConfig(*config_to_use)
-                                 .SetPreface(json_preface)
-                                 .Build(*engine->engine);
+  auto conversation_config =
+      litert::lm::ConversationConfig::Builder()
+          .SetSessionConfig(*config_to_use)
+          .SetPreface(json_preface)
+          .SetEnableConstrainedDecoding(enable_constrained_decoding)
+          .Build(*engine->engine);
 
   if (!conversation_config.ok()) {
     ABSL_LOG(ERROR) << "Failed to create conversation config: "
@@ -314,6 +330,13 @@ LiteRtLmEngineSettings* litert_lm_engine_settings_create(
     return nullptr;
   }
 
+  if (*backend == litert::lm::Backend::GPU) {
+    // Enforce floating point precision for better quality.
+    auto& executor_settings = engine_settings->GetMutableMainExecutorSettings();
+    executor_settings.SetActivationDataType(
+        litert::lm::ActivationDataType::FLOAT32);
+  }
+
   auto* c_settings = new LiteRtLmEngineSettings;
   c_settings->settings =
       std::make_unique<EngineSettings>(*std::move(engine_settings));
@@ -346,11 +369,42 @@ void litert_lm_engine_settings_enable_benchmark(
   }
 }
 
+void litert_lm_engine_settings_set_num_prefill_tokens(
+    LiteRtLmEngineSettings* settings, int num_prefill_tokens) {
+  if (settings && settings->settings) {
+    settings->settings->GetMutableBenchmarkParams().set_num_prefill_tokens(
+        num_prefill_tokens);
+  }
+}
+
+void litert_lm_engine_settings_set_num_decode_tokens(
+    LiteRtLmEngineSettings* settings, int num_decode_tokens) {
+  if (settings && settings->settings) {
+    settings->settings->GetMutableBenchmarkParams().set_num_decode_tokens(
+        num_decode_tokens);
+  }
+}
+
 void litert_lm_engine_settings_set_activation_data_type(
     LiteRtLmEngineSettings* settings, int activation_data_type_int) {
   if (settings && settings->settings) {
     settings->settings->GetMutableMainExecutorSettings().SetActivationDataType(
         static_cast<litert::lm::ActivationDataType>(activation_data_type_int));
+  }
+}
+
+void litert_lm_engine_settings_set_prefill_chunk_size(
+    LiteRtLmEngineSettings* settings, int prefill_chunk_size) {
+  if (settings && settings->settings) {
+    auto& main_settings = settings->settings->GetMutableMainExecutorSettings();
+    auto config = main_settings.MutableBackendConfig<litert::lm::CpuConfig>();
+    if (!config.ok()) {
+      ABSL_LOG(WARNING) << "Failed to get CpuConfig to set prefill chunk size: "
+                        << config.status();
+      return;
+    }
+    config->prefill_chunk_size = prefill_chunk_size;
+    main_settings.SetBackendConfig(*config);
   }
 }
 
@@ -404,9 +458,7 @@ LiteRtLmResponses* litert_lm_session_generate_content(LiteRtLmSession* session,
   if (!session || !session->session) {
     return nullptr;
   }
-  std::vector<std::variant<litert::lm::InputText, litert::lm::InputImage,
-                           litert::lm::InputAudio, litert::lm::InputAudioEnd>>
-      engine_inputs;
+  std::vector<litert::lm::InputData> engine_inputs;
   engine_inputs.reserve(num_inputs);
   for (size_t i = 0; i < num_inputs; ++i) {
     switch (inputs[i].type) {
@@ -417,6 +469,9 @@ LiteRtLmResponses* litert_lm_session_generate_content(LiteRtLmSession* session,
       case kInputImage:
         engine_inputs.emplace_back(litert::lm::InputImage(std::string(
             static_cast<const char*>(inputs[i].data), inputs[i].size)));
+        break;
+      case kInputImageEnd:
+        engine_inputs.emplace_back(litert::lm::InputImageEnd());
         break;
       case kInputAudio:
         engine_inputs.emplace_back(litert::lm::InputAudio(std::string(
@@ -445,19 +500,20 @@ int litert_lm_session_generate_content_stream(LiteRtLmSession* session,
   if (!session || !session->session) {
     return -1;
   }
-  std::vector<std::variant<litert::lm::InputText, litert::lm::InputImage,
-                           litert::lm::InputAudio, litert::lm::InputAudioEnd>>
-      engine_inputs;
+  std::vector<litert::lm::InputData> engine_inputs;
   engine_inputs.reserve(num_inputs);
   for (size_t i = 0; i < num_inputs; ++i) {
     switch (inputs[i].type) {
       case kInputText:
-        engine_inputs.emplace_back(InputText(std::string(
+        engine_inputs.emplace_back(litert::lm::InputText(std::string(
             static_cast<const char*>(inputs[i].data), inputs[i].size)));
         break;
       case kInputImage:
         engine_inputs.emplace_back(litert::lm::InputImage(std::string(
             static_cast<const char*>(inputs[i].data), inputs[i].size)));
+        break;
+      case kInputImageEnd:
+        engine_inputs.emplace_back(litert::lm::InputImageEnd());
         break;
       case kInputAudio:
         engine_inputs.emplace_back(litert::lm::InputAudio(std::string(
@@ -528,6 +584,18 @@ double litert_lm_benchmark_info_get_time_to_first_token(
     return 0.0;
   }
   return benchmark_info->benchmark_info.GetTimeToFirstToken();
+}
+
+double litert_lm_benchmark_info_get_total_init_time_in_second(
+    const LiteRtLmBenchmarkInfo* benchmark_info) {
+  if (!benchmark_info) {
+    return 0.0;
+  }
+  double total_init_time_ms = 0.0;
+  for (const auto& phase : benchmark_info->benchmark_info.GetInitPhases()) {
+    total_init_time_ms += absl::ToDoubleMilliseconds(phase.second);
+  }
+  return total_init_time_ms / 1000.0;
 }
 
 int litert_lm_benchmark_info_get_num_prefill_turns(
@@ -623,7 +691,8 @@ void litert_lm_conversation_delete(LiteRtLmConversation* conversation) {
 }
 
 LiteRtLmJsonResponse* litert_lm_conversation_send_message(
-    LiteRtLmConversation* conversation, const char* message_json) {
+    LiteRtLmConversation* conversation, const char* message_json,
+    const char* extra_context) {
   if (!conversation || !conversation->conversation) {
     return nullptr;
   }
@@ -634,7 +703,11 @@ LiteRtLmJsonResponse* litert_lm_conversation_send_message(
     ABSL_LOG(ERROR) << "Failed to parse message JSON.";
     return nullptr;
   }
-  auto response = conversation->conversation->SendMessage(json_message);
+
+  litert::lm::OptionalArgs optional_args = CreateOptionalArgs(extra_context);
+
+  auto response = conversation->conversation->SendMessage(
+      json_message, std::move(optional_args));
   if (!response.ok()) {
     ABSL_LOG(ERROR) << "Failed to send message: " << response.status();
     return nullptr;
@@ -663,7 +736,8 @@ const char* litert_lm_json_response_get_string(
 
 int litert_lm_conversation_send_message_stream(
     LiteRtLmConversation* conversation, const char* message_json,
-    LiteRtLmStreamCallback callback, void* callback_data) {
+    const char* extra_context, LiteRtLmStreamCallback callback,
+    void* callback_data) {
   if (!conversation || !conversation->conversation) {
     return -1;
   }
@@ -675,8 +749,11 @@ int litert_lm_conversation_send_message_stream(
     return -1;
   }
 
+  litert::lm::OptionalArgs optional_args = CreateOptionalArgs(extra_context);
+
   absl::Status status = conversation->conversation->SendMessageAsync(
-      json_message, CreateConversationCallback(callback, callback_data));
+      json_message, CreateConversationCallback(callback, callback_data),
+      std::move(optional_args));
 
   if (!status.ok()) {
     ABSL_LOG(ERROR) << "Failed to start message stream: " << status;

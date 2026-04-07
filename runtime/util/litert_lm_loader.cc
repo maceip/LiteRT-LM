@@ -32,6 +32,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/ascii.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "litert/cc/litert_buffer_ref.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/util/memory_mapped_file.h"
@@ -216,6 +217,21 @@ absl::Status LitertLmLoader::Initialize() {
 
 std::optional<litert::BufferRef<uint8_t>> LitertLmLoader::GetSectionBuffer(
     BufferKey buffer_key) {
+  {
+    absl::ReaderMutexLock lock(&section_buffers_mutex_);
+    auto section_buffer_it = section_buffers_.find(buffer_key);
+    if (section_buffer_it != section_buffers_.end()) {
+      return section_buffer_it->second;
+    }
+  }
+
+  absl::MutexLock lock(&section_buffers_mutex_);
+  // Check again in case another thread has mapped it.
+  auto section_buffer_it = section_buffers_.find(buffer_key);
+  if (section_buffer_it != section_buffers_.end()) {
+    return section_buffer_it->second;
+  }
+
   auto section_location_it = section_locations_.find(buffer_key);
   if (section_location_it == section_locations_.end()) {
     ABSL_LOG(WARNING) << "Section not found: " << buffer_key.data_type;
@@ -223,14 +239,11 @@ std::optional<litert::BufferRef<uint8_t>> LitertLmLoader::GetSectionBuffer(
   }
 
   // If we have not already mapped this section, map it now.
-  auto section_buffer_it = section_buffers_.find(buffer_key);
-  if (section_buffer_it == section_buffers_.end()) {
-    auto [offset_begin, offset_end] = section_location_it->second;
-    absl::Status status = MapSection(buffer_key, offset_begin, offset_end);
-    if (!status.ok()) {
-      ABSL_LOG(WARNING) << "Failed to map section: " << status;
-      return std::nullopt;
-    }
+  auto [offset_begin, offset_end] = section_location_it->second;
+  absl::Status status = MapSection(buffer_key, offset_begin, offset_end);
+  if (!status.ok()) {
+    ABSL_LOG(WARNING) << "Failed to map section: " << status;
+    return std::nullopt;
   }
   // Return a BufferRef to the mapped section.
   return section_buffers_[buffer_key];

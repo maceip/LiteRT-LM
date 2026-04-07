@@ -25,6 +25,7 @@
 
 #include "absl/base/attributes.h"  // from @com_google_absl
 #include "absl/base/const_init.h"  // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/container/flat_hash_set.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -84,15 +85,28 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
         "A session already exists. Only one session is supported at a time. "
         "Please delete the existing session before creating a new one.");
   }
+
+  bool enable_speculative_decoding = false;
+  {
+    ASSIGN_OR_RETURN(auto executor_settings, executor->GetExecutorSettings());
+    auto advanced_settings = executor_settings.GetAdvancedSettings();
+    if (advanced_settings.has_value()) {
+      enable_speculative_decoding =
+          advanced_settings->enable_speculative_decoding;
+    }
+  }
+
   auto sampler_backend = session_config.GetSamplerBackend();
   std::unique_ptr<Sampler> sampler;
-  // If use CPU sampling, we create it here; For GPU sampling, we let executor
-  // create it internally.
+  // If use CPU sampling, we create it here; For GPU sampling and when
+  // speculative decoding is enabled, we let executor create it internally.
   if (sampler_backend == Backend::CPU) {
-    ASSIGN_OR_RETURN(
-        sampler,
-        CreateSampler(sampler_backend, session_config.GetNumOutputCandidates(),
-                      session_config.GetSamplerParams()));
+    if (!enable_speculative_decoding) {
+      ASSIGN_OR_RETURN(sampler,
+                       CreateSampler(sampler_backend,
+                                     session_config.GetNumOutputCandidates(),
+                                     session_config.GetSamplerParams()));
+    }
   } else if (sampler_backend != Backend::GPU &&
              sampler_backend != Backend::NPU) {
     return absl::InvalidArgumentError(
@@ -109,27 +123,14 @@ absl::StatusOr<std::unique_ptr<SessionBasic>> SessionBasic::Create(
         stop_token_detector.AddStopTokenSequence(stop_token_sequence));
   }
 
-  std::optional<AudioExecutorProperties> audio_executor_properties;
-  if (audio_executor != nullptr) {
-    auto properties = audio_executor->GetAudioExecutorProperties();
-    if (properties.ok()) {
-      audio_executor_properties = properties.value();
-    } else if (properties.status().code() == absl::StatusCode::kUnimplemented) {
-      ABSL_LOG(INFO) << "Audio executor properties is not implemented, "
-                        "proceeding without audio executor properties.";
-    } else {
-      return properties.status();
-    }
-  }
-
   occupied_executors_->insert(executor);
   return absl::WrapUnique(new SessionBasic(
       executor, tokenizer, vision_executor, audio_executor, std::move(sampler),
-      session_config, benchmark_info, worker_thread_pool, stop_token_detector,
-      audio_executor_properties));
+      session_config, benchmark_info, worker_thread_pool, stop_token_detector));
 }
 
 SessionBasic::~SessionBasic() {
+  WaitUntilDone().IgnoreError();
   auto status = executor_.Reset();
   if (!status.ok()) {
     ABSL_LOG(ERROR) << "Failed to reset executor: " << status;
@@ -164,17 +165,24 @@ absl::StatusOr<ExecutorInputs> SessionBasic::ProcessAndCombineContents(
                                 ids_buffer_span.begin(), ids_buffer_span.end());
     } else if (const auto* input_image =
                    std::get_if<InputImage>(&preprocessed_content)) {
-      ASSIGN_OR_RETURN(const auto* image_tensor,
-                       input_image->GetPreprocessedImageTensor());
-      if (image_tensor == nullptr) {
-        return absl::InvalidArgumentError(
-            "Image tensor is null in preprocessed_contents.");
-      }
       if (benchmark_info_.has_value()) {
         RETURN_IF_ERROR(benchmark_info_->TimeMarkDelta("vision_executor"));
       }
-      ASSIGN_OR_RETURN(auto single_image_data,
-                       vision_executor_->Encode(*image_tensor));
+      ExecutorVisionData single_image_data;
+      if (input_image->IsTensorBuffer()) {
+        ASSIGN_OR_RETURN(auto tensor_buffer,
+                         input_image->GetPreprocessedImageTensor());
+        ASSIGN_OR_RETURN(single_image_data,
+                         vision_executor_->Encode(*tensor_buffer));
+      } else if (input_image->IsTensorBufferMap()) {
+        ASSIGN_OR_RETURN(auto tensor_buffer_map,
+                         input_image->GetPreprocessedImageTensorMap());
+        ASSIGN_OR_RETURN(single_image_data,
+                         vision_executor_->Encode(*tensor_buffer_map));
+      } else {
+        return absl::FailedPreconditionError(
+            "The image is not preprocessed and does not have a tensor.");
+      }
       if (benchmark_info_.has_value()) {
         RETURN_IF_ERROR(benchmark_info_->TimeMarkDelta("vision_executor"));
       }
@@ -186,6 +194,9 @@ absl::StatusOr<ExecutorInputs> SessionBasic::ProcessAndCombineContents(
       combined_token_ids.insert(combined_token_ids.end(), image_token_num,
                                 ExecutorVisionData::kSpecialToken);
       all_image_data.push_back(std::move(single_image_data));
+    } else if (const auto* input_image_end =
+                   std::get_if<InputImageEnd>(&preprocessed_content)) {
+      combined_token_ids.push_back(ExecutorVisionData::kEndToken);
     } else if (const auto* input_audio =
                    std::get_if<InputAudio>(&preprocessed_content)) {
       ASSIGN_OR_RETURN(const auto* spectrogram_tensor,
@@ -234,6 +245,39 @@ absl::StatusOr<ExecutorInputs> SessionBasic::ProcessAndCombineContents(
                         std::move(combined_image_data),
                         std::move(combined_audio_data));
   return inputs;
+}
+
+absl::Status SessionBasic::SaveCheckpoint(absl::string_view label) {
+  ASSIGN_OR_RETURN(int current_step, executor_.GetCurrentStep());
+  checkpoint_map_[label] = current_step;
+  return absl::OkStatus();
+}
+
+absl::Status SessionBasic::RewindToCheckpoint(absl::string_view label) {
+  if (auto it = checkpoint_map_.find(label); it != checkpoint_map_.end()) {
+    ASSIGN_OR_RETURN(int current_step, executor_.GetCurrentStep());
+    if (it->second > current_step) {
+      // This shouldn't ever happen because we remove all checkpoints after the
+      // current step when we rewind to a checkpoint.
+      return absl::InvalidArgumentError(
+          absl::StrCat("Cannot rewind to a future step: ", it->second));
+    }
+
+    // Set the current step of the executor to the checkpoint step.
+    RETURN_IF_ERROR(executor_.SetCurrentStep(it->second));
+
+    // Remove all checkpoints after the current step.
+    absl::erase_if(checkpoint_map_,
+                   [current_step = it->second](const auto& pair) {
+                     return pair.second > current_step;
+                   });
+    return absl::OkStatus();
+  }
+  return absl::NotFoundError(absl::StrCat("Checkpoint not found: ", label));
+}
+
+absl::StatusOr<int> SessionBasic::GetCurrentStep() const {
+  return executor_.GetCurrentStep();
 }
 
 absl::Status SessionBasic::PrefillInternal(
@@ -375,11 +419,13 @@ absl::StatusOr<Responses> SessionBasic::DecodeInternal(
   session_state_ = SessionState::kDecoded;
 
   if (sampler_ == nullptr) {
-    ASSIGN_OR_RETURN(auto responses,
-                     Decode(executor_, tokenizer_, stop_token_detector_,
-                            session_config_.GetNumOutputCandidates(),
-                            decode_config.GetConstraint(), benchmark_info_,
-                            &cancelled_, session_config_.GetMaxOutputTokens()));
+    ASSIGN_OR_RETURN(
+        auto responses,
+        Decode(executor_, tokenizer_, stop_token_detector_,
+               session_config_.GetNumOutputCandidates(),
+               decode_config.GetConstraint(), benchmark_info_, &cancelled_,
+               decode_config.GetMaxOutputTokens().value_or(
+                   session_config_.GetMaxOutputTokens())));
     return responses;
   } else {
     std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
@@ -388,13 +434,15 @@ absl::StatusOr<Responses> SessionBasic::DecodeInternal(
         auto decoded_ids_buffer,
         CopyToTensorBuffer<int>(decoded_ids,
                                 {session_config_.GetNumOutputCandidates(), 1}));
-    ASSIGN_OR_RETURN(auto responses,
-                     DecodeCustomSampling(
-                         executor_, tokenizer_, stop_token_detector_,
-                         session_config_.GetNumOutputCandidates(), *sampler_,
-                         std::move(decoded_ids_buffer),
-                         decode_config.GetConstraint(), benchmark_info_,
-                         &cancelled_, session_config_.GetMaxOutputTokens()));
+    ASSIGN_OR_RETURN(
+        auto responses,
+        DecodeCustomSampling(executor_, tokenizer_, stop_token_detector_,
+                             session_config_.GetNumOutputCandidates(),
+                             *sampler_, std::move(decoded_ids_buffer),
+                             decode_config.GetConstraint(), benchmark_info_,
+                             &cancelled_,
+                             decode_config.GetMaxOutputTokens().value_or(
+                                 session_config_.GetMaxOutputTokens())));
     return responses;
   }
 }
@@ -407,7 +455,8 @@ absl::Status SessionBasic::DecodeInternalStreaming(
         executor_, tokenizer_, stop_token_detector_,
         session_config_.GetNumOutputCandidates(), decode_config.GetConstraint(),
         benchmark_info_, std::move(callback), &cancelled_,
-        session_config_.GetMaxOutputTokens()));
+        decode_config.GetMaxOutputTokens().value_or(
+            session_config_.GetMaxOutputTokens())));
   } else {
     std::vector<int> decoded_ids(session_config_.GetNumOutputCandidates(),
                                  last_prefill_token_id_);
@@ -421,7 +470,8 @@ absl::Status SessionBasic::DecodeInternalStreaming(
         session_config_.GetNumOutputCandidates(), *sampler_,
         std::move(decoded_ids_buffer), decode_config.GetConstraint(),
         benchmark_info_, std::move(callback), &cancelled_,
-        session_config_.GetMaxOutputTokens()));
+        decode_config.GetMaxOutputTokens().value_or(
+            session_config_.GetMaxOutputTokens())));
   }
   return absl::OkStatus();
 }

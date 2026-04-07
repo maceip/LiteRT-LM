@@ -165,6 +165,10 @@ fn strftime_now(state: &minijinja::State, format: String) -> Result<String, mini
     Ok(dt.format(&format).to_string())
 }
 
+fn raise_exception(msg: String) -> Result<String, minijinja::Error> {
+    Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, msg))
+}
+
 // A serde_json formatter that adds spaces after commas in arrays and object keys,
 // and a space after the colon in object key-value pairs.
 struct SpaceFormatter;
@@ -255,10 +259,11 @@ impl MinijinjaTemplate {
         env.set_trim_blocks(true);
         env.set_lstrip_blocks(true);
         env.add_function("strftime_now", strftime_now);
+        env.add_function("raise_exception", raise_exception);
         env.add_filter("tojson", tojson);
         env.add_test("none", is_none);
-        env.add_template("main", &self.source)?;
-        let tmpl = env.get_template("main")?;
+        env.add_template("template", &self.source)?;
+        let tmpl = env.get_template("template")?;
 
         let mut ctx = serde_json::Map::new();
         ctx.insert("messages".to_string(), Value::Array(actual_messages));
@@ -406,5 +411,21 @@ mod tests {
         let res = wrapper.apply(inputs.to_string());
         assert!(res.is_ok);
         assert_eq!(res.content, "does_not_exist is none,\nexisting is not none");
+    }
+
+    #[test]
+    fn test_raise_exception() {
+        let source = "{{ raise_exception('Something went wrong') }}";
+        let wrapper = new_minijinja_template(source.to_string());
+
+        let inputs = json!({
+            "messages": [],
+            "tools": null,
+            "add_generation_prompt": false,
+            "extra_context": {}
+        });
+        let res = wrapper.apply(inputs.to_string());
+        assert!(!res.is_ok);
+        assert!(res.error.contains("Something went wrong"));
     }
 }

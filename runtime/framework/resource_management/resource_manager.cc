@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "absl/base/nullability.h"  // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
@@ -31,6 +32,7 @@
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
 #include "runtime/components/model_resources.h"
 #include "runtime/engine/engine_settings.h"
+#include "runtime/engine/io_types.h"
 #include "runtime/executor/audio_executor.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -97,8 +99,19 @@ class LockedVisionExecutor : public VisionExecutor {
     return vision_executor_->Encode(input_image_tensor);
   }
 
+  absl::StatusOr<ExecutorVisionData> Encode(
+      const absl::flat_hash_map<std::string, TensorBuffer>& input_tensors)
+      override {
+    return vision_executor_->Encode(std::move(input_tensors));
+  }
+
   absl::StatusOr<std::vector<int>> GetExpectedInputDimension() const override {
     return vision_executor_->GetExpectedInputDimension();
+  }
+
+  absl::StatusOr<VisionExecutorProperties> GetVisionExecutorProperties()
+      const override {
+    return vision_executor_->GetVisionExecutorProperties();
   }
 
  private:
@@ -114,11 +127,34 @@ class LockedAudioExecutor : public AudioExecutor {
       : audio_executor_(std::move(audio_executor)), lock_(std::move(lock)) {}
 
   absl::StatusOr<ExecutorAudioData> Encode(
-      const TensorBuffer& input_image_tensor) override {
-    return audio_executor_->Encode(input_image_tensor);
+      const TensorBuffer& input_spectrogram_tensor) override {
+    return audio_executor_->Encode(input_spectrogram_tensor);
   }
 
   absl::Status Reset() override { return audio_executor_->Reset(); }
+
+  absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties()
+      const override {
+    return audio_executor_->GetAudioExecutorProperties();
+  }
+
+  absl::StatusOr<std::unique_ptr<AudioContext>> CreateNewContext() override {
+    return audio_executor_->CreateNewContext();
+  }
+
+  absl::StatusOr<std::unique_ptr<AudioContext>> CloneContext() override {
+    return audio_executor_->CloneContext();
+  }
+
+  absl::StatusOr<std::unique_ptr<AudioContext>> CloneContext(
+      const AudioContext& audio_context) override {
+    return audio_executor_->CloneContext(audio_context);
+  }
+
+  absl::Status RestoreContext(
+      std::unique_ptr<AudioContext> audio_context) override {
+    return audio_executor_->RestoreContext(std::move(audio_context));
+  }
 
  private:
   std::shared_ptr<AudioExecutor> audio_executor_;
@@ -287,20 +323,21 @@ class LockedLlmExecutor : public LlmExecutor {
     return llm_executor_->Prefill(new_inputs, new_prefill_query_params);
   }
 
-  absl::Status Decode(TensorBuffer& output_tokens) override {
-    return Decode(output_tokens, ExecutorDecodeParams());
+  absl::StatusOr<std::vector<std::vector<int>>> Decode() override {
+    return Decode(ExecutorDecodeParams());
   }
 
-  absl::Status Decode(TensorBuffer& output_tokens,
-                      const ExecutorDecodeParams& decode_params) override {
+  absl::StatusOr<std::vector<std::vector<int>>> Decode(
+      const ExecutorDecodeParams& decode_params) override {
     RETURN_IF_ERROR(MaybeTruncateProcessedTokens());
-    return llm_executor_->Decode(output_tokens, decode_params);
+    return llm_executor_->Decode(decode_params);
   }
 
   absl::Status Decode(const ExecutorInputs& inputs,
                       TensorBuffer& output_logits) override {
     RETURN_IF_ERROR(MaybeTruncateProcessedTokens());
-    return llm_executor_->Decode(output_logits);
+    ASSIGN_OR_RETURN(output_logits, llm_executor_->DecodeLogits(inputs));
+    return absl::OkStatus();
   }
 
   absl::StatusOr<TensorBuffer> DecodeLogits(
@@ -530,7 +567,22 @@ ResourceManager::CreateContextHandler(const SessionConfig& session_config) {
                      llm_executor_->CreateNewContext(
                          std::move(lora_id), std::move(runtime_config)));
   }
-  return ContextHandler::Create(std::move(llm_context));
+  std::unique_ptr<AudioContext> audio_context;
+  if (session_config.AudioModalityEnabled()) {
+    RETURN_IF_ERROR(TryLoadingAudioExecutor());
+    ASSIGN_OR_RETURN(auto audio_executor, AcquireAudioExecutor());
+    auto audio_executor_properties =
+        audio_executor->GetAudioExecutorProperties();
+    if (audio_executor_properties.ok()) {
+      if (audio_executor_properties->is_streaming_model) {
+        ASSIGN_OR_RETURN(audio_context, audio_executor->CreateNewContext());
+      }
+    } else if (!absl::IsUnimplemented(audio_executor_properties.status())) {
+      return audio_executor_properties.status();
+    }
+  }
+  return ContextHandler::Create(std::move(llm_context),
+                                std::move(audio_context));
 }
 
 absl::StatusOr<std::unique_ptr<ContextHandler>>
@@ -562,9 +614,17 @@ ResourceManager::CloneContextHandler(
     ASSIGN_OR_RETURN(runtime_state, llm_executor_->GetRuntimeState());
   }
   auto processed_context = llm_context_handler->shared_processed_context();
-  return ContextHandler::Bundle(processed_context,
-                                std::make_unique<RuntimeConfig>(runtime_config),
-                                std::make_unique<RuntimeState>(runtime_state));
+
+  std::unique_ptr<AudioContext> audio_context;
+  if (llm_context_handler->HasAudioContext()) {
+    ASSIGN_OR_RETURN(auto audio_executor, AcquireAudioExecutor());
+    ASSIGN_OR_RETURN(
+        audio_context,
+        audio_executor->CloneContext(llm_context_handler->GetAudioContext()));
+  }
+  return ContextHandler::Bundle(
+      processed_context, std::make_unique<RuntimeConfig>(runtime_config),
+      std::make_unique<RuntimeState>(runtime_state), std::move(audio_context));
 }
 
 absl::StatusOr<std::unique_ptr<LlmExecutor>>
@@ -656,6 +716,30 @@ ResourceManager::AcquireExecutorWithContextHandler(
     RETURN_IF_ERROR(llm_executor_->RestoreContext(std::move(llm_context)));
   }
 
+  // If the current handler has an audio context, update and save the audio
+  // context to the current handler.
+  if (current_handler_ != nullptr) {
+    // If the current handler has an audio context, update it from audio
+    // executor and save it back to the current handler.
+    if (current_handler_->HasAudioContext()) {
+      ASSIGN_OR_RETURN(auto audio_executor, AcquireAudioExecutor());
+      ASSIGN_OR_RETURN(auto current_audio_context,
+                       audio_executor->CloneContext());
+      RETURN_IF_ERROR(
+          current_handler_->SetAudioContext(std::move(current_audio_context)));
+    }
+    // If the new handler has an audio context, audio executor will restore
+    // the audio context from the new handler.
+    if (new_context_handler->HasAudioContext()) {
+      ASSIGN_OR_RETURN(auto audio_executor, AcquireAudioExecutor());
+      ASSIGN_OR_RETURN(
+          auto audio_context_cloned,
+          audio_executor->CloneContext(new_context_handler->GetAudioContext()));
+      RETURN_IF_ERROR(
+          audio_executor->RestoreContext(std::move(audio_context_cloned)));
+    }
+  }
+
   current_handler_ = new_context_handler;
 
   return std::make_unique<LockedLlmExecutor>(llm_executor_, std::move(lock),
@@ -680,6 +764,14 @@ ResourceManager::AcquireVisionExecutor() {
 }
 
 absl::Status ResourceManager::TryLoadingAudioExecutor() {
+  bool is_llm_gpu_artisan = false;
+  if (audio_executor_settings_ && audio_executor_settings_->GetBackend() ==
+                                      litert::lm::Backend::GPU_ARTISAN) {
+    RET_CHECK(llm_executor_settings_.has_value());
+    is_llm_gpu_artisan =
+        (llm_executor_settings_->GetBackend() == Backend::GPU_ARTISAN);
+  }
+
   absl::MutexLock lock(audio_executor_mutex_);
   if (audio_executor_ != nullptr) {
     return absl::OkStatus();
@@ -687,11 +779,8 @@ absl::Status ResourceManager::TryLoadingAudioExecutor() {
   if (!audio_executor_settings_) {
     return absl::InvalidArgumentError("Audio options should not be null.");
   }
-  if (audio_executor_settings_->GetBackend() == litert::lm::Backend::CPU) {
-    return absl::InvalidArgumentError(
-        "Audio executor backend is not supported.");
-  } else if (audio_executor_settings_->GetBackend() ==
-             litert::lm::Backend::GPU_ARTISAN) {
+  if (audio_executor_settings_->GetBackend() == litert::lm::Backend::CPU ||
+      audio_executor_settings_->GetBackend() == litert::lm::Backend::GPU) {
     return absl::InvalidArgumentError(
         "Audio executor backend is not supported.");
   } else {
@@ -717,18 +806,35 @@ absl::StatusOr<std::unique_ptr<ResourceManager>> ResourceManager::Create(
     ModelResources* absl_nullable model_resources,
     std::unique_ptr<LlmExecutor> absl_nonnull llm_executor,
     std::unique_ptr<VisionExecutorSettings> absl_nullable
-    vision_executor_settings,
+        vision_executor_settings,
     std::unique_ptr<litert::lm::AudioExecutorSettings> absl_nullable
-    audio_executor_settings,
-    ::litert::Environment* absl_nullable litert_env) {
+        audio_executor_settings,
+    ::litert::Environment* absl_nullable litert_env,
+    std::unique_ptr<AudioExecutor> absl_nullable audio_executor) {
   if (llm_executor == nullptr) {
     return absl::InvalidArgumentError("Llm executor is null.");
   }
+  ASSIGN_OR_RETURN(LlmExecutorSettings llm_executor_settings,
+                   llm_executor->GetExecutorSettings());
   auto llm_resource_manager = std::make_unique<ResourceManager>(
       model_resources, std::move(llm_executor),
       std::move(vision_executor_settings), std::move(audio_executor_settings),
-      litert_env);
+      std::move(llm_executor_settings), litert_env, std::move(audio_executor));
   return llm_resource_manager;
+}
+
+absl::StatusOr<AudioExecutorProperties>
+ResourceManager::GetAudioExecutorProperties() {
+  RETURN_IF_ERROR(TryLoadingAudioExecutor());
+  MovableMutexLock lock(&audio_executor_mutex_);
+  return audio_executor_->GetAudioExecutorProperties();
+}
+
+absl::StatusOr<VisionExecutorProperties>
+ResourceManager::GetVisionExecutorProperties() {
+  RETURN_IF_ERROR(TryLoadingVisionExecutor());
+  absl::MutexLock lock(vision_executor_mutex_);
+  return vision_executor_->GetVisionExecutorProperties();
 }
 
 }  // namespace litert::lm

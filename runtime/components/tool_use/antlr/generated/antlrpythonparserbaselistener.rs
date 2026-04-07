@@ -6,8 +6,8 @@ use antlr4rust::tree::ParseTreeListener;
 // A complete Visitor for a parse tree produced by AntlrPythonParser.
 
 pub trait AntlrPythonParserBaseListener<'input>:
-    ParseTreeListener<'input, AntlrPythonParserContextType> {
-
+    ParseTreeListener<'input, AntlrPythonParserContextType>
+{
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
      * @param ctx the parse tree
@@ -18,7 +18,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      * @param ctx the parse tree
      */
     fn exit_main(&mut self, _ctx: &MainContext<'input>) {}
-
 
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
@@ -31,7 +30,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      */
     fn exit_expr(&mut self, _ctx: &ExprContext<'input>) {}
 
-
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
      * @param ctx the parse tree
@@ -42,7 +40,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      * @param ctx the parse tree
      */
     fn exit_key(&mut self, _ctx: &KeyContext<'input>) {}
-
 
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
@@ -55,7 +52,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      */
     fn exit_value(&mut self, _ctx: &ValueContext<'input>) {}
 
-
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
      * @param ctx the parse tree
@@ -66,7 +62,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      * @param ctx the parse tree
      */
     fn exit_list(&mut self, _ctx: &ListContext<'input>) {}
-
 
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
@@ -79,7 +74,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      */
     fn exit_dict(&mut self, _ctx: &DictContext<'input>) {}
 
-
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
      * @param ctx the parse tree
@@ -90,7 +84,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      * @param ctx the parse tree
      */
     fn exit_argval(&mut self, _ctx: &ArgValContext<'input>) {}
-
 
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
@@ -103,7 +96,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      */
     fn exit_argvalexpr(&mut self, _ctx: &ArgValExprContext<'input>) {}
 
-
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
      * @param ctx the parse tree
@@ -114,7 +106,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      * @param ctx the parse tree
      */
     fn exit_object(&mut self, _ctx: &ObjectContext<'input>) {}
-
 
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
@@ -127,7 +118,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      */
     fn exit_emptyfunctioncall(&mut self, _ctx: &EmptyFunctionCallContext<'input>) {}
 
-
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
      * @param ctx the parse tree
@@ -138,7 +128,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      * @param ctx the parse tree
      */
     fn exit_fullfunctioncall(&mut self, _ctx: &FullFunctionCallContext<'input>) {}
-
 
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
@@ -151,7 +140,6 @@ pub trait AntlrPythonParserBaseListener<'input>:
      */
     fn exit_functioncall(&mut self, _ctx: &FunctionCallContext<'input>) {}
 
-
     /**
      * Enter a parse tree produced by \{@link AntlrPythonParserBaseParser#s}.
      * @param ctx the parse tree
@@ -162,6 +150,4 @@ pub trait AntlrPythonParserBaseListener<'input>:
      * @param ctx the parse tree
      */
     fn exit_functioncalllist(&mut self, _ctx: &FunctionCallListContext<'input>) {}
-
-
 }

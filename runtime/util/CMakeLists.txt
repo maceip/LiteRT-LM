@@ -18,29 +18,29 @@ set(PKG_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 # ==============================================================================
 # 0. Local Proto: External File
 # ==============================================================================
-set(EXTERNAL_FILE_PROTO "external_file.proto")
-set(EXTERNAL_FILE_PROTO_SRCS "${CMAKE_BINARY_DIR}/runtime/util/external_file.pb.cc")
-set(EXTERNAL_FILE_PROTO_HDRS "${CMAKE_BINARY_DIR}/runtime/util/external_file.pb.h")
+# set(EXTERNAL_FILE_PROTO "external_file.proto")
+# set(EXTERNAL_FILE_PROTO_SRCS "${CMAKE_BINARY_DIR}/runtime/util/external_file.pb.cc")
+# set(EXTERNAL_FILE_PROTO_HDRS "${CMAKE_BINARY_DIR}/runtime/util/external_file.pb.h")
 
-add_custom_command(
-  OUTPUT ${EXTERNAL_FILE_PROTO_SRCS} ${EXTERNAL_FILE_PROTO_HDRS}
-  COMMAND ${PROTO_COMPILER}
-  ARGS --cpp_out=${CMAKE_BINARY_DIR} -I${PROJECT_SOURCE_DIR} ${PKG_ROOT}/${EXTERNAL_FILE_PROTO}
-  DEPENDS ${PKG_ROOT}/${EXTERNAL_FILE_PROTO}
-  COMMENT "Generating C++ code for external_file.proto"
-  VERBATIM
-)
+# add_custom_command(
+#   OUTPUT ${EXTERNAL_FILE_PROTO_SRCS} ${EXTERNAL_FILE_PROTO_HDRS}
+#   COMMAND ${PROTO_COMPILER}
+#   ARGS --cpp_out=${CMAKE_BINARY_DIR} -I${PROJECT_SOURCE_DIR} ${PKG_ROOT}/${EXTERNAL_FILE_PROTO}
+#   DEPENDS ${PKG_ROOT}/${EXTERNAL_FILE_PROTO}
+#   COMMENT "Generating C++ code for external_file.proto"
+#   VERBATIM
+# )
 
-add_litertlm_library(runtime_util_external_file_cc_proto STATIC
-  ${EXTERNAL_FILE_PROTO_SRCS}
-  ${EXTERNAL_FILE_PROTO_HDRS}
-)
-target_include_directories(runtime_util_external_file_cc_proto
-  PUBLIC
-    ${LITERTLM_INCLUDE_PATHS}
-    ${CMAKE_BINARY_DIR}
-  )
-target_link_libraries(runtime_util_external_file_cc_proto PUBLIC LITERTLM_DEPS)
+# add_litertlm_library(runtime_util_external_file_cc_proto STATIC
+#   ${EXTERNAL_FILE_PROTO_SRCS}
+#   ${EXTERNAL_FILE_PROTO_HDRS}
+# )
+# target_include_directories(runtime_util_external_file_cc_proto
+#   PUBLIC
+#     ${LITERTLM_INCLUDE_PATHS}
+#     ${CMAKE_BINARY_DIR}
+#   )
+# target_link_libraries(runtime_util_external_file_cc_proto PUBLIC LITERTLM_DEPS)
 
 # ==============================================================================
 # 1. Convert Tensor Buffer
@@ -99,11 +99,12 @@ target_link_libraries(runtime_util_litert_status_util
 # ==============================================================================
 # 4. Scoped File (Platform Specific)
 # ==============================================================================
-set(SCOPED_FILE_SRCS scoped_file.cc)
+set(LITERT_CC_INTERNAL_DIR "${LITERT_SRC_DIR}/cc/internal/" CACHE PATH "")
+set(SCOPED_FILE_SRCS "${LITERT_CC_INTERNAL_DIR}/scoped_file.cc")
 if(WIN32)
-  list(APPEND SCOPED_FILE_SRCS scoped_file_win.cc)
+  list(APPEND SCOPED_FILE_SRCS "${LITERT_CC_INTERNAL_DIR}/scoped_file_win.cc")
 else()
-  list(APPEND SCOPED_FILE_SRCS scoped_file_posix.cc)
+  list(APPEND SCOPED_FILE_SRCS "${LITERT_CC_INTERNAL_DIR}/scoped_file_posix.cc")
 endif()
 
 add_litertlm_library(runtime_util_scoped_file STATIC
@@ -385,7 +386,6 @@ target_link_libraries(runtime_util_zip_utils
   PUBLIC
     LiteRTLM::Runtime::Util::LiteRtStatusUtil
     LiteRTLM::Runtime::Util::ZipReadonlyMemFile
-    runtime_util_external_file_cc_proto
     LITERTLM_DEPS
 )
 

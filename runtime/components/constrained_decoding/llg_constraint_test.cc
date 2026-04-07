@@ -106,10 +106,12 @@ TEST_F(LlgConstraintTest, TransitionAndEnd) {
 
   std::unique_ptr<Constraint::State> state = constraint->Start();
   EXPECT_FALSE(constraint->IsEnded(*state));
+  EXPECT_OK(constraint->ComputeBitmap(*state));
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Constraint::State> next_state,
                        constraint->ComputeNext(*state, 2));
   state = std::move(next_state);
+  EXPECT_OK(constraint->ComputeBitmap(*state));
   EXPECT_TRUE(constraint->IsEnded(*state));
 }
 
@@ -189,6 +191,7 @@ TEST_F(LlgConstraintTest, RegexSequenceTest) {
   state = std::move(next_state);
 
   // 5. Check end.
+  EXPECT_OK(constraint->ComputeBitmap(*state));
   EXPECT_TRUE(constraint->IsEnded(*state));
 }
 
@@ -225,6 +228,7 @@ TEST_F(LlgConstraintTest, LarkSequenceTest) {
   state = std::move(next_state);
 
   // 5. Check end.
+  EXPECT_OK(constraint->ComputeBitmap(*state));
   EXPECT_TRUE(constraint->IsEnded(*state));
 }
 
@@ -270,6 +274,7 @@ TEST_F(LlgConstraintTest, JsonSequenceTest) {
   state = std::move(next_state);
 
   // 7. Check end.
+  EXPECT_OK(constraint->ComputeBitmap(*state));
   EXPECT_TRUE(constraint->IsEnded(*state));
 }
 

@@ -15,11 +15,14 @@
 #include "runtime/executor/vision_executor_settings.h"
 
 #include <ostream>
+#include <string>
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/executor/executor_settings_base.h"
+#include "runtime/util/file_util.h"
 #include "runtime/util/status_macros.h"
 
 namespace litert::lm {
@@ -59,6 +62,27 @@ absl::Status VisionExecutorSettings::SetAdapterBackend(Backend backend) {
   }
   adapter_backend_ = backend;
   return absl::OkStatus();
+}
+
+absl::StatusOr<std::string> VisionExecutorSettings::GetWeightCacheFile(
+    absl::string_view suffix) const {
+  // Cache is explicitly disabled.
+  if (GetCacheDir() == ":nocache") {
+    return absl::InvalidArgumentError("Cache is explicitly disabled.");
+  }
+  auto model_path = GetModelAssets().GetPath().value_or("");
+
+  // There is no model path to suffix.
+  if (model_path.empty()) {
+    return absl::InvalidArgumentError(
+        "Cache path cannot be computed without knowing the model path.");
+  }
+
+  if (GetCacheDir().empty()) {
+    return absl::StrCat(model_path, suffix);
+  }
+
+  return JoinPath(GetCacheDir(), absl::StrCat(Basename(model_path), suffix));
 }
 
 std::ostream& operator<<(std::ostream& os,

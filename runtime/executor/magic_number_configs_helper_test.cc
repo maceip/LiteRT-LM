@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <filesystem>  // NOLINT: Required for path manipulation.
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -33,7 +34,7 @@
 #include "runtime/executor/llm_executor_settings.h"
 #include "runtime/util/scoped_file.h"
 #include "runtime/util/status_macros.h"  // IWYU pragma: keep
-#include "runtime/util/test_utils.h"     // NOLINT
+#include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
 namespace {
@@ -99,7 +100,8 @@ class ModelResourcesMock : public ModelResources {
  public:
   MOCK_METHOD(absl::StatusOr<const proto::LlmMetadata*>, GetLlmMetadata, (),
               (override));
-  MOCK_METHOD(absl::StatusOr<Tokenizer*>, GetTokenizer, (), (override));
+  MOCK_METHOD(absl::StatusOr<std::unique_ptr<Tokenizer>>, GetTokenizer, (),
+              (override));
   MOCK_METHOD(absl::StatusOr<absl::string_view>, GetTFLiteModelBuffer,
               (ModelType model_type), (override));
   MOCK_METHOD(std::optional<std::string>, GetTFLiteModelBackendConstraint,

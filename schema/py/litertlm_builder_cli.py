@@ -18,7 +18,7 @@ There are two ways to use this tool:
 1. Building the file by specifying the components as CLI arguments:
 
 ```
-bazel run //third_party/odml/litert_lm/schema/py:litertlm_builder_cli -- \
+bazel run //schema/py:litertlm_builder_cli -- \
   system_metadata --str Authors "ODML team" \
   llm_metadata --path llm.pb \
   tflite_model --path embedder.tflite --model_type embedder  --str_metadata model_version "1.0.1" \
@@ -69,13 +69,14 @@ additional_metadata = [
 ```
 
 ```
-bazel run //third_party/odml/litert_lm/schema/py:litertlm_builder_cli -- \
+bazel run //schema/py:litertlm_builder_cli -- \
   toml --path example.toml output --path output.litertlm
 ```
 
 """
 
 import argparse
+import os
 import sys
 from typing import BinaryIO, cast
 
@@ -470,6 +471,9 @@ def _build_litertlm_file(parsed_args: list[argparse.Namespace]) -> None:
           )
     assert output_path, "Output path is required."
     assert toml_path, "TOML path is required."
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+      os.makedirs(output_dir, exist_ok=True)
     with litertlm_core.open_file(output_path, "wb") as f:
       builder = litertlm_builder.LitertLmFileBuilder.from_toml_file(toml_path)
       builder.build(f)
@@ -496,6 +500,9 @@ def _build_litertlm_file(parsed_args: list[argparse.Namespace]) -> None:
           raise ValueError(f"Unknown subcommand: {parsed_arg.command}")
 
     assert output_path, "Output path is required."
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+      os.makedirs(output_dir, exist_ok=True)
     with litertlm_core.open_file(output_path, "wb") as f:
       builder.build(cast(BinaryIO, f))
 
@@ -509,6 +516,10 @@ def main(_) -> None:
     return
   _build_litertlm_file(parsed_args)
 
+
+def run():
+  """Entry point for console_scripts."""
+  app.run(main, sys.argv[:1])
 
 if __name__ == "__main__":
   app.run(main, sys.argv[:1])

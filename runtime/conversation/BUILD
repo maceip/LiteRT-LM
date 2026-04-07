@@ -26,10 +26,7 @@ cc_library(
     name = "io_types",
     srcs = ["io_types.cc"],
     hdrs = ["io_types.h"],
-    deps = [
-        "@com_google_absl//absl/status",
-        "@nlohmann_json//:json",
-    ],
+    deps = ["@nlohmann_json//:json"],
 )
 
 cc_library(
@@ -47,16 +44,33 @@ cc_library(
 )
 
 cc_library(
+    name = "channel_util",
+    srcs = ["channel_util.cc"],
+    hdrs = ["channel_util.h"],
+    deps = [
+        ":io_types",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@nlohmann_json//:json",
+        "//runtime/engine:io_types",
+        "@com_googlesource_code_re2//:re2",
+    ],
+)
+
+cc_library(
     name = "internal_callback_util",
     srcs = ["internal_callback_util.cc"],
     hdrs = ["internal_callback_util.h"],
     deps = [
+        ":channel_util",
         ":io_types",
         "@com_google_absl//absl/functional:any_invocable",
-        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@nlohmann_json//:json",
         "//runtime/conversation/model_data_processor",
         "//runtime/conversation/model_data_processor:config_registry",
         "//runtime/engine:io_types",
@@ -91,9 +105,12 @@ cc_library(
     srcs = ["conversation.cc"],
     hdrs = ["conversation.h"],
     deps = [
+        ":channel_util",
         ":internal_callback_util",
         ":io_types",
+        ":prompt_utils",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
@@ -102,13 +119,13 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/time",
+        "@com_google_absl//absl/types:span",
         "@nlohmann_json//:json",
         "//runtime/components:prompt_template",
         "//runtime/components/constrained_decoding:constraint",
         "//runtime/components/constrained_decoding:constraint_provider",
         "//runtime/components/constrained_decoding:constraint_provider_config",
         "//runtime/components/constrained_decoding:constraint_provider_factory",
-        "//runtime/conversation:prompt_utils",
         "//runtime/conversation/model_data_processor",
         "//runtime/conversation/model_data_processor:config_registry",
         "//runtime/conversation/model_data_processor:model_data_processor_factory",
@@ -118,6 +135,21 @@ cc_library(
         "//runtime/proto:llm_model_type_cc_proto",
         "//runtime/util:litert_status_util",
         "//runtime/util:model_type_utils",
+    ],
+)
+
+cc_test(
+    name = "channel_util_test",
+    srcs = ["channel_util_test.cc"],
+    deps = [
+        ":channel_util",
+        ":io_types",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "//runtime/engine:io_types",
+        "//runtime/util:test_utils",
     ],
 )
 
@@ -135,6 +167,7 @@ cc_test(
         ":conversation",
         ":io_types",
         "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

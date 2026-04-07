@@ -19,17 +19,16 @@
 
 namespace litert::lm {
 
-// The constraint mode when constrained decoding is enabled.
-enum class ConstraintMode {
-  kUnspecified,
-  // Both function call and text output are allowed.
-  kTextAndOr,
-  // Only function call is allowed.
-  kFunctionCallOnly,
-};
-
 // Config for FunctionGemmaDataProcessor.
 struct FunctionGemmaDataProcessorConfig {
+  // The constraint mode when constrained decoding is enabled.
+  enum class ConstraintMode {
+    kUnspecified,
+    // Both function call and text output are allowed.
+    kTextAndOr,
+    // Only function call is allowed.
+    kFunctionCallOnly,
+  };
   // Signifies the beginning of a tool call.
   std::string code_fence_start = "<start_function_call>";
   // Signifies the end of tool call.

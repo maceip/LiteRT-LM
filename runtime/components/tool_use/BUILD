@@ -168,9 +168,14 @@ cc_library(
     ],
 )
 
+# Disable heap checking for this test. The Rust antlr4rust library allocates
+# global, static DFA/ATN caches to optimize parsing. Rust intentionally does
+# not free these static variables at program exit, which the C++ HeapLeakChecker
+# catches as a false positive leak.
 cc_test(
     name = "fc_parser_utils_test",
     srcs = ["fc_parser_utils_test.cc"],
+    args = ["--heap_check="],
     deps = [
         ":fc_parser_utils",
         "@com_google_googletest//:gtest_main",

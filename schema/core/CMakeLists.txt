@@ -75,7 +75,6 @@ target_link_libraries(schema_core_litertlm_utils
 # 4. Read
 # ==============================================================================
 add_litertlm_library(schema_core_litertlm_read STATIC
-  tf_proxy.cc
   litertlm_read.cc
 )
 add_library(LiteRTLM::Schema::Core::Read ALIAS schema_core_litertlm_read)

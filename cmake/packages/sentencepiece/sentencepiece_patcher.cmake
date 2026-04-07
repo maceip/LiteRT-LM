@@ -89,11 +89,11 @@ file(READ "${SENTENCE_SRC_DIR}/src/CMakeLists.txt" SRC_CONTENT)
 
 message(STATUS "[LiteRTLM] Redirecting SentencePiece internal Protobuf paths...")
 string(REPLACE "\${CMAKE_CURRENT_SOURCE_DIR}/../third_party/protobuf-lite"
-               "\${PROTOBUF_SRC_FILE_PATH}"
+               "\${PROTO_SRC_DIR}"
                SRC_CONTENT "${SRC_CONTENT}")
 
 string(REPLACE "\${CMAKE_CURRENT_SOURCE_DIR}/../third_party/absl/flags/flag.cc"
-               "\${ABSL_SRC_FILE_PATH}/flags/internal/flag.cc"
+               "\${ABSL_SRC_DIR}/flags/internal/flag.cc"
                SRC_CONTENT "${SRC_CONTENT}")
 
 string(REPLACE
@@ -110,6 +110,3 @@ string(REPLACE "\${ABSL_FLAGS_SRCS}" "" SRC_CONTENT "${SRC_CONTENT}")
 set(SRC_CONTENT ${SRC_CONTENT})
 set(SRC_SHIM_INCLUDE "include(${SENTENCE_SRC_SHIM_PATH})")
 file(WRITE "${SENTENCE_SRC_DIR}/src/CMakeLists.txt" ${SRC_SHIM_INCLUDE}${SRC_CONTENT})
-
-
-

@@ -26,11 +26,11 @@
 #include <variant>
 #include <vector>
 
+#include "absl/log/absl_log.h"  // from @com_google_absl
+#include "absl/log/log.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
-#include "absl/log/absl_log.h"  // from @com_google_absl
-#include "absl/log/log.h"  // from @com_google_absl
 #include "runtime/executor/executor_settings_base.h"
 
 namespace litert::lm {
@@ -72,6 +72,9 @@ struct GpuArtisanConfig {
   // AiCore uses external embeddings, so this is enabled for AiCore.
   // LLM Engine defaults to disabling external embeddings.
   bool enable_external_embeddings = false;
+
+  // Whether the submodel should be used if available.
+  bool use_submodel = false;
 };
 
 std::ostream& operator<<(std::ostream& os, const GpuArtisanConfig& config);
@@ -175,12 +178,22 @@ struct AdvancedSettings {
   // non-OpenCL and non-WebGPU backends.
   bool convert_weights_on_gpu = true;
 
+  // If false, the executor does not wait for weights conversion on GPU to
+  // complete during benchmark. It's meaningful only when both is_benchmark and
+  // convert_weights_on_gpu are true.
+  bool wait_for_weights_conversion_complete_in_benchmark = true;
+
   // If true (by default), the executor enables Vulkan kernel shader
   // optimization.
   // Some GPU backends like Vulkan don't get much performance benefit from the
   // shader optimization but just increase initialization time with longer
   // shader compilation time.
   bool optimize_shader_compilation = true;
+
+  // If true, the executor only cache the compiled shaders. If false, gpu graph
+  // info including work group sizes (and compiled shaders depending on backend,
+  // e.g. OpenCL includes compiled shaders, but WebGPU doesn't) will be cached.
+  bool cache_compiled_shaders_only = false;
 
   // If true (by default), the executor enables constant tensor sharing.
   // Some GPU backends like Vulkan may degrade the performance when constant
@@ -195,6 +208,30 @@ struct AdvancedSettings {
   // This feature is only supported by some GPUs. It can greatly improve
   // performance at the risk of reducing quality.
   std::optional<bool> allow_src_quantized_fc_conv_ops;
+
+  // If true, the executor hints waiting for completion. This is to wait for all
+  // the enqueued commands to be completed after each invoke.
+  // This feature is only applied to the OpenCL backend and the goal is to fix
+  // a known quality issue on AMD and Mali GPUs.
+  // This flag is by default nullopt, which means the decision is made by the
+  // runtime.
+  // And for runtime, by default, it is false. But if we are running a Generic
+  // model (most OSS models) on AMD or Mali GPU, we would set this flag to true.
+  std::optional<bool> hint_waiting_for_completion;
+
+  // If true, the GPU context priority will be set to low.
+  // This flag is by default nullopt, which means the decision is made by the
+  // runtime.
+  // And for runtime, by default, it is false. If we are running a Generic model
+  // (most OSS models), we would set this flag to true to ensure smooth UI.
+  std::optional<bool> gpu_context_low_priority;
+
+  // If true, the executor enables speculative decoding.
+  bool enable_speculative_decoding = false;
+
+  // If true, the executor disables delegate clustering. Can be useful for cases
+  // where the default model delegate partitioning is not optimal.
+  bool disable_delegate_clustering = false;
 
   bool operator==(const AdvancedSettings& other) const {
     return prefill_batch_sizes == other.prefill_batch_sizes &&
@@ -212,11 +249,18 @@ struct AdvancedSettings {
            num_threads_to_upload == other.num_threads_to_upload &&
            num_threads_to_compile == other.num_threads_to_compile &&
            convert_weights_on_gpu == other.convert_weights_on_gpu &&
+           wait_for_weights_conversion_complete_in_benchmark ==
+               other.wait_for_weights_conversion_complete_in_benchmark &&
            optimize_shader_compilation == other.optimize_shader_compilation &&
+           cache_compiled_shaders_only == other.cache_compiled_shaders_only &&
            share_constant_tensors == other.share_constant_tensors &&
            sampler_handles_input == other.sampler_handles_input &&
            allow_src_quantized_fc_conv_ops ==
-               other.allow_src_quantized_fc_conv_ops;
+               other.allow_src_quantized_fc_conv_ops &&
+           hint_waiting_for_completion == other.hint_waiting_for_completion &&
+           gpu_context_low_priority == other.gpu_context_low_priority &&
+           enable_speculative_decoding == other.enable_speculative_decoding &&
+           disable_delegate_clustering == other.disable_delegate_clustering;
   }
 };
 std::ostream& operator<<(std::ostream& os, const AdvancedSettings& settings);
@@ -234,7 +278,8 @@ class LlmExecutorSettings : public ExecutorSettingsBase {
   // Creates a LlmExecutorSettings with default values using the provided
   // ModelAssets.
   static absl::StatusOr<LlmExecutorSettings> CreateDefault(
-      ModelAssets model_assets, Backend backend = Backend::CPU);
+      ModelAssets model_assets, Backend backend = Backend::CPU,
+      std::optional<Backend> sampler_backend = std::nullopt);
 
   uint32_t GetMaxNumTokens() const { return max_num_tokens_; }
   void SetMaxNumTokens(uint32_t max_num_tokens) {

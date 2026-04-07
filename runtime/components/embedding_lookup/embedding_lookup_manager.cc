@@ -29,6 +29,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
+#include "litert/cc/litert_environment.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
@@ -45,22 +46,24 @@ EmbeddingLookupManager::Create(
     const litert::Model* absl_nonnull text_embedding_model,
     absl::flat_hash_map<int, const litert::Model*>&
         end_of_multi_modal_embedding_models,
-    bool fully_supports_multi_modal, std::optional<std::string> signature_key) {
+    bool fully_supports_multi_modal, std::optional<std::string> signature_key,
+    litert::Environment* env) {
   auto embedding_lookup_manager = std::make_unique<EmbeddingLookupManager>();
   RETURN_IF_ERROR(embedding_lookup_manager->Initialize(
       text_embedding_model, end_of_multi_modal_embedding_models,
-      fully_supports_multi_modal, signature_key));
+      fully_supports_multi_modal, signature_key, env));
   return std::move(embedding_lookup_manager);
 }
 
 absl::StatusOr<std::unique_ptr<EmbeddingLookupManager>>
 EmbeddingLookupManager::Create(
     const litert::Model* absl_nonnull text_embedding_model,
-    bool fully_supports_multi_modal, std::optional<std::string> signature_key) {
+    bool fully_supports_multi_modal, std::optional<std::string> signature_key,
+    litert::Environment* env) {
   absl::flat_hash_map<int, const litert::Model*>
       end_of_multi_modal_embedding_models;
   return Create(text_embedding_model, end_of_multi_modal_embedding_models,
-                fully_supports_multi_modal, signature_key);
+                fully_supports_multi_modal, signature_key, env);
 }
 
 absl::Status EmbeddingLookupManager::UpdateMultiModalEmbeddings(
@@ -199,21 +202,32 @@ absl::Status EmbeddingLookupManager::LookupPrefill(
     const size_t bytes_per_token = floats_per_token * sizeof(float);
     LITERT_ASSIGN_OR_RETURN(auto output_tensor_size,
                             output_tensor->PackedSize());
-    auto output_tensor_lock_and_addr = ::litert::TensorBufferScopedLock::Create(
-        *output_tensor, ::litert::TensorBuffer::LockMode::kWrite);
-    auto* output_tensor_ptr =
-        reinterpret_cast<uint8_t*>(output_tensor_lock_and_addr->second);
-    auto* output_tensor_last_ptr =
-        output_tensor_ptr + output_tensor_size - bytes_per_token;
-    output_tensor_ptr += byte_offset;
+    uint8_t* output_tensor_ptr = nullptr;
+    uint8_t* output_tensor_last_ptr = nullptr;
     const auto* default_embedding =
         text_embedding_lookup_->GetDefaultEmbeddingVector().data();
-    for (int i = 0;
-         i < tokens.size() && output_tensor_ptr <= output_tensor_last_ptr;
-         ++i, output_tensor_ptr += bytes_per_token) {
+    for (int i = 0; i < tokens.size(); ++i) {
       if (tokens[i] < 0) {
+        if (output_tensor_ptr == nullptr) {
+          LITERT_ASSIGN_OR_RETURN(
+              auto output_tensor_ptr_void,
+              output_tensor->Lock(::litert::TensorBuffer::LockMode::kWrite));
+          output_tensor_ptr = static_cast<uint8_t*>(output_tensor_ptr_void);
+          output_tensor_last_ptr =
+              output_tensor_ptr + output_tensor_size - bytes_per_token;
+          output_tensor_ptr += byte_offset + i * bytes_per_token;
+        }
         memcpy(output_tensor_ptr, default_embedding, bytes_per_token);
       }
+      if (output_tensor_ptr != nullptr) {
+        output_tensor_ptr += bytes_per_token;
+        if (output_tensor_ptr > output_tensor_last_ptr) {
+          break;
+        }
+      }
+    }
+    if (output_tensor_ptr != nullptr) {
+      LITERT_RETURN_IF_ERROR(output_tensor->Unlock());
     }
   }
   // Remove fully used multi modal embedding lookups.
@@ -228,7 +242,8 @@ absl::Status EmbeddingLookupManager::Initialize(
     const litert::Model* absl_nonnull text_embedding_model,
     absl::flat_hash_map<int, const litert::Model*>&
         end_of_multi_modal_embedding_models,
-    bool fully_supports_multi_modal, std::optional<std::string> signature_key) {
+    bool fully_supports_multi_modal, std::optional<std::string> signature_key,
+    litert::Environment* env) {
   if (!fully_supports_multi_modal &&
       !end_of_multi_modal_embedding_models.empty()) {
     return absl::InvalidArgumentError(
@@ -238,12 +253,12 @@ absl::Status EmbeddingLookupManager::Initialize(
   fully_supports_multi_modal_ = fully_supports_multi_modal;
   ASSIGN_OR_RETURN(text_embedding_lookup_,
                    EmbeddingLookupText::Create(std::move(text_embedding_model),
-                                               signature_key));
+                                               signature_key, env));
   for (const auto& [special_token, embedding_model] :
        end_of_multi_modal_embedding_models) {
     ASSIGN_OR_RETURN(auto end_of_multi_modal_embedding_lookup,
                      EndOfMultiModalEmbedding::Create(
-                         std::move(embedding_model), special_token));
+                         std::move(embedding_model), special_token, env));
     end_of_multi_modal_embedding_lookups_.push_back(
         std::move(end_of_multi_modal_embedding_lookup));
   }

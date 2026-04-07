@@ -30,19 +30,25 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "absl/types/span.h"  // from @com_google_absl
 #include "litert/cc/litert_element_type.h"  // from @litert
 #include "litert/cc/litert_expected.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
+#include "litert/cc/litert_ranked_tensor_type.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
+#include "runtime/components/embedding_lookup/embedding_lookup_manager.h"
+#include "runtime/components/embedding_lookup/embedding_lookup_text.h"
 #include "runtime/components/model_resources.h"
 #include "runtime/components/model_resources_litert_lm.h"
 #include "runtime/components/model_resources_task.h"
 #include "runtime/executor/executor_settings_base.h"
+#include "runtime/util/convert_tensor_buffer.h"
 #include "runtime/util/file_format_util.h"
 #include "runtime/util/litert_lm_loader.h"
 #include "runtime/util/model_asset_bundle_resources.h"
 #include "runtime/util/status_macros.h"  //NOLINT
+#include "runtime/util/tensor_buffer_util.h"
 #include "tflite/types/half.h"  // from @litert
 
 namespace litert::lm {
@@ -75,9 +81,10 @@ absl::StatusOr<std::unique_ptr<ModelResources>>
 BuildModelResourcesFromTaskFormat(const ModelAssets& model_assets) {
   std::unique_ptr<ModelAssetBundleResources> resources;
   if (model_assets.HasMemoryMappedFile()) {
-    ASSIGN_OR_RETURN(
-        resources, ModelAssetBundleResources::Create(
-                       /*tag=*/"", model_assets.GetMemoryMappedFile().value()));
+    ASSIGN_OR_RETURN(auto memory_mapped_file,
+                     model_assets.GetMemoryMappedFile());
+    ASSIGN_OR_RETURN(resources, ModelAssetBundleResources::Create(
+                                    /*tag=*/"", memory_mapped_file));
   } else {
     ASSIGN_OR_RETURN(auto scoped_file, model_assets.GetOrCreateScopedFile());
     ASSIGN_OR_RETURN(resources, ModelAssetBundleResources::Create(
@@ -95,8 +102,9 @@ absl::StatusOr<std::unique_ptr<ModelResources>>
 BuildModelResourcesFromLitertLmFormat(const ModelAssets& model_assets) {
   std::unique_ptr<LitertLmLoader> loader;
   if (model_assets.HasMemoryMappedFile()) {
-    loader = std::make_unique<LitertLmLoader>(
-        model_assets.GetMemoryMappedFile().value());
+    ASSIGN_OR_RETURN(auto memory_mapped_file,
+                     model_assets.GetMemoryMappedFile());
+    loader = std::make_unique<LitertLmLoader>(memory_mapped_file);
   } else {
     // `BuildModelResourcesFromLitertLmFormat` expects a ScopedFile that it
     // takes ownership of, so we need to duplicate the ScopedFile to keep
@@ -176,6 +184,10 @@ absl::Status GetKVCacheRootNames(std::vector<absl::string_view> input_names,
       k_root_name = "k_cache_";
       v_root_name = "v_cache_";
       return absl::OkStatus();
+    } else if (input_name == "kv_cache_c_0") {
+      k_root_name = "kv_cache_c_";
+      v_root_name = "kv_cache_c_";
+      return absl::OkStatus();
     }
   }
   for (auto output_name : output_names) {
@@ -186,6 +198,10 @@ absl::Status GetKVCacheRootNames(std::vector<absl::string_view> input_names,
     } else if (output_name == "k_cache_0") {
       k_root_name = "k_cache_";
       v_root_name = "v_cache_";
+      return absl::OkStatus();
+    } else if (output_name == "kv_cache_c_0") {
+      k_root_name = "kv_cache_c_";
+      v_root_name = "kv_cache_c_";
       return absl::OkStatus();
     }
   }
@@ -292,23 +308,25 @@ absl::Status InitializeAttentionMask(litert::TensorBuffer& mask, bool is_f16) {
   return absl::OkStatus();
 }
 
-absl::Status UploadInt32ParamTensorData(litert::TensorBuffer& param_tensor,
-                                        int token_index_offset,
-                                        int active_tokens,
-                                        int active_tokens_aligned) {
+absl::Status FillSingleBufferCacheParamTensor(
+    litert::TensorBuffer& param_tensor, int start_index, int update_length) {
   // TODO(sulemanshahid): Local attention optimization is not supported in the
   // OpenCL implementation, enable for WebGPU.
-  constexpr int kNumRuntimeParams = 7;
-  const int32_t runtime_params[kNumRuntimeParams] = {
-      token_index_offset, active_tokens, active_tokens_aligned, 0, 0, 0, 0};
-  auto param_tensor_lock_and_addr = litert::TensorBufferScopedLock::Create(
-      param_tensor, litert::TensorBuffer::LockMode::kWrite);
-  RET_CHECK(param_tensor_lock_and_addr)
-      << "Failed to lock param tensor buffer.";
-  int32_t* param_tensor_ptr =
-      static_cast<int32_t*>(param_tensor_lock_and_addr->second);
-  std::memcpy(param_tensor_ptr, runtime_params,
-              sizeof(int32_t) * kNumRuntimeParams);
+  LITERT_ASSIGN_OR_RETURN(auto packed_size, param_tensor.PackedSize());
+  LITERT_ASSIGN_OR_RETURN(
+      auto param_tensor_lock_and_addr,
+      TensorBufferScopedLock::Create(param_tensor,
+                                     TensorBuffer::LockMode::kWrite));
+  std::memset(param_tensor_lock_and_addr.second, 0, packed_size);
+
+  // See parameter definition in ml_drift::LlmRuntimeParams.
+  // First 2 parameters are used by add_values_to_cache kernel.
+  // 3rd parameter is used by runtime_batched_matmul kernel to check the end
+  // channel index, which doesn't have to be aligned as the kernel does that.
+  int end_index = start_index + update_length;
+  int32_t params[] = {start_index, end_index, end_index};
+  LITERT_RETURN_IF_ERROR(sizeof(params) <= packed_size);
+  std::memcpy(param_tensor_lock_and_addr.second, params, sizeof(params));
   return absl::OkStatus();
 }
 
@@ -375,6 +393,62 @@ BuildLiteRtCompiledModelResources(const ModelAssets& model_assets) {
     default:
       return absl::InvalidArgumentError("Unsupported file format.");
   }
+}
+
+absl::Status GenericComputeTokenEmbeddings(
+    const TensorBuffer& input_tokens, absl::Span<float> output_embeddings,
+    absl::Span<float> output_ple_embeddings,
+    EmbeddingLookupManager* embedding_lookup_manager,
+    EmbeddingLookupManager* per_layer_embedding_lookup_manager) {
+  LITERT_ASSIGN_OR_RETURN(auto input_tokens_span,
+                          ReferTensorBufferAsSpan<int32_t>(input_tokens));
+  const int num_tokens = input_tokens_span.size();
+  if (embedding_lookup_manager == nullptr) {
+    return absl::InvalidArgumentError("Embedding lookup manager is missing.");
+  }
+  const int embedding_dim =
+      embedding_lookup_manager->GetTextEmbeddingLookup()->GetFloatsPerToken();
+  auto output_buffer_type =
+      embedding_lookup_manager->GetTextEmbeddingLookup()->GetOutputBufferType();
+  std::vector<int32_t> dims = {num_tokens, embedding_dim};
+  if (output_buffer_type.has_value()) {
+    auto span_dims = output_buffer_type->Layout().Dimensions();
+    dims.assign(span_dims.begin(), span_dims.end());
+    dims[0] = 1;
+    dims[1] = num_tokens;
+  }
+  auto tensor_type = MakeRankedTensorType<float>(dims);
+  LITERT_ASSIGN_OR_RETURN(
+      auto wrapped_embeddings,
+      WrapOrCreateTensorBufferFromHostMemory(tensor_type, output_embeddings));
+
+  RETURN_IF_ERROR(embedding_lookup_manager->LookupPrefill(
+      input_tokens_span, &wrapped_embeddings.buffer, 0 /*token_offset=*/));
+
+  if (per_layer_embedding_lookup_manager != nullptr &&
+      !output_ple_embeddings.empty()) {
+    auto ple_output_buffer_type =
+        per_layer_embedding_lookup_manager->GetTextEmbeddingLookup()
+            ->GetOutputBufferType();
+    const int ple_embedding_dim =
+        per_layer_embedding_lookup_manager->GetTextEmbeddingLookup()
+            ->GetFloatsPerToken();
+    std::vector<int32_t> ple_dims = {num_tokens, ple_embedding_dim};
+    if (ple_output_buffer_type.has_value()) {
+      auto ple_span_dims = ple_output_buffer_type->Layout().Dimensions();
+      ple_dims.assign(ple_span_dims.begin(), ple_span_dims.end());
+      ple_dims[0] = 1;
+      ple_dims[1] = num_tokens;
+    }
+    auto ple_tensor_type = MakeRankedTensorType<float>(ple_dims);
+    LITERT_ASSIGN_OR_RETURN(auto wrapped_ple_embeddings,
+                            WrapOrCreateTensorBufferFromHostMemory(
+                                ple_tensor_type, output_ple_embeddings));
+    RETURN_IF_ERROR(per_layer_embedding_lookup_manager->LookupPrefill(
+        input_tokens_span, &wrapped_ple_embeddings.buffer,
+        0 /*token_offset=*/));
+  }
+  return absl::OkStatus();
 }
 
 }  // namespace litert::lm

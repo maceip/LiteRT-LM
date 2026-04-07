@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_FRAMEWORK_RESOURCE_MANAGEMENT_EXECUTION_MANAGER_H_
 
 #include <atomic>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <tuple>
@@ -41,6 +42,7 @@
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/executor/audio_executor.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/llm_executor.h"
 #include "runtime/executor/llm_executor_io_types.h"
@@ -119,8 +121,9 @@ class ExecutionManager {
       std::unique_ptr<VisionExecutorSettings> absl_nullable
       vision_executor_settings,
       std::unique_ptr<AudioExecutorSettings> absl_nullable
-      audio_executor_settings,
-      ::litert::Environment* absl_nullable litert_env);
+          audio_executor_settings,
+      ::litert::Environment* absl_nullable litert_env,
+      std::unique_ptr<AudioExecutor> absl_nullable audio_executor = nullptr);
 
   ~ExecutionManager() {
     WaitUntilAllDone(Engine::kDefaultTimeout).IgnoreError();
@@ -151,6 +154,10 @@ class ExecutionManager {
   absl::StatusOr<SessionId> RegisterNewSession(
       SessionConfig session_config,
       std::optional<BenchmarkInfo> benchmark_info = std::nullopt)
+      ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
+
+  // Releases the session with the given session ID.
+  absl::Status ReleaseSession(SessionId session_id)
       ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
 
   // Cancels all tasks in the session with the given session ID.
@@ -207,7 +214,8 @@ class ExecutionManager {
       absl::flat_hash_set<TaskId> dep_tasks,
       Constraint* absl_nullable constraint,
       std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
-      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback)
+      absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
+      int max_output_tokens = std::numeric_limits<int>::max())
       ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
 
   // Adds a clone session task to the execution manager.
@@ -245,6 +253,16 @@ class ExecutionManager {
       std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback)
       ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
+
+  // Returns the audio executor properties.
+  absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties() const {
+    return resource_manager_->GetAudioExecutorProperties();
+  }
+
+  // Returns the vision executor properties.
+  absl::StatusOr<VisionExecutorProperties> GetVisionExecutorProperties() const {
+    return resource_manager_->GetVisionExecutorProperties();
+  }
 
  private:
   // Private constructor. Use the Create function instead.

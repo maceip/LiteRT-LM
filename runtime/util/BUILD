@@ -30,6 +30,7 @@ cc_library(
     deps = [
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/types:span",
+        "@litert//tflite/types:half",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
@@ -61,6 +62,73 @@ cc_test(
         "@litert//litert/cc:litert_tensor_buffer",
         "@litert//litert/cc:litert_tensor_buffer_types",
         "@litert//litert/test:matchers",
+    ],
+)
+
+cc_library(
+    name = "data_stream",
+    srcs = ["data_stream.cc"],
+    hdrs = ["data_stream.h"],
+    deps = [
+        ":litert_status_util",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_test(
+    name = "data_stream_test",
+    srcs = ["data_stream_test.cc"],
+    data = ["//runtime/testdata"],
+    deps = [
+        ":data_stream",
+        ":file_data_stream",
+        ":test_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
+cc_library(
+    name = "log_tensor_buffer",
+    srcs = ["log_tensor_buffer.cc"],
+    hdrs = ["log_tensor_buffer.h"],
+    deps = [
+        ":convert_tensor_buffer",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+        "@litert//tflite/types:half",
+    ] + select({
+        "@litert//litert:litert_link_capi_so": [
+            "@litert//litert/cc:litert_api_with_dynamic_runtime",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc:litert_element_type",
+            "@litert//litert/cc:litert_expected",
+            "@litert//litert/cc:litert_macros",
+            "@litert//litert/cc:litert_tensor_buffer",
+        ],
+    }),
+)
+
+cc_test(
+    name = "log_tensor_buffer_test",
+    srcs = ["log_tensor_buffer_test.cc"],
+    deps = [
+        ":log_tensor_buffer",
+        ":test_utils",
+        "@com_google_googletest//:gtest_main",
+        "@litert//litert/cc:litert_element_type",
+        "@litert//litert/cc:litert_layout",
+        "@litert//litert/cc:litert_ranked_tensor_type",
+        "@litert//litert/cc:litert_tensor_buffer",
+        "@litert//litert/cc:litert_tensor_buffer_types",
     ],
 )
 
@@ -109,6 +177,32 @@ cc_test(
         "@litert//litert/cc:litert_tensor_buffer_types",
         "@litert//litert/test:matchers",
         "//runtime/executor:llm_executor_io_types",
+    ],
+)
+
+cc_library(
+    name = "file_data_stream",
+    srcs = ["file_data_stream.cc"],
+    hdrs = ["file_data_stream.h"],
+    deps = [
+        ":data_stream",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+cc_test(
+    name = "file_data_stream_test",
+    srcs = ["file_data_stream_test.cc"],
+    data = ["//runtime/testdata"],
+    deps = [
+        ":file_data_stream",
+        ":test_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
     ],
 )
 
@@ -245,11 +339,17 @@ cc_library(
     name = "tensor_buffer_util",
     srcs = ["tensor_buffer_util.cc"],
     hdrs = ["tensor_buffer_util.h"],
-    deps = ["@litert//litert/cc:litert_macros"] + select({
+    deps = [
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+        "@litert//litert/cc:litert_macros",
+        "@litert//litert/cc:litert_ranked_tensor_type",
+    ] + select({
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
         ],
         "//conditions:default": [
+            "@litert//litert/cc:litert_environment",
             "@litert//litert/cc:litert_tensor_buffer",
         ],
     }),
@@ -263,6 +363,13 @@ cc_test(
         ":convert_tensor_buffer",
         ":tensor_buffer_util",
         "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/types:span",
+        "@litert//litert/cc:litert_element_type",
+        "@litert//litert/cc:litert_environment",
+        "@litert//litert/cc:litert_layout",
+        "@litert//litert/cc:litert_ranked_tensor_type",
+        "@litert//litert/cc:litert_tensor_buffer",
+        "@litert//litert/cc:litert_tensor_buffer_types",
         "@litert//litert/test:matchers",
     ],
 )
@@ -409,6 +516,7 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/synchronization",
         "@litert//litert/cc:litert_buffer_ref",
         "//runtime/components:model_resources",
         "//schema/core:litertlm_header_schema",
@@ -537,5 +645,34 @@ cc_test(
         "//runtime/proto:llm_metadata_cc_proto",
         "//runtime/proto:llm_model_type_cc_proto",
         "//runtime/util:test_utils",
+    ],
+)
+
+cc_library(
+    name = "metrics_util",
+    srcs = ["metrics_util.cc"],
+    hdrs = ["metrics_util.h"],
+    deps = [
+        ":litert_status_util",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/time",
+        "//runtime/engine:io_types",
+        "//runtime/engine:litert_lm_lib",
+        "//runtime/proto:litert_lm_metrics_cc_proto",
+    ],
+)
+
+cc_test(
+    name = "metrics_util_test",
+    srcs = ["metrics_util_test.cc"],
+    deps = [
+        ":metrics_util",
+        ":test_utils",
+        "@com_google_googletest//:gtest_main",
+        "@com_google_absl//absl/time",
+        "//runtime/engine:io_types",
+        "//runtime/engine:litert_lm_lib",
+        "//runtime/proto:engine_cc_proto",
+        "//runtime/proto:litert_lm_metrics_cc_proto",
     ],
 )

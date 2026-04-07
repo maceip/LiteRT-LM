@@ -139,6 +139,7 @@ void litert_lm_set_min_log_level(int level);
 typedef enum {
   kInputText,
   kInputImage,
+  kInputImageEnd,
   kInputAudio,
   kInputAudioEnd,
 } InputDataType;
@@ -199,12 +200,37 @@ LITERT_LM_C_API_EXPORT
 void litert_lm_engine_settings_set_activation_data_type(
     LiteRtLmEngineSettings* settings, int activation_data_type_int);
 
+// Sets the prefill chunk size for the engine. Only applicable for CPU backend
+// with dynamic models.
+//
+// @param settings The engine settings.
+// @param prefill_chunk_size The prefill chunk size.
+LITERT_LM_C_API_EXPORT
+void litert_lm_engine_settings_set_prefill_chunk_size(
+    LiteRtLmEngineSettings* settings, int prefill_chunk_size);
+
 // Enables benchmarking for the engine.
 //
 // @param settings The engine settings.
 LITERT_LM_C_API_EXPORT
 void litert_lm_engine_settings_enable_benchmark(
     LiteRtLmEngineSettings* settings);
+
+// Sets the number of prefill tokens for benchmarking.
+//
+// @param settings The engine settings.
+// @param num_prefill_tokens The number of prefill tokens.
+LITERT_LM_C_API_EXPORT
+void litert_lm_engine_settings_set_num_prefill_tokens(
+    LiteRtLmEngineSettings* settings, int num_prefill_tokens);
+
+// Sets the number of decode tokens for benchmarking.
+//
+// @param settings The engine settings.
+// @param num_decode_tokens The number of decode tokens.
+LITERT_LM_C_API_EXPORT
+void litert_lm_engine_settings_set_num_decode_tokens(
+    LiteRtLmEngineSettings* settings, int num_decode_tokens);
 
 // Creates a LiteRT LM Engine from the given settings. The caller is responsible
 // for destroying the engine using `litert_lm_engine_delete`.
@@ -301,6 +327,14 @@ LITERT_LM_C_API_EXPORT
 double litert_lm_benchmark_info_get_time_to_first_token(
     const LiteRtLmBenchmarkInfo* benchmark_info);
 
+// Returns the total initialization time in seconds.
+//
+// @param benchmark_info The benchmark info object.
+// @return The total initialization time in seconds.
+LITERT_LM_C_API_EXPORT
+double litert_lm_benchmark_info_get_total_init_time_in_second(
+    const LiteRtLmBenchmarkInfo* benchmark_info);
+
 // Returns the number of prefill turns.
 //
 // @param benchmark_info The benchmark info object.
@@ -326,7 +360,6 @@ LITERT_LM_C_API_EXPORT
 int litert_lm_benchmark_info_get_prefill_token_count_at(
     const LiteRtLmBenchmarkInfo* benchmark_info, int index);
 
-
 // Returns the decode token count at a given turn index.
 //
 // @param benchmark_info The benchmark info object.
@@ -335,7 +368,6 @@ int litert_lm_benchmark_info_get_prefill_token_count_at(
 LITERT_LM_C_API_EXPORT
 int litert_lm_benchmark_info_get_decode_token_count_at(
     const LiteRtLmBenchmarkInfo* benchmark_info, int index);
-
 
 // Returns the prefill tokens per second at a given turn index.
 //
@@ -405,12 +437,14 @@ void litert_lm_conversation_delete(LiteRtLmConversation* conversation);
 //
 // @param conversation The conversation to use.
 // @param message_json A JSON string representing the message to send.
+// @param extra_context A JSON string representing the extra context to use.
 // @return A pointer to the JSON response, or NULL on failure. The caller is
 //   responsible for deleting the response using
 //   `litert_lm_json_response_delete`.
 LITERT_LM_C_API_EXPORT
 LiteRtLmJsonResponse* litert_lm_conversation_send_message(
-    LiteRtLmConversation* conversation, const char* message_json);
+    LiteRtLmConversation* conversation, const char* message_json,
+    const char* extra_context);
 
 // Destroys a LiteRT LM Json Response object.
 //
@@ -434,6 +468,7 @@ const char* litert_lm_json_response_get_string(
 //
 // @param conversation The conversation to use.
 // @param message_json A JSON string representing the message to send.
+// @param extra_context A JSON string representing the extra context to use.
 // @param callback The callback function to receive response chunks.
 // @param callback_data A pointer to user data that will be passed to the
 // callback.
@@ -441,7 +476,8 @@ const char* litert_lm_json_response_get_string(
 LITERT_LM_C_API_EXPORT
 int litert_lm_conversation_send_message_stream(
     LiteRtLmConversation* conversation, const char* message_json,
-    LiteRtLmStreamCallback callback, void* callback_data);
+    const char* extra_context, LiteRtLmStreamCallback callback,
+    void* callback_data);
 
 // Cancels the ongoing inference process, for asynchronous inference.
 //

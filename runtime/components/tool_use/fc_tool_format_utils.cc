@@ -28,7 +28,7 @@ namespace litert::lm {
 namespace {
 
 absl::StatusOr<std::string> FormatObjectAsFc(
-    const nlohmann::ordered_json& object) {
+    const nlohmann::ordered_json& object, absl::string_view escape_tag) {
   if (!object.is_object()) {
     return absl::InvalidArgumentError(
         std::string("Object must be a JSON object. Got: ") +
@@ -38,7 +38,7 @@ absl::StatusOr<std::string> FormatObjectAsFc(
   ss << "{";
   int count = 0;
   for (const auto& [key, value] : object.items()) {
-    ASSIGN_OR_RETURN(std::string value_str, FormatValueAsFc(value));
+    ASSIGN_OR_RETURN(std::string value_str, FormatValueAsFc(value, escape_tag));
     ss << key << ":" << value_str;
     count += 1;
     if (count < object.size()) {
@@ -49,8 +49,8 @@ absl::StatusOr<std::string> FormatObjectAsFc(
   return ss.str();
 }
 
-absl::StatusOr<std::string> FormatArrayAsFc(
-    const nlohmann::ordered_json& array) {
+absl::StatusOr<std::string> FormatArrayAsFc(const nlohmann::ordered_json& array,
+                                            absl::string_view escape_tag) {
   if (!array.is_array()) {
     return absl::InvalidArgumentError(
         std::string("Array must be a JSON array. Got ") + array.type_name());
@@ -59,7 +59,8 @@ absl::StatusOr<std::string> FormatArrayAsFc(
   ss << "[";
   int count = 0;
   for (const auto& element : array) {
-    ASSIGN_OR_RETURN(std::string element_str, FormatValueAsFc(element));
+    ASSIGN_OR_RETURN(std::string element_str,
+                     FormatValueAsFc(element, escape_tag));
     ss << element_str;
     count += 1;
     if (count < array.size()) {
@@ -101,22 +102,23 @@ nlohmann::ordered_json UppercaseTypes(const nlohmann::ordered_json& object) {
 
 }  // namespace
 
-absl::StatusOr<std::string> FormatValueAsFc(
-    const nlohmann::ordered_json& value) {
+absl::StatusOr<std::string> FormatValueAsFc(const nlohmann::ordered_json& value,
+                                            absl::string_view escape_tag) {
   std::stringstream ss;
   if (value.is_null()) {
     ss << "null";
   } else if (value.is_string()) {
-    ss << "<escape>" << value.get<std::string>() << "<escape>";
+    ss << escape_tag << value.get<std::string>() << escape_tag;
   } else if (value.is_number()) {
     ss << value.dump();
   } else if (value.is_boolean()) {
     ss << value.dump();
   } else if (value.is_object()) {
-    ASSIGN_OR_RETURN(std::string object_str, FormatObjectAsFc(value));
+    ASSIGN_OR_RETURN(std::string object_str,
+                     FormatObjectAsFc(value, escape_tag));
     ss << object_str;
   } else if (value.is_array()) {
-    ASSIGN_OR_RETURN(std::string array_str, FormatArrayAsFc(value));
+    ASSIGN_OR_RETURN(std::string array_str, FormatArrayAsFc(value, escape_tag));
     ss << array_str;
   } else {
     return absl::InvalidArgumentError(
@@ -128,7 +130,8 @@ absl::StatusOr<std::string> FormatValueAsFc(
   return ss.str();
 }
 
-absl::StatusOr<std::string> FormatToolAsFc(const nlohmann::ordered_json& tool) {
+absl::StatusOr<std::string> FormatToolAsFc(const nlohmann::ordered_json& tool,
+                                           absl::string_view escape_tag) {
   if (!tool.is_object()) {
     return absl::InvalidArgumentError(
         std::string("Tool must be a JSON object. Got: ") + tool.type_name());
@@ -145,7 +148,8 @@ absl::StatusOr<std::string> FormatToolAsFc(const nlohmann::ordered_json& tool) {
   nlohmann::ordered_json fields = UppercaseTypes(function);
   fields.erase("name");
   std::stringstream ss;
-  ASSIGN_OR_RETURN(std::string fields_str, FormatObjectAsFc(fields));
+  ASSIGN_OR_RETURN(std::string fields_str,
+                   FormatObjectAsFc(fields, escape_tag));
   ss << "declaration:" << function["name"].get<std::string>() << fields_str;
   return ss.str();
 }

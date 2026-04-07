@@ -17,7 +17,9 @@
 #include <atomic>
 #include <memory>
 #include <optional>
+#include <string>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -25,6 +27,7 @@
 #include "absl/base/attributes.h"  // from @com_google_absl
 #include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/container/flat_hash_set.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -46,6 +49,7 @@
 #include "runtime/core/tasks.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/executor/audio_executor.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/executor_settings_base.h"
 #include "runtime/executor/llm_executor.h"
@@ -115,6 +119,25 @@ absl::StatusOr<SessionId> ExecutionManager::RegisterNewSession(
     session_lookup_.insert({session_id, std::move(session_info)});
   }
   return session_id;
+}
+
+absl::Status ExecutionManager::ReleaseSession(SessionId session_id) {
+  absl::MutexLock lock(session_and_task_lookup_mutex_);
+  if (!session_lookup_.contains(session_id)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Session ", session_id, " not found in session list."));
+  }
+  // If the session is the only session and it is audio modality enabled, we
+  // need to reset the audio executor, so the streaming audio executor would
+  // have a clean state for the next usage.
+  if (session_lookup_.at(session_id)->session_config.AudioModalityEnabled() &&
+      session_lookup_.size() == 1) {
+    ASSIGN_OR_RETURN(auto audio_executor,
+                     resource_manager_->AcquireAudioExecutor());
+    audio_executor->Reset().IgnoreError();
+  }
+  session_lookup_.erase(session_id);
+  return absl::OkStatus();
 }
 
 absl::Status ExecutionManager::CancelAllTasksInSession(SessionId session_id) {
@@ -519,19 +542,28 @@ absl::StatusOr<ExecutorInputs> ExecutionManager::ProcessAndCombineContents(
                                 ids_buffer_span.begin(), ids_buffer_span.end());
     } else if (const auto* input_image =
                    std::get_if<InputImage>(&preprocessed_content)) {
-      ASSIGN_OR_RETURN(const auto* image_tensor,
-                       input_image->GetPreprocessedImageTensor());
-      if (image_tensor == nullptr) {
-        return absl::InvalidArgumentError(
-            "Image tensor is null in preprocessed_contents.");
-      }
       if (benchmark_info.has_value()) {
         RETURN_IF_ERROR(benchmark_info->TimeMarkDelta("vision_executor"));
       }
-      ASSIGN_OR_RETURN(auto vision_executor,
-                       resource_manager_->AcquireVisionExecutor());
-      ASSIGN_OR_RETURN(auto single_image_data,
-                       vision_executor->Encode(*image_tensor));
+      ExecutorVisionData single_image_data;
+      if (input_image->IsTensorBuffer()) {
+        ASSIGN_OR_RETURN(auto tensor_buffer,
+                         input_image->GetPreprocessedImageTensor());
+        ASSIGN_OR_RETURN(auto vision_executor,
+                         resource_manager_->AcquireVisionExecutor());
+        ASSIGN_OR_RETURN(single_image_data,
+                         vision_executor->Encode(*tensor_buffer));
+      } else if (input_image->IsTensorBufferMap()) {
+        ASSIGN_OR_RETURN(auto tensor_buffer_map,
+                         input_image->GetPreprocessedImageTensorMap());
+        ASSIGN_OR_RETURN(auto vision_executor,
+                         resource_manager_->AcquireVisionExecutor());
+        ASSIGN_OR_RETURN(single_image_data,
+                         vision_executor->Encode(*tensor_buffer_map));
+      } else {
+        return absl::FailedPreconditionError(
+            "Image tensor or tensor map is null in preprocessed_contents.");
+      }
       if (benchmark_info.has_value()) {
         RETURN_IF_ERROR(benchmark_info->TimeMarkDelta("vision_executor"));
       }
@@ -543,6 +575,9 @@ absl::StatusOr<ExecutorInputs> ExecutionManager::ProcessAndCombineContents(
       combined_token_ids.insert(combined_token_ids.end(), image_token_num,
                                 ExecutorVisionData::kSpecialToken);
       all_image_data.push_back(std::move(single_image_data));
+    } else if (const auto* input_image_end =
+                   std::get_if<InputImageEnd>(&preprocessed_content)) {
+      combined_token_ids.push_back(ExecutorVisionData::kEndToken);
     } else if (const auto* input_audio =
                    std::get_if<InputAudio>(&preprocessed_content)) {
       ASSIGN_OR_RETURN(const auto* spectrogram_tensor,
@@ -602,16 +637,19 @@ absl::StatusOr<std::unique_ptr<ExecutionManager>> ExecutionManager::Create(
     ModelResources* absl_nullable model_resources,
     std::unique_ptr<LlmExecutor> absl_nonnull llm_executor,
     std::unique_ptr<VisionExecutorSettings> absl_nullable
-    vision_executor_settings,
+        vision_executor_settings,
     std::unique_ptr<AudioExecutorSettings> absl_nullable
-    audio_executor_settings,
-    ::litert::Environment* absl_nullable litert_env) {
+        audio_executor_settings,
+    ::litert::Environment* absl_nullable litert_env,
+    std::unique_ptr<AudioExecutor> absl_nullable audio_executor) {
   std::unique_ptr<Sampler> sampler;
   ASSIGN_OR_RETURN(
       auto resource_manager,
-      ResourceManager::Create(model_resources, std::move(llm_executor),
-                              std::move(vision_executor_settings),
-                              std::move(audio_executor_settings), litert_env));
+      ResourceManager::Create(
+          model_resources, std::move(llm_executor),
+          std::move(vision_executor_settings),
+          std::move(audio_executor_settings), litert_env,
+          std::move(audio_executor)));
   return absl::WrapUnique(
       new ExecutionManager(tokenizer, std::move(resource_manager), litert_env));
 }
@@ -678,20 +716,22 @@ absl::Status ExecutionManager::AddPrefillTask(
 
     RETURN_IF_CANCELLED(cancelled, task_id, callback);
 
-    auto executor_inputs =
-        ProcessAndCombineContents(inputs, session_info->benchmark_info);
-    if (!executor_inputs.ok()) {
-      FinishTaskAndLogErrors(task_id, executor_inputs.status(),
+    // Note AcquireExecutorWithContextHandler include context switching logic,
+    // so it should be called before any executor running.
+    auto llm_executor = resource_manager_->AcquireExecutorWithContextHandler(
+        session_info->context_handler);
+    if (!llm_executor.ok()) {
+      FinishTaskAndLogErrors(task_id, llm_executor.status(),
                              std::move(callback));
       return;
     }
 
     RETURN_IF_CANCELLED(cancelled, task_id, callback);
 
-    auto llm_executor = resource_manager_->AcquireExecutorWithContextHandler(
-        session_info->context_handler);
-    if (!llm_executor.ok()) {
-      FinishTaskAndLogErrors(task_id, llm_executor.status(),
+    auto executor_inputs =
+        ProcessAndCombineContents(inputs, session_info->benchmark_info);
+    if (!executor_inputs.ok()) {
+      FinishTaskAndLogErrors(task_id, executor_inputs.status(),
                              std::move(callback));
       return;
     }
@@ -741,12 +781,14 @@ absl::Status ExecutionManager::AddDecodeTask(
     SessionId session_id, TaskId task_id, absl::flat_hash_set<TaskId> dep_tasks,
     Constraint* absl_nullable constraint,
     std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
-    absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
+    absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback,
+    int max_output_tokens) {
   if (callback == nullptr) {
     callback = [](absl::StatusOr<Responses> responses) {};
   }
 
-  auto task = [this, task_id, constraint, cancelled]() mutable -> void {
+  auto task = [this, task_id, constraint, cancelled,
+               max_output_tokens]() mutable -> void {
     auto task_info = StartTask(task_id);
     if (!task_info.ok()) {
       FinishTaskAndLogErrors(task_id, task_info.status(),
@@ -793,7 +835,8 @@ absl::Status ExecutionManager::AddDecodeTask(
     auto responses = Tasks::Decode(
         *llm_executor.value(), *tokenizer_, *session_info->stop_token_detector,
         num_output_candidates, session_info->benchmark_info, optional_sampler,
-        constraint, std::move(decoded_ids_buffer), callback, cancelled.get());
+        constraint, std::move(decoded_ids_buffer), callback, cancelled.get(),
+        max_output_tokens);
     if (!responses.ok() && absl::IsCancelled(responses.status())) {
       responses = Responses(TaskState::kCancelled);
     }
@@ -841,9 +884,8 @@ absl::Status ExecutionManager::AddCloneSessionTask(
       {
         absl::MutexLock lock(session_and_task_lookup_mutex_);
         if (!session_lookup_.contains(session_id)) {
-          result = absl::InvalidArgumentError(
-              absl::StrCat("Session ", session_id,
-                           " not found in session list."));
+          result = absl::InvalidArgumentError(absl::StrCat(
+              "Session ", session_id, " not found in session list."));
           return;
         }
         original_session_info = session_lookup_.at(session_id);
@@ -916,10 +958,8 @@ absl::Status ExecutionManager::AddCloneSessionTask(
 }
 
 absl::Status ExecutionManager::AddTextScoringTask(
-    SessionId session_id, TaskId task_id,
-    absl::flat_hash_set<TaskId> dep_tasks,
-    const std::vector<absl::string_view>& target_text,
-    bool store_token_lengths,
+    SessionId session_id, TaskId task_id, absl::flat_hash_set<TaskId> dep_tasks,
+    const std::vector<absl::string_view>& target_text, bool store_token_lengths,
     std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
     absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
   if (callback == nullptr) {
@@ -970,10 +1010,9 @@ absl::Status ExecutionManager::AddTextScoringTask(
     // the sampler or the sampler parameters? For now, hardcode it to 1.0f for
     // testing.
     auto temperature = 1.0f;
-    auto responses =
-        Tasks::Score(*llm_executor.value(), *tokenizer_, target_text,
-                     temperature, std::move(decoded_ids_buffer.Value()),
-                     store_token_lengths);
+    auto responses = Tasks::Score(
+        *llm_executor.value(), *tokenizer_, target_text, temperature,
+        std::move(decoded_ids_buffer.Value()), store_token_lengths);
 
     if (cancelled != nullptr && cancelled->load()) {
       responses = Responses(TaskState::kCancelled);

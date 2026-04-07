@@ -1197,5 +1197,70 @@ TEST_F(Gemma3DataProcessorTest, CreateConstraintAlternativeToolFormat) {
   ASSERT_OK_AND_ASSIGN(auto constraint, processor->CreateConstraint(tools));
 }
 
+TEST_F(Gemma3DataProcessorTest, CloneState) {
+  ASSERT_OK_AND_ASSIGN(auto processor1, Gemma3DataProcessor::Create());
+  ASSERT_OK_AND_ASSIGN(auto processor2, Gemma3DataProcessor::Create());
+
+  EXPECT_OK(processor2->CloneState(*processor1));
+
+  const std::string rendered_template_prompt =
+      "<start_of_turn>user\ntest prompt\n<end_of_turn>";
+  const nlohmann::ordered_json messages = {
+      {"role", "user"},
+      {"content", "test prompt"},
+  };
+  ASSERT_OK_AND_ASSIGN(
+      const std::vector<InputData> input_data,
+      processor2->ToInputDataVector(rendered_template_prompt, messages, {}));
+
+  InputText expected_text("<start_of_turn>user\ntest prompt\n<end_of_turn>");
+  EXPECT_THAT(input_data, ElementsAre(HasInputText(&expected_text)));
+}
+
+#if !defined(WIN32) && !defined(_WIN32) && !defined(__WIN32__) && \
+    !defined(__NT__) && !defined(_WIN64)
+TEST_F(Gemma3DataProcessorTest, CloneStateWithAudio) {
+  ASSERT_OK_AND_ASSIGN(auto processor1, Gemma3DataProcessor::Create());
+  ASSERT_OK_AND_ASSIGN(auto processor2, Gemma3DataProcessor::Create());
+
+  EXPECT_OK(processor2->CloneState(*processor1));
+
+  const std::string rendered_template_prompt =
+      "<start_of_turn>user\nHere is an audio. Please transcribe it: "
+      "<start_of_audio><end_of_turn>";
+
+  std::string audio_path = (std::filesystem::path(::testing::SrcDir()) /
+                            kTestdataDir / "audio_sample.wav")
+                               .string();
+  const nlohmann::ordered_json message = {
+      {"role", "user"},
+      {"content",
+       {{{"type", "text"},
+         {"text", "Here is an audio. Please transcribe it: "}},
+        {{"type", "audio"}, {"path", audio_path}}}}};
+  ASSERT_OK_AND_ASSIGN(
+      const std::vector<InputData> input_data,
+      processor2->ToInputDataVector(rendered_template_prompt,
+                                    json::array({message}), {}));
+
+  InputText expected_text1(
+      "<start_of_turn>user\nHere is an audio. Please transcribe it: "
+      "\n\n<start_of_audio>");
+  ASSERT_OK_AND_ASSIGN(auto audio_preprocessor,
+                       AudioPreprocessorMiniAudio::Create(
+                           AudioPreprocessorConfig::CreateDefaultUsmConfig()));
+  ASSERT_OK_AND_ASSIGN(
+      InputAudio expected_audio,
+      audio_preprocessor->Preprocess(InputAudio(ReadFile(audio_path))));
+  InputText expected_text2("\n\n");
+  InputText expected_text3("<end_of_turn>");
+  EXPECT_THAT(
+      input_data,
+      ElementsAre(HasInputText(&expected_text1), HasInputAudio(&expected_audio),
+                  HasInputAudioEnd(), HasInputText(&expected_text2),
+                  HasInputText(&expected_text3)));
+}
+#endif
+
 }  // namespace
 }  // namespace litert::lm

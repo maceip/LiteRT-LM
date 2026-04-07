@@ -21,11 +21,14 @@
 #include <utility>
 #include <vector>
 
+#include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json.hpp"  // from @nlohmann_json
 #include "runtime/components/constrained_decoding/constraint.h"
+#if !defined(LITERT_LM_FST_CONSTRAINTS_DISABLED)
 #include "runtime/components/constrained_decoding/gemma_model_constraint_provider.h"
+#endif
 #include "runtime/components/preprocessor/audio_preprocessor.h"
 #include "runtime/components/preprocessor/image_preprocessor.h"
 #include "runtime/components/prompt_template.h"
@@ -73,6 +76,17 @@ class Gemma3DataProcessor
   absl::string_view CodeFenceEnd() const override;
 
  private:
+#if defined(LITERT_LM_FST_CONSTRAINTS_DISABLED)
+  explicit Gemma3DataProcessor(
+      const Gemma3DataProcessorConfig& config = Gemma3DataProcessorConfig(),
+      std::optional<Preface> preface = std::nullopt,
+      std::unique_ptr<ImagePreprocessor> image_preprocessor = nullptr,
+      std::unique_ptr<AudioPreprocessor> audio_preprocessor = nullptr)
+      : config_(config),
+        preface_(preface),
+        image_preprocessor_(std::move(image_preprocessor)),
+        audio_preprocessor_(std::move(audio_preprocessor)) {};
+#else
   explicit Gemma3DataProcessor(
       std::unique_ptr<LiteRtLmGemmaModelConstraintProvider,
                       decltype(&LiteRtLmGemmaModelConstraintProvider_Destroy)>
@@ -86,6 +100,7 @@ class Gemma3DataProcessor
         preface_(preface),
         image_preprocessor_(std::move(image_preprocessor)),
         audio_preprocessor_(std::move(audio_preprocessor)) {};
+#endif
 
   absl::StatusOr<std::vector<InputData>> ToInputDataVectorImpl(
       const std::string& rendered_template_prompt,
@@ -99,11 +114,19 @@ class Gemma3DataProcessor
   absl::StatusOr<SingleTurnTemplateRenderResult> RenderSingleTurnTemplate(
       std::vector<Message>& history, const Preface& preface,
       const Message& message, const PromptTemplate& prompt_template,
-      bool current_is_appending_message, bool append_message) const override;
+      bool current_is_appending_message, bool append_message,
+      std::optional<nlohmann::ordered_json> extra_context) const override;
 
+  absl::Status CloneStateImpl(
+      const TypeSafeModelDataProcessor<Gemma3DataProcessorConfig,
+                                       Gemma3DataProcessorArguments>& other)
+      override;
+
+#if !defined(LITERT_LM_FST_CONSTRAINTS_DISABLED)
   std::unique_ptr<LiteRtLmGemmaModelConstraintProvider,
                   decltype(&LiteRtLmGemmaModelConstraintProvider_Destroy)>
       constraint_provider_c_;
+#endif
   Gemma3DataProcessorConfig config_;
   std::optional<Preface> preface_;
   std::unique_ptr<ImagePreprocessor> image_preprocessor_;

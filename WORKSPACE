@@ -2,14 +2,14 @@
 
 workspace(name = "litert_lm")
 
-# UPDATED = 2026-01-30
-LITERT_REF = "cc3278e8165a52496a5c3578cc1c162acd5ee4ac"
+# UPDATED = 2026-04-01
+LITERT_REF = "5c42d07c5e457ea535d1a2144a376c95e79a06d5"
 
-LITERT_SHA256 = "547a410381fc51a84744b0fb2421bf881123774ba382d8f156625f37b0462c06"
+LITERT_SHA256 = "9e7f8f3e9152007a71766332147f6d2deecb3f9178749bc9ed9d76e69178a1c4"
 
-TENSORFLOW_REF = "44b586672cb376833121d0acc924aba1bb020aef"
+TENSORFLOW_REF = "e6f36bd7a12f87aac6f21a5068719dfc91bed3eb"
 
-TENSORFLOW_SHA256 = "f002f200b8af1aa8bfea14add3960fa97eb9f5a907c7160a6f831e4a5b4b6c1a"
+TENSORFLOW_SHA256 = "643b8e3f23283fb0e6cacc4612e77b285a1d3cfd295aa10b3386fd8fcf6d651f"
 
 # buildifier: disable=load-on-top
 
@@ -34,12 +34,49 @@ http_archive(
     url = "https://github.com/bazelbuild/rules_platform/releases/download/0.1.0/rules_platform-0.1.0.tar.gz",
 )
 
+# Use recent platoforms version to support uefi platform.
+http_archive(
+    name = "platforms",
+    sha256 = "3384eb1c30762704fbe38e440204e114154086c8fc8a8c2e3e28441028c019a8",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/platforms/releases/download/1.0.0/platforms-1.0.0.tar.gz",
+        "https://github.com/bazelbuild/platforms/releases/download/1.0.0/platforms-1.0.0.tar.gz",
+    ],
+)
+
+# Use 3.22.0 (from 3.5.1 of tensorflow) to fix binary signing issue on MacOS Tahoe.
+http_archive(
+    name = "build_bazel_rules_apple",
+    sha256 = "a78f26c22ac8d6e3f3fcaad50eace4d9c767688bd7254b75bdf4a6735b299f6a",
+    url = "https://github.com/bazelbuild/rules_apple/releases/download/3.22.0/rules_apple.3.22.0.tar.gz",
+)
+
+load(
+    "@build_bazel_rules_apple//apple:repositories.bzl",
+    "apple_rules_dependencies",
+)
+
+apple_rules_dependencies()
+
+http_archive(
+    name = "build_bazel_rules_swift",
+    sha256 = "f7a67197cd8a79debfe70b8cef4dc19d03039af02cc561e31e0718e98cad83ac",
+    url = "https://github.com/bazelbuild/rules_swift/releases/download/2.9.0/rules_swift.2.9.0.tar.gz",
+)
+
 # Lower the version from 1.24.5 that tensorflow uses to 1.23.1, the highest version which don't have
 # issues with missing LC_UUID, DEVELOPER_DIR or SDKROOT on MacOS Tahoe.
 http_archive(
     name = "build_bazel_apple_support",
     sha256 = "ee20cc5c0bab47065473c8033d462374dd38d172406ecc8de5c8f08487943f2f",
     url = "https://github.com/bazelbuild/apple_support/releases/download/1.23.1/apple_support.1.23.1.tar.gz",
+)
+
+http_archive(
+    name = "bazel_features",
+    sha256 = "c26b4e69cf02fea24511a108d158188b9d8174426311aac59ce803a78d107648",
+    strip_prefix = "bazel_features-1.43.0",
+    url = "https://github.com/bazel-contrib/bazel_features/releases/download/v1.43.0/bazel_features-v1.43.0.tar.gz",
 )
 
 # TensorFlow
@@ -97,6 +134,7 @@ python_init_repositories(
         "3.11": "@org_tensorflow//:requirements_lock_3_11.txt",
         "3.12": "@org_tensorflow//:requirements_lock_3_12.txt",
         "3.13": "@org_tensorflow//:requirements_lock_3_13.txt",
+        "3.14": "@org_tensorflow//:requirements_lock_3_14.txt",
     },
 )
 
@@ -239,6 +277,7 @@ rust_register_toolchains(
         "aarch64-linux-android",
         "aarch64-apple-ios",
         "aarch64-apple-ios-sim",
+        "x86_64-linux-android",
     ],
 )
 
@@ -247,6 +286,7 @@ load("@rules_rust//crate_universe:repositories.bzl", "crate_universe_dependencie
 crate_universe_dependencies()
 
 load("@rules_rust//crate_universe:defs.bzl", "crate", "crates_repository")
+load("@rules_rust//rust/platform:triple_mappings.bzl", "SUPPORTED_PLATFORM_TRIPLES")
 
 crates_repository(
     name = "crate_index",
@@ -274,6 +314,9 @@ crates_repository(
     lockfile = "//:cargo-bazel-lock.json",
     manifests = [
         "//:Cargo.toml",
+    ],
+    supported_platform_triples = SUPPORTED_PLATFORM_TRIPLES + [
+        "x86_64-linux-android",
     ],
 )
 
@@ -327,14 +370,6 @@ http_archive(
     sha256 = "9970f0a0afee1648890293321665e5b2efa04eaec9f1671fcf8048f456f5bb86",
     strip_prefix = "sentencepiece-0.2.0/src",
     url = "https://github.com/google/sentencepiece/archive/refs/tags/v0.2.0.tar.gz",
-)
-
-http_archive(
-    name = "darts_clone",
-    build_file = "@//:BUILD.darts_clone",
-    sha256 = "4a562824ec2fbb0ef7bd0058d9f73300173d20757b33bb69baa7e50349f65820",
-    strip_prefix = "darts-clone-e40ce4627526985a7767444b6ed6893ab6ff8983",
-    url = "https://github.com/s-yata/darts-clone/archive/e40ce4627526985a7767444b6ed6893ab6ff8983.tar.gz",
 )
 
 http_archive(
@@ -441,3 +476,23 @@ neuro_pilot()
 load("@litert//third_party/google_tensor:workspace.bzl", "google_tensor")
 
 google_tensor()
+
+http_archive(
+    name = "nanobind_json",
+    build_file = "@//:BUILD.nanobind_json",
+    patches = ["@//:PATCH.nanobind_json"],
+    sha256 = "72cb4cdbf8108c7dd2dc669347669f2cc1acf4f943588f96661701f27f778912",
+    strip_prefix = "nanobind_json-e1953530697f61cbca9dc9b4f51561ea785cb09d",
+    urls = ["https://github.com/ianhbell/nanobind_json/archive/e1953530697f61cbca9dc9b4f51561ea785cb09d.zip"],
+)
+
+load("@rules_python//python:pip.bzl", "pip_parse")
+
+pip_parse(
+    name = "custom_pip_deps",
+    requirements_lock = "//:requirements.txt",
+)
+
+load("@custom_pip_deps//:requirements.bzl", install_custom_deps = "install_deps")
+
+install_custom_deps()

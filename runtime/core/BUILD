@@ -32,11 +32,12 @@ package_group(
     packages = [
         # for ":engine_impl_selected".
         "//runtime/engine",
-        "//third_party/odml/litert_lm/js/packages/core/src/cpp",
         # for e2e tests.
         "//runtime/e2e_tests/...",
-        "//third_party/odml/litert_lm/c/...",
         "//c/...",
+        "//python/...",
+        # for SpeechProcessor
+        # for AI Edge Hub
     ],
 )
 
@@ -55,6 +56,7 @@ ENGINE_IMPL_COMMON_DEPS = [
     "@com_google_absl//absl/time",
     "@litert//litert/cc:litert_macros",
     "//runtime/components:model_resources",
+    "//runtime/components:tokenizer",
     "//runtime/engine:engine_factory",
     "//runtime/engine:engine_interface",
     "//runtime/engine:engine_settings",
@@ -118,6 +120,7 @@ cc_test(
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -205,6 +208,7 @@ cc_library(
         ":session_utils",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:any_invocable",
         "@com_google_absl//absl/log:absl_log",
@@ -379,7 +383,14 @@ cc_test(
         "//runtime/util:litert_status_util",
         "//runtime/util:tensor_buffer_util",
         "//runtime/util:test_utils",
-    ],
+    ] + select({
+        "@litert//litert:litert_link_capi_so": [
+            "@litert//litert/cc:litert_api_with_dynamic_runtime",
+        ],
+        "//conditions:default": [
+            "@litert//litert/cc:litert_tensor_buffer",
+        ],
+    }),
 )
 
 cc_library(
@@ -409,11 +420,13 @@ cc_library(
         "//runtime/proto:sampler_params_cc",
         "//runtime/util:convert_tensor_buffer",
         "//runtime/util:litert_status_util",
+        "@litert//tflite/types:half",
     ] + select({
         "@litert//litert:litert_link_capi_so": [
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
         ],
         "//conditions:default": [
+            "@litert//litert/cc:litert_element_type",
             "@litert//litert/cc:litert_macros",
             "@litert//litert/cc:litert_tensor_buffer",
         ],

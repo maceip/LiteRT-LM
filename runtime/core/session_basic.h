@@ -18,11 +18,13 @@
 #include <atomic>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"  // from @com_google_absl
 #include "absl/base/thread_annotations.h"  // from @com_google_absl
+#include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/container/flat_hash_set.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
@@ -138,16 +140,6 @@ class SessionBasic : public Engine::Session {
     return session_config_;
   }
 
-  const Tokenizer& GetTokenizer() const override { return tokenizer_; }
-
-  absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties()
-      const override {
-    if (audio_executor_properties_.has_value()) {
-      return audio_executor_properties_.value();
-    }
-    return absl::FailedPreconditionError("Audio modality is not enabled.");
-  }
-
   // Util function for creating the combined ExecutorInputs from the
   // preprocessed contents.
   // TODO - b/436674053: Modularize the preprocessing logic into a separate
@@ -155,16 +147,29 @@ class SessionBasic : public Engine::Session {
   absl::StatusOr<ExecutorInputs> ProcessAndCombineContents(
       const std::vector<InputData>& preprocessed_contents);
 
+  // Save the current step with the name `label`. You can later rewind to this
+  // checkpoint using `RewindToCheckpoint(label)`. If the checkpoint name
+  // already exists, the step number will be overwritten.
+  absl::Status SaveCheckpoint(absl::string_view label) override;
+
+  // Rewinds the session to the given checkpoint. Checkpoints after the
+  // restored step will be removed. Returns an error if the checkpoint name
+  // does not exist.
+  absl::Status RewindToCheckpoint(absl::string_view label) override;
+
+  // Get the current step of the session.
+  absl::StatusOr<int> GetCurrentStep() const override;
+
  private:
-  explicit SessionBasic(
-      LlmExecutor* absl_nonnull executor, Tokenizer* absl_nonnull tokenizer,
-      VisionExecutor* vision_executor, AudioExecutor* audio_executor,
-      std::unique_ptr<Sampler> sampler, const SessionConfig& session_config,
-      std::optional<BenchmarkInfo> benchmark_info,
-      ThreadPool* absl_nonnull worker_thread_pool,
-      const StopTokenDetector& stop_token_detector,
-      std::optional<AudioExecutorProperties> audio_executor_properties =
-          std::nullopt)
+  explicit SessionBasic(LlmExecutor* absl_nonnull executor,
+                        Tokenizer* absl_nonnull tokenizer,
+                        VisionExecutor* vision_executor,
+                        AudioExecutor* audio_executor,
+                        std::unique_ptr<Sampler> sampler,
+                        const SessionConfig& session_config,
+                        std::optional<BenchmarkInfo> benchmark_info,
+                        ThreadPool* absl_nonnull worker_thread_pool,
+                        const StopTokenDetector& stop_token_detector)
       : executor_(*executor),
         tokenizer_(*tokenizer),
         vision_executor_(vision_executor),
@@ -173,8 +178,7 @@ class SessionBasic : public Engine::Session {
         session_config_(session_config),
         benchmark_info_(benchmark_info),
         worker_thread_pool_(*worker_thread_pool),
-        stop_token_detector_(stop_token_detector),
-        audio_executor_properties_(audio_executor_properties) {}
+        stop_token_detector_(stop_token_detector) {}
 
   // The internal function to prefill the input prompt. It is for convenience to
   // wrap it with lambda function for scheduling.
@@ -243,9 +247,8 @@ class SessionBasic : public Engine::Session {
       ABSL_GUARDED_BY(occupied_executors_mu_);
   static absl::Mutex occupied_executors_mu_;
 
-  // The audio executor properties for the session. This is only available if
-  // the session is created with audio modality enabled.
-  std::optional<AudioExecutorProperties> audio_executor_properties_;
+  // The map of checkpoint name to step.
+  absl::flat_hash_map<std::string, int> checkpoint_map_;
 };
 
 }  // namespace litert::lm

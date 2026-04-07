@@ -94,7 +94,8 @@ absl::StatusOr<absl::string_view> ModelResourcesLitertLm::GetTFLiteModelBuffer(
   return buffer_ref.StrView();
 };
 
-absl::StatusOr<Tokenizer*> ModelResourcesLitertLm::GetTokenizer() {
+absl::StatusOr<std::unique_ptr<Tokenizer>>
+ModelResourcesLitertLm::GetTokenizer() {
 #if !defined(ENABLE_SENTENCEPIECE_TOKENIZER) && \
     !defined(ENABLE_HUGGINGFACE_TOKENIZER)
   return absl::UnimplementedError(
@@ -102,18 +103,10 @@ absl::StatusOr<Tokenizer*> ModelResourcesLitertLm::GetTokenizer() {
       "ENABLE_HUGGINGFACE_TOKENIZER are defined during build.");
 #endif  // !ENABLE_SENTENCEPIECE_TOKENIZER && !ENABLE_HUGGINGFACE_TOKENIZER
 
-  if (tokenizer_ != nullptr) {
-    return tokenizer_.get();
-  }
-
   auto sp_tokenizer = litert_lm_loader_->GetSentencePieceTokenizer();
 #ifdef ENABLE_SENTENCEPIECE_TOKENIZER
   if (sp_tokenizer) {
-    ASSIGN_OR_RETURN(  // NOLINT
-        auto tokenizer,
-        SentencePieceTokenizer::CreateFromBuffer(sp_tokenizer->StrView()));
-    tokenizer_ = std::move(tokenizer);
-    return tokenizer_.get();
+    return SentencePieceTokenizer::CreateFromBuffer(sp_tokenizer->StrView());
   }
 #endif  // ENABLE_SENTENCEPIECE_TOKENIZER
 
@@ -121,10 +114,7 @@ absl::StatusOr<Tokenizer*> ModelResourcesLitertLm::GetTokenizer() {
 #ifdef ENABLE_HUGGINGFACE_TOKENIZER
   if (hf_tokenizer) {
     std::string json_data(hf_tokenizer->StrData(), hf_tokenizer->Size());
-    ASSIGN_OR_RETURN(  // NOLINT
-        auto tokenizer, HuggingFaceTokenizer::CreateFromJson(json_data));
-    tokenizer_ = std::move(tokenizer);
-    return tokenizer_.get();
+    return HuggingFaceTokenizer::CreateFromJson(json_data);
   }
 #endif  // ENABLE_HUGGINGFACE_TOKENIZER
 
@@ -146,7 +136,8 @@ ModelResourcesLitertLm::GetLlmMetadata() {
   if (llm_metadata_ == nullptr) {
     auto buffer_ref = litert_lm_loader_->GetLlmMetadata();
     auto llm_metadata = std::make_unique<proto::LlmMetadata>();
-    if (!llm_metadata->ParseFromString(std::string(buffer_ref.StrView()))) {  // NOLINT
+    if (!llm_metadata->ParseFromString(
+            std::string(buffer_ref.StrView()))) {  // NOLINT
       return absl::InternalError("Failed to parse LlmMetadata");
     }
     llm_metadata_ = std::move(llm_metadata);

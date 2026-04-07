@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_MODEL_DATA_PROCESSOR_MODEL_DATA_PROCESSOR_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -80,15 +81,17 @@ class ModelDataProcessor {
   //  - current_is_appending_message: Whether the current conversation is in
   //  appending state.
   //  - append_message: Whether the current message is for appending.
+  //  - extra_context: Optional context to merge into the PromptTemplateInput
+  //  for prompt template rendering.
   //
   // Returns the rendered text and the new is_appending_message as a
   // SingleTurnTemplateRenderResult.
   virtual absl::StatusOr<SingleTurnTemplateRenderResult>
-  RenderSingleTurnTemplate(std::vector<Message>& history,
-                           const Preface& preface, const Message& message,
-                           const PromptTemplate& prompt_template,
-                           bool current_is_appending_message,
-                           bool append_message) const {
+  RenderSingleTurnTemplate(
+      std::vector<Message>& history, const Preface& preface,
+      const Message& message, const PromptTemplate& prompt_template,
+      bool current_is_appending_message, bool append_message,
+      std::optional<nlohmann::ordered_json> extra_context) const {
     return absl::UnimplementedError(
         "RenderSingleTurnTemplate is not implemented.");
   }
@@ -111,6 +114,9 @@ class ModelDataProcessor {
 
   // Returns the end of tool call blocks.
   virtual absl::string_view CodeFenceEnd() const = 0;
+
+  // Clones the state of the other model data processor.
+  virtual absl::Status CloneState(const ModelDataProcessor& other) = 0;
 };
 
 // TypeSafeModelDataProcessor is a ModelDataProcessor that expects a specific
@@ -156,6 +162,18 @@ class TypeSafeModelDataProcessor : public ModelDataProcessor {
   // Returns the config of the model data processor.
   virtual const ExpectedConfigT& GetConfig() const = 0;
 
+  // Clones the state of the other model data processor.
+  absl::Status CloneState(const ModelDataProcessor& other) final {
+    const auto* typed_other = dynamic_cast<
+        const TypeSafeModelDataProcessor<ExpectedConfigT, ExpectedArgsT>*>(
+        &other);
+    if (typed_other == nullptr) {
+      return absl::InvalidArgumentError(
+          "The other ModelDataProcessor is not of the expected type.");
+    }
+    return this->CloneStateImpl(*typed_other);
+  }
+
  private:
   virtual absl::StatusOr<std::vector<InputData>> ToInputDataVectorImpl(
       const std::string& rendered_template_prompt,
@@ -164,6 +182,10 @@ class TypeSafeModelDataProcessor : public ModelDataProcessor {
 
   virtual absl::StatusOr<Message> ToMessageImpl(
       const Responses& responses, const ExpectedArgsT& typed_args) const = 0;
+
+  virtual absl::Status CloneStateImpl(
+      const TypeSafeModelDataProcessor<ExpectedConfigT, ExpectedArgsT>&
+          other) = 0;
 };
 
 }  // namespace litert::lm

@@ -28,8 +28,9 @@ use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 
 fn strip_escape_tokens(text: &str) -> &str {
-    const ESCAPE: &str = "<escape>";
     let mut s = text;
+
+    const ESCAPE: &str = "<escape>";
     if s.starts_with(ESCAPE) {
         s = &s[ESCAPE.len()..];
     }
@@ -119,7 +120,6 @@ impl<'input> ParseTreeListener<'input, AntlrFcParserContextType> for FcListener 
 
 impl<'input> AntlrFcParserListener<'input> for FcListener {
     fn enter_functionCall(&mut self, ctx: &FunctionCallContext<'input>) {
-        println!("enter_functionCall: {:?}", ctx);
         if let Ok(tool_calls) = &mut self.tool_calls {
             let name =
                 if let Some(id_token) = ctx.ID() { id_token.get_text() } else { "".to_string() };
@@ -141,7 +141,6 @@ impl<'input> AntlrFcParserListener<'input> for FcListener {
                 tool_call_map.insert("arguments".to_string(), json!({}));
             }
 
-            println!("Parsed tool_call: {:?}", tool_call_map);
             tool_calls.push(Value::Object(tool_call_map));
         }
     }

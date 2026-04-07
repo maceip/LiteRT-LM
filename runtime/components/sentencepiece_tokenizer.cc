@@ -24,6 +24,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "runtime/components/tokenizer.h"
 #include "sentencepiece_model.pb.h"  // from @sentencepiece
 #include "sentencepiece_processor.h"  // from @sentencepiece
 
@@ -83,6 +84,7 @@ absl::StatusOr<int> SentencePieceTokenizer::TokenToId(absl::string_view token) {
 absl::StatusOr<std::string> SentencePieceTokenizer::TokenIdsToText(
     const std::vector<int>& token_ids) {
   std::string text = "";
+  std::vector<int> chunk_byte_token_ids;
   for (const auto& token_id : token_ids) {
     if (token_id >= vocab_size_ || token_id < 0) {
       return absl::NotFoundError(
@@ -90,19 +92,39 @@ absl::StatusOr<std::string> SentencePieceTokenizer::TokenIdsToText(
                        " is out of range. Vocab size is ", vocab_size_));
     }
     if (processor_->IsByte(token_id)) {
-      // If the token is a byte, we need to decode it using DecodeIds.
-      // Otherwise, the output would be a hexdecimal representation of the byte.
-      // Note: This is not ideal as certain tokens are only meaningful when
-      // multiple bytes are put together (e.g., emoji). This is a limitation of
-      // processing IDs as singletons.
-      text += processor_->DecodeIds({token_id});
+      std::string decoded = processor_->DecodeIds({token_id});
+      if (Tokenizer::HasBpeSuffix(decoded)) {
+        // If the token is a partial BPE token, we need to wait for more tokens
+        // to be decoded before we can decode it.
+        chunk_byte_token_ids.push_back(token_id);
+      } else {
+        // If the token is a single byte or invalid/continuation byte and not
+        // bundled with other tokens, decode it immediately.
+        absl::StrAppend(&text, decoded);
+      }
     } else {
+      // If the token is not a byte token, decode the chunk of byte tokens and
+      // clear buffer.
+      if (!chunk_byte_token_ids.empty()) {
+        absl::StrAppend(&text, processor_->DecodeIds(chunk_byte_token_ids));
+        chunk_byte_token_ids.clear();
+      }
       // We are forced to use IdToPiece to account for leading whitespace.
       // Otherwise, the normalizer (depending on the configuration) would
       // remove that which makes streaming decoding impossible.
       // e.g., [[change], [_volume]] -> "change volume" vs.
       //       [[change], [volume]] -> "changevolume"
-      text += processor_->IdToPiece(token_id);
+      absl::StrAppend(&text, processor_->IdToPiece(token_id));
+    }
+  }
+  if (!chunk_byte_token_ids.empty()) {
+    std::string decoded = processor_->DecodeIds(chunk_byte_token_ids);
+    if (Tokenizer::HasBpeSuffix(decoded)) {
+      return absl::DataLossError(
+          "The set of token IDs passed to the tokenizer is part of a BPE "
+          "sequence and needs more tokens to be decoded.");
+    } else {
+      absl::StrAppend(&text, decoded);
     }
   }
   return text;

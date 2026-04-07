@@ -30,13 +30,10 @@
 #include <string>
 #include <vector>
 
-#include "absl/base/log_severity.h"  // from @com_google_absl
 #include "absl/flags/flag.h"  // from @com_google_absl
-#include "absl/flags/marshalling.h"  // from @com_google_absl
 #include "absl/flags/parse.h"  // from @com_google_absl
 #include "absl/log/absl_check.h"  // from @com_google_absl
 #include "absl/log/absl_log.h"  // from @com_google_absl
-#include "absl/log/globals.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/numbers.h"  // from @com_google_absl
@@ -44,14 +41,22 @@
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "runtime/engine/litert_lm_lib.h"
 #include "runtime/engine/shared_flags.h"
+#include "runtime/proto/litert_lm_metrics.pb.h"
+#include "runtime/util/metrics_util.h"
 #include "runtime/util/status_macros.h"
 
 ABSL_FLAG(std::string, backend, "cpu",
           "Executor backend to use for LLM execution (cpu, gpu, etc.)");
 ABSL_FLAG(std::string, model_path, "", "Model path to use for LLM execution.");
+ABSL_FLAG(
+    bool, load_model_from_descriptor, false,
+    "Whether to load the model from a file descriptor rather than by path.");
 ABSL_FLAG(std::string, input_prompt, "",
           "Input prompt to use for testing LLM execution.");
 ABSL_FLAG(std::string, input_prompt_file, "", "File path to the input prompt.");
+ABSL_FLAG(std::string, metric_proto_file_path, "",
+          "Path to the file where the benchmark metrics will be saved in "
+          "protobuf format. Only collected when --benchmark is true.");
 ABSL_FLAG(int, prefill_chunk_size, -1,
           "Prefill chunk size for LLM execution. A positive value enables "
           "breaking the input prefill sequence into smaller chunks for "
@@ -107,6 +112,29 @@ std::string GetInputPrompt() {
   return "What is the tallest building in the world?";
 }
 
+// Writes the metrics to the given file path in protobuf format. Only used in
+// benchmark mode when the metric file path is specified.
+absl::Status WriteMetricsToFile(
+    const std::vector<litert::lm::LitertLmMetrics>& metrics,
+    const std::string& file_path) {
+  if (metrics.empty()) {
+    return absl::InvalidArgumentError("No metrics to write.");
+  }
+
+  ASSIGN_OR_RETURN(auto proto_list, litert::lm::ToProtoList(metrics));
+
+  std::ofstream out(file_path, std::ios::out | std::ios::binary);
+  if (!out) {
+    return absl::InternalError(
+        absl::StrCat("Failed to open metric file: ", file_path));
+  }
+  if (!proto_list.SerializeToOstream(&out)) {
+    return absl::InternalError("Failed to serialize metrics to file.");
+  }
+  ABSL_LOG(INFO) << "Metrics written to: " << file_path;
+  return absl::OkStatus();
+}
+
 absl::Status MainHelper(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
 
@@ -138,13 +166,16 @@ absl::Status MainHelper(int argc, char** argv) {
            "[--num_threads_to_upload=<num_threads_to_upload>]"
            "[--num_threads_to_compile=<num_threads_to_compile>]"
            "[--convert_weights_on_gpu=<true|false>]"
+           "[--wait_for_weights_conversion_complete_in_benchmark=<true|false>]"
            "[--optimize_shader_compilation=<true|false>]"
            "[--share_constant_tensors=<true|false>]"
            "[--num_iterations=<num_iterations>]"
            "[--litert_dispatch_lib_dir=<litert_dispatch_lib_dir>]"
            "[--sampler_handles_input=<true|false>]"
            "[--disable_cache=<true|false>]"
-           "[--conv_type=<auto|float|int8>]";
+           "[--cache_compiled_shader_only=<true|false>]"
+           "[--conv_type=<auto|float|int8>]"
+           "[--enable_speculative_decoding=<true|false>]";
     ABSL_LOG(INFO)
         << "To provide data for multimodality, use [image:/path/to/image.jpg] "
            "or [audio:/path/to/audio.wav] in the input prompt. e.g. \"Describe "
@@ -160,10 +191,13 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.audio_backend = absl::GetFlag(FLAGS_audio_backend);
   settings.sampler_backend = absl::GetFlag(FLAGS_sampler_backend);
   settings.model_path = absl::GetFlag(FLAGS_model_path);
+  settings.load_model_from_descriptor =
+      absl::GetFlag(FLAGS_load_model_from_descriptor);
   settings.input_prompt = GetInputPrompt();
   settings.expected_output = absl::GetFlag(FLAGS_expected_output);
   settings.log_sink_file = absl::GetFlag(FLAGS_log_sink_file);
   settings.max_num_tokens = absl::GetFlag(FLAGS_max_num_tokens);
+  settings.max_output_tokens = absl::GetFlag(FLAGS_max_output_tokens);
   settings.max_num_images = absl::GetFlag(FLAGS_max_num_images);
   ASSIGN_OR_RETURN(
       settings.prefill_batch_sizes,
@@ -194,11 +228,15 @@ absl::Status MainHelper(int argc, char** argv) {
   settings.gpu_madvise_original_shared_tensors =
       absl::GetFlag(FLAGS_gpu_madvise_original_shared_tensors);
   settings.disable_cache = absl::GetFlag(FLAGS_disable_cache);
+  settings.cache_compiled_shaders_only =
+      absl::GetFlag(FLAGS_cache_compiled_shaders_only);
   settings.preferred_device_substr =
       absl::GetFlag(FLAGS_preferred_device_substr);
   settings.num_threads_to_upload = absl::GetFlag(FLAGS_num_threads_to_upload);
   settings.num_threads_to_compile = absl::GetFlag(FLAGS_num_threads_to_compile);
   settings.convert_weights_on_gpu = absl::GetFlag(FLAGS_convert_weights_on_gpu);
+  settings.wait_for_weights_conversion_complete_in_benchmark =
+      absl::GetFlag(FLAGS_wait_for_weights_conversion_complete_in_benchmark);
   settings.optimize_shader_compilation =
       absl::GetFlag(FLAGS_optimize_shader_compilation);
   settings.share_constant_tensors = absl::GetFlag(FLAGS_share_constant_tensors);
@@ -208,9 +246,13 @@ absl::Status MainHelper(int argc, char** argv) {
       absl::GetFlag(FLAGS_litert_dispatch_lib_dir);
   settings.sampler_handles_input = absl::GetFlag(FLAGS_sampler_handles_input);
   settings.conv_type =
-      absl::GetFlag(FLAGS_conv_type) == "float" ? litert::lm::ConvType::kFloat :
-      absl::GetFlag(FLAGS_conv_type) == "int8" ? litert::lm::ConvType::kInt8 :
-      litert::lm::ConvType::kAuto;
+      absl::GetFlag(FLAGS_conv_type) == "float"  ? litert::lm::ConvType::kFloat
+      : absl::GetFlag(FLAGS_conv_type) == "int8" ? litert::lm::ConvType::kInt8
+                                                 : litert::lm::ConvType::kAuto;
+  settings.constraint_regex = absl::GetFlag(FLAGS_constraint_regex);
+  settings.use_submodel = absl::GetFlag(FLAGS_use_submodel);
+  settings.enable_speculative_decoding =
+      absl::GetFlag(FLAGS_enable_speculative_decoding);
 
   // Adjust max_num_tokens and prefill_batch_size if not set on benchmark mode.
   if (settings.benchmark && settings.benchmark_prefill_tokens > 0) {
@@ -223,7 +265,20 @@ absl::Status MainHelper(int argc, char** argv) {
     }
   }
 
-  return litert::lm::RunLiteRtLm(settings);
+  std::vector<litert::lm::LitertLmMetrics> metrics;
+  const std::string metric_proto_file_path =
+      absl::GetFlag(FLAGS_metric_proto_file_path);
+  const bool collect_metrics =
+      (settings.benchmark && !metric_proto_file_path.empty());
+
+  RETURN_IF_ERROR(
+      litert::lm::RunLiteRtLm(settings, collect_metrics ? &metrics : nullptr));
+
+  if (collect_metrics) {
+    RETURN_IF_ERROR(WriteMetricsToFile(metrics, metric_proto_file_path));
+  }
+
+  return absl::OkStatus();
 }
 
 }  // namespace

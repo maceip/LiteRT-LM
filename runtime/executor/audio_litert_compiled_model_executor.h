@@ -39,6 +39,28 @@
 
 namespace litert::lm {
 
+// The context for streaming audio encoder model, which contains
+// the state buffers of the audio encoder model.
+class AudioStreamingContext : public AudioContext {
+ public:
+  explicit AudioStreamingContext(
+      absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>
+          state_buffers)
+      : state_buffers_(std::move(state_buffers)) {};
+
+  absl::StatusOr<std::unique_ptr<AudioContext>> Clone() const override;
+
+  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer>&
+  state_buffers() {
+    return state_buffers_;
+  }
+
+ private:
+  // The state buffers of the audio encoder model. It includes the kv caches and
+  // the convolution features and masks of the last timestamp.
+  absl::flat_hash_map<absl::string_view, ::litert::TensorBuffer> state_buffers_;
+};
+
 // The Audio Executor that uses the LiteRT CompiledModel to run the audio
 // encoder and audio adapter models to encode the spectrogram tensor into audio
 // soft token embeddings.
@@ -92,15 +114,29 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   // Get the audio executor properties.
   absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties()
       const override {
-    return exeuctor_properties_;
+    return executor_properties_;
   }
+
+  // Create a new audio context for the audio executor.
+  absl::StatusOr<std::unique_ptr<AudioContext>> CreateNewContext() override;
+
+  // Clone the audio context for the audio executor.
+  absl::StatusOr<std::unique_ptr<AudioContext>> CloneContext() override;
+
+  // Clone the audio context from the given audio context.
+  absl::StatusOr<std::unique_ptr<AudioContext>> CloneContext(
+      const AudioContext& audio_context) override;
+
+  // Restore the audio context for the audio executor.
+  absl::Status RestoreContext(
+      std::unique_ptr<AudioContext> audio_context) override;
 
  private:
   // The Audio Encoder LiteRT CompiledModel wrapper manage the input and
   // output buffers of the audio encoder model. It is not expected to be used
-  // directly by the user. It is used by the AudioLiteRtCompiledModelExecutor to
-  // encode the spectrogram tensor into audio embeddings. The user should use
-  // the AudioLiteRtCompiledModelExecutor instead.
+  // directly by the user. It is used by the AudioLiteRtCompiledModelExecutor
+  // to encode the spectrogram tensor into audio embeddings. The user should
+  // use the AudioLiteRtCompiledModelExecutor instead.
   class AudioEncoder {
    public:
     virtual ~AudioEncoder() = default;
@@ -280,11 +316,18 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
 
     // Swap the internal state buffers between input and output buffers map, so
     // the previous state will be used for the current state.
-    void SwapInternalStateBuffers();
+    absl::Status SwapInternalStateBuffers();
 
     absl::Status ClearInputBuffers() override;
 
     absl::Status Reset() override;
+
+    absl::StatusOr<std::unique_ptr<AudioStreamingContext>> CreateNewContext();
+
+    absl::StatusOr<std::unique_ptr<AudioStreamingContext>> CloneContext();
+
+    absl::Status RestoreContext(
+        std::unique_ptr<AudioStreamingContext> audio_streaming_context);
 
    private:
     AudioStreamingEncoder(const AudioExecutorSettings& executor_settings,
@@ -378,7 +421,7 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
         audio_embedding_dimensions_(audio_embedding_dimensions),
         encoder_shrinking_factor_(encoder_shrinking_factor),
         executor_settings_(std::move(executor_settings)),
-        exeuctor_properties_(std::move(executor_properties)),
+        executor_properties_(std::move(executor_properties)),
         env_(env),
         resources_(std::move(resources)),
         audio_encoder_(std::move(audio_encoder)),
@@ -402,7 +445,7 @@ class AudioLiteRtCompiledModelExecutor : public AudioExecutor {
   int audio_embedding_dimensions_;
   int encoder_shrinking_factor_;
   AudioExecutorSettings executor_settings_;
-  AudioExecutorProperties exeuctor_properties_;
+  AudioExecutorProperties executor_properties_;
   /// The LiteRT environment.
   Environment& env_;
   std::unique_ptr<ModelResources> resources_;

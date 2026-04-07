@@ -15,6 +15,7 @@
 #include "runtime/components/preprocessor/stb_image_preprocessor.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>  // NOLINT: Required for path manipulation.
 #include <fstream>
 #include <ios>
@@ -177,6 +178,258 @@ TEST(StbImagePreprocessorTest, PreprocessFailedWithInvalidImage) {
       preprocessor.Preprocess(InputImage(invalid_image_bytes), parameter),
       StatusIs(absl::StatusCode::kInvalidArgument,
                "Failed to decode image. Reason: unknown image type"));
+}
+
+TEST(StbImagePreprocessorTest, PreprocessWithPatchify) {
+  StbImagePreprocessor preprocessor;
+
+  // Load the image file.
+  const std::string image_path =
+      (std::filesystem::path(::testing::SrcDir()) / kTestdataDir / "apple.png")
+          .string();
+  std::ifstream file_stream(image_path, std::ios::binary);
+  ASSERT_TRUE(file_stream.is_open())
+      << "Failed to open image file: " << image_path;
+  std::stringstream buffer;
+  buffer << file_stream.rdbuf();
+  std::string image_bytes = buffer.str();
+
+  ImagePreprocessParameter parameter;
+  constexpr int kPatchSize = 16;
+  parameter.SetPatchifyConfig({.patch_width = kPatchSize,
+                               .patch_height = kPatchSize,
+                               .max_num_patches = 4096});
+
+  auto input_image = InputImage(image_bytes);
+  ASSERT_OK_AND_ASSIGN(auto preprocessed_image,
+                       preprocessor.Preprocess(input_image, parameter));
+
+  ASSERT_TRUE(preprocessed_image.IsTensorBufferMap());
+  ASSERT_OK_AND_ASSIGN(auto tensor_map,
+                       preprocessed_image.GetPreprocessedImageTensorMap());
+  ASSERT_NE(tensor_map, nullptr);
+  EXPECT_TRUE(tensor_map->contains("images"));
+  EXPECT_TRUE(tensor_map->contains("positions_xy"));
+
+  const auto& images_tensor = tensor_map->at("images");
+  auto images_tensor_type = images_tensor.TensorType();
+  ASSERT_TRUE(images_tensor_type.HasValue());
+  // The apple.png is 1024x1024.
+  // 1024 / 16 = 64. 64 * 64 = 4096 patches.
+  // 16 * 16 * 3 = 768 elements per patch.
+  EXPECT_THAT(images_tensor_type.Value().Layout().Dimensions(),
+              ElementsAre(1, 4096, 768));
+
+  const auto& positions_tensor = tensor_map->at("positions_xy");
+  auto positions_tensor_type = positions_tensor.TensorType();
+  ASSERT_TRUE(positions_tensor_type.HasValue());
+  EXPECT_THAT(positions_tensor_type.Value().Layout().Dimensions(),
+              ElementsAre(1, 4096, 2));
+
+  // Verify positions.
+  auto positions_lock = ::litert::TensorBufferScopedLock::Create(
+      positions_tensor, ::litert::TensorBuffer::LockMode::kRead);
+  ASSERT_TRUE(positions_lock.HasValue());
+  const int32_t* positions_ptr =
+      reinterpret_cast<const int32_t*>(positions_lock->second);
+  for (int h = 0; h < 64; ++h) {
+    for (int w = 0; w < 64; ++w) {
+      int idx = h * 64 + w;
+      EXPECT_EQ(positions_ptr[idx * 2], w);
+      EXPECT_EQ(positions_ptr[idx * 2 + 1], h);
+    }
+  }
+
+  // Verify image values.
+  auto images_lock = ::litert::TensorBufferScopedLock::Create(
+      images_tensor, ::litert::TensorBuffer::LockMode::kRead);
+  ASSERT_TRUE(images_lock.HasValue());
+  const float* data = reinterpret_cast<const float*>(images_lock->second);
+
+  constexpr float kTolerance = 1e-6f;
+  constexpr int height = 1024;
+  constexpr int width = 1024;
+  constexpr int channels = 3;
+
+  // Helper to get the starting index for a pixel (y, x).
+  auto get_pixel_index = [&](int y, int x) {
+    const int stride = kPatchSize * kPatchSize * channels;
+    return ((y / kPatchSize) * (width / kPatchSize) + x / kPatchSize) * stride +
+           ((y % kPatchSize) * kPatchSize + x % kPatchSize) * channels;
+  };
+
+  // --- Sample 1: Top-Left Pixel (0,0) ---
+  const float expected_0_0_r = 0.27058824f;
+  const float expected_0_0_g = 0.20392157f;
+  const float expected_0_0_b = 0.12549020f;
+  int idx_0_0 = get_pixel_index(0, 0);
+  EXPECT_NEAR(data[idx_0_0 + 0], expected_0_0_r, kTolerance) << "R at (0,0)";
+  EXPECT_NEAR(data[idx_0_0 + 1], expected_0_0_g, kTolerance) << "G at (0,0)";
+  EXPECT_NEAR(data[idx_0_0 + 2], expected_0_0_b, kTolerance) << "B at (0,0)";
+
+  // --- Sample 2: Top-Right Pixel (0, 1023) ---
+  const float expected_0_1023_r = 0.97647058f;
+  const float expected_0_1023_g = 0.97254902f;
+  const float expected_0_1023_b = 0.95686275f;
+  int idx_0_1023 = get_pixel_index(0, width - 1);
+  EXPECT_NEAR(data[idx_0_1023 + 0], expected_0_1023_r, kTolerance)
+      << "R at (0,1023)";
+  EXPECT_NEAR(data[idx_0_1023 + 1], expected_0_1023_g, kTolerance)
+      << "G at (0,1023)";
+  EXPECT_NEAR(data[idx_0_1023 + 2], expected_0_1023_b, kTolerance)
+      << "B at (0,1023)";
+
+  // --- Sample 3: Center Pixel (512, 512) ---
+  const float expected_512_512_r = 0.35294118f;
+  const float expected_512_512_g = 0.00784314f;
+  const float expected_512_512_b = 0.00392157f;
+  int idx_512_512 = get_pixel_index(height / 2, width / 2);
+  EXPECT_NEAR(data[idx_512_512 + 0], expected_512_512_r, kTolerance)
+      << "R at (512,512)";
+  EXPECT_NEAR(data[idx_512_512 + 1], expected_512_512_g, kTolerance)
+      << "G at (512,512)";
+  EXPECT_NEAR(data[idx_512_512 + 2], expected_512_512_b, kTolerance)
+      << "B at (512,512)";
+
+  // --- Sample 4: Bottom-Left Pixel (1023, 0) ---
+  const float expected_1023_0_r = 0.42745098f;
+  const float expected_1023_0_g = 0.26274511f;
+  const float expected_1023_0_b = 0.16470589f;
+  int idx_1023_0 = get_pixel_index(height - 1, 0);
+  EXPECT_NEAR(data[idx_1023_0 + 0], expected_1023_0_r, kTolerance)
+      << "R at (1023,0)";
+  EXPECT_NEAR(data[idx_1023_0 + 1], expected_1023_0_g, kTolerance)
+      << "G at (1023,0)";
+  EXPECT_NEAR(data[idx_1023_0 + 2], expected_1023_0_b, kTolerance)
+      << "B at (1023,0)";
+
+  // --- Sample 5: Bottom-Right Pixel (1023, 1023) ---
+  const float expected_1023_1023_r = 0.68235296f;
+  const float expected_1023_1023_g = 0.61568630f;
+  const float expected_1023_1023_b = 0.51372552f;
+  int idx_1023_1023 = get_pixel_index(height - 1, width - 1);
+  EXPECT_NEAR(data[idx_1023_1023 + 0], expected_1023_1023_r, kTolerance)
+      << "R at (1023,1023)";
+  EXPECT_NEAR(data[idx_1023_1023 + 1], expected_1023_1023_g, kTolerance)
+      << "G at (1023,1023)";
+  EXPECT_NEAR(data[idx_1023_1023 + 2], expected_1023_1023_b, kTolerance)
+      << "B at (1023,1023)";
+}
+
+TEST(StbImagePreprocessorTest, PreprocessWithPatchifyResize) {
+  StbImagePreprocessor preprocessor;
+
+  // Load the image file.
+  const std::string image_path =
+      (std::filesystem::path(::testing::SrcDir()) / kTestdataDir / "apple.png")
+          .string();
+  std::ifstream file_stream(image_path, std::ios::binary);
+  ASSERT_TRUE(file_stream.is_open())
+      << "Failed to open image file: " << image_path;
+  std::stringstream buffer;
+  buffer << file_stream.rdbuf();
+  std::string image_bytes = buffer.str();
+
+  ImagePreprocessParameter parameter;
+  // Max 49 patches means it should resize to 112x112 (112/16 = 7, 7*7=49).
+  constexpr int kPatchSize = 16;
+  parameter.SetPatchifyConfig({.patch_width = kPatchSize,
+                               .patch_height = kPatchSize,
+                               .max_num_patches = 49});
+
+  auto input_image = InputImage(image_bytes);
+  ASSERT_OK_AND_ASSIGN(auto preprocessed_image,
+                       preprocessor.Preprocess(input_image, parameter));
+
+  ASSERT_TRUE(preprocessed_image.IsTensorBufferMap());
+  ASSERT_OK_AND_ASSIGN(auto tensor_map,
+                       preprocessed_image.GetPreprocessedImageTensorMap());
+  const auto& images_tensor = tensor_map->at("images");
+  auto images_tensor_type = images_tensor.TensorType();
+  ASSERT_TRUE(images_tensor_type.HasValue());
+  EXPECT_THAT(images_tensor_type.Value().Layout().Dimensions(),
+              ElementsAre(1, 49, 768));
+
+  const auto& positions_tensor = tensor_map->at("positions_xy");
+  auto positions_tensor_type = positions_tensor.TensorType();
+  ASSERT_TRUE(positions_tensor_type.HasValue());
+  EXPECT_THAT(positions_tensor_type.Value().Layout().Dimensions(),
+              ElementsAre(1, 49, 2));
+
+  // Verify image values.
+  auto images_lock = ::litert::TensorBufferScopedLock::Create(
+      images_tensor, ::litert::TensorBuffer::LockMode::kRead);
+  ASSERT_TRUE(images_lock.HasValue());
+  const float* data = reinterpret_cast<const float*>(images_lock->second);
+
+  constexpr float kTolerance = 1e-6f;
+  constexpr int height = 112;
+  constexpr int width = 112;
+  constexpr int channels = 3;
+
+  // Helper to get the starting index for a pixel (y, x).
+  auto get_pixel_index = [&](int y, int x) {
+    const int stride = kPatchSize * kPatchSize * channels;
+    return ((y / kPatchSize) * (width / kPatchSize) + x / kPatchSize) * stride +
+           ((y % kPatchSize) * kPatchSize + x % kPatchSize) * channels;
+  };
+
+  // --- Sample 1: Top-Left Pixel (0,0) ---
+  const float expected_0_0_r = 0.26666668f;
+  const float expected_0_0_g = 0.20000000f;
+  const float expected_0_0_b = 0.13333334f;
+  int idx_0_0 = get_pixel_index(0, 0);
+  EXPECT_NEAR(data[idx_0_0 + 0], expected_0_0_r, kTolerance) << "R at (0,0)";
+  EXPECT_NEAR(data[idx_0_0 + 1], expected_0_0_g, kTolerance) << "G at (0,0)";
+  EXPECT_NEAR(data[idx_0_0 + 2], expected_0_0_b, kTolerance) << "B at (0,0)";
+
+  // --- Sample 2: Top-Right Pixel (0, 111) ---
+  const float expected_0_111_r = 0.94901961f;
+  const float expected_0_111_g = 0.94509804f;
+  const float expected_0_111_b = 0.92549020f;
+  int idx_0_111 = get_pixel_index(0, width - 1);
+  EXPECT_NEAR(data[idx_0_111 + 0], expected_0_111_r, kTolerance)
+      << "R at (0,111)";
+  EXPECT_NEAR(data[idx_0_111 + 1], expected_0_111_g, kTolerance)
+      << "G at (0,111)";
+  EXPECT_NEAR(data[idx_0_111 + 2], expected_0_111_b, kTolerance)
+      << "B at (0,111)";
+
+  // --- Sample 3: Center Pixel (56, 56) ---
+  const float expected_56_56_r = 0.41568628f;
+  const float expected_56_56_g = 0.015686275f;
+  const float expected_56_56_b = 0.011764706f;
+  int idx_56_56 = get_pixel_index(height / 2, width / 2);
+  EXPECT_NEAR(data[idx_56_56 + 0], expected_56_56_r, kTolerance)
+      << "R at (56,56)";
+  EXPECT_NEAR(data[idx_56_56 + 1], expected_56_56_g, kTolerance)
+      << "G at (56,56)";
+  EXPECT_NEAR(data[idx_56_56 + 2], expected_56_56_b, kTolerance)
+      << "B at (56,56)";
+
+  // --- Sample 4: Bottom-Left Pixel (111, 0) ---
+  const float expected_111_0_r = 0.42352942f;
+  const float expected_111_0_g = 0.27058824f;
+  const float expected_111_0_b = 0.16470589f;
+  int idx_111_0 = get_pixel_index(height - 1, 0);
+  EXPECT_NEAR(data[idx_111_0 + 0], expected_111_0_r, kTolerance)
+      << "R at (111,0)";
+  EXPECT_NEAR(data[idx_111_0 + 1], expected_111_0_g, kTolerance)
+      << "G at (111,0)";
+  EXPECT_NEAR(data[idx_111_0 + 2], expected_111_0_b, kTolerance)
+      << "B at (111,0)";
+
+  // --- Sample 5: Bottom-Right Pixel (111, 111) ---
+  const float expected_111_111_r = 0.82745099f;
+  const float expected_111_111_g = 0.76470589f;
+  const float expected_111_111_b = 0.69803923f;
+  int idx_111_111 = get_pixel_index(height - 1, width - 1);
+  EXPECT_NEAR(data[idx_111_111 + 0], expected_111_111_r, kTolerance)
+      << "R at (111,111)";
+  EXPECT_NEAR(data[idx_111_111 + 1], expected_111_111_g, kTolerance)
+      << "G at (111,111)";
+  EXPECT_NEAR(data[idx_111_111 + 2], expected_111_111_b, kTolerance)
+      << "B at (111,111)";
 }
 
 }  // namespace

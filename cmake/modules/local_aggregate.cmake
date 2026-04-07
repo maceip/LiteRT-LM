@@ -24,11 +24,11 @@ macro(generate_local_aggregate)
         add_library(LiteRTLM::Local::Aggregate INTERFACE IMPORTED GLOBAL)
         set_target_properties(LiteRTLM::Local::Aggregate PROPERTIES
             INTERFACE_LINK_LIBRARIES
-                "${_local_lib_paths} ${_litert_lib_paths} ${_tflite_lib_paths} ${_tokenizers_lib_path} ${_sentencepiece_lib_paths} ${_re2_lib_paths} ${_flatbuffers_lib_paths} ${_protobuf_lib_paths} ${_absl_lib_paths}"
+                "${_local_lib_paths} ${_cxxbridge_paths} ${_litert_lib_paths} ${_tflite_lib_paths} ${_tokenizers_lib_path} ${_sentencepiece_lib_paths} ${_re2_lib_paths} ${_flatbuffers_lib_paths} ${_protobuf_lib_paths} ${_absl_lib_paths}"
             INTERFACE_LINK_LIBRARIES_CORE
                 "${_tokenizers_lib_path} ${_sentencepiece_lib_paths} ${_re2_lib_paths} ${_flatbuffers_lib_paths} ${_protobuf_lib_paths} ${_absl_lib_paths}"
             INTERFACE_LINK_LIBRARIES_ODML
-                "${_local_lib_paths} ${_litert_lib_paths} ${_tflite_lib_paths}"
+                "${_local_lib_paths} ${_cxxbridge_paths} ${_llguidance_lib_paths} ${_litert_lib_paths} ${_tflite_lib_paths}"
         )
 
         get_property(_local_targets GLOBAL PROPERTY LITERTLM_LOCAL_TARGET_REGISTRY)

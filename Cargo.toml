@@ -23,3 +23,13 @@ tokenizers = { version = "=0.21.0", default-features = false, features = ["onig"
 serde = { version = "1.0", features = [ "derive" ] }
 serde_json = { version = "1.0", features = [ "preserve_order" ] }
 syn = "2.0"
+
+antlr_fc_tool_call_parser = { path = "cmake/rust/antlr_fc" }
+antlr_python_tool_call_parser = { path = "cmake/rust/antlr_python" }
+json_parser = { path = "cmake/rust/json_parser" }
+python_parser = { path = "cmake/rust/python_parser" }
+fc_parser = { path = "cmake/rust/fc_parser" }
+
+
+[lib]
+crate-type = ["staticlib"]

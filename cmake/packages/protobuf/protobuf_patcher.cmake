@@ -13,7 +13,7 @@
 # limitations under the License.# protobuf_patcher.cmake
 
 
-message(STATUS "[LITERTLM PATCHER] Injecting shim into Protobuf root...")
+message(STATUS "[LiteRTLM] Injecting shim into Protobuf root...")
 
 set(ROOT_LIST "${PROTO_SRC_DIR}/CMakeLists.txt")
 
@@ -23,7 +23,7 @@ if(EXISTS "${ROOT_LIST}")
                "project(protobuf C CXX)\ninclude(${LITERTLM_PROTO_SHIM_PATH})"
                CONTENT "${CONTENT}")
     file(WRITE "${ROOT_LIST}" "${INJECTION}${CONTENT}")
-    message(STATUS "[LITERTLM PATCHER] Injection successful.")
+    message(STATUS "[LiteRTLM] Injection successful.")
 else()
     message(FATAL_ERROR "Could not find Protobuf root CMakeLists.txt at ${ROOT_LIST}")
 endif()
@@ -40,8 +40,10 @@ foreach(_file IN LISTS _proto_cmake_files)
     if(EXISTS "${_path}")
         message(STATUS "[LiteRTLM] Patching visibility in ${_file}")
         file(READ "${_path}" _content)
-        string(REPLACE "CXX_VISIBILITY_PRESET hidden" "CXX_VISIBILITY_PRESET default" _content "${_content}")
-        string(REPLACE "VISIBILITY_INLINES_HIDDEN ON" "VISIBILITY_INLINES_HIDDEN OFF" _content "${_content}")
+        string(REPLACE "CXX_VISIBILITY_PRESET hidden"
+            "CXX_VISIBILITY_PRESET default" _content "${_content}")
+        string(REPLACE "VISIBILITY_INLINES_HIDDEN ON"
+            "VISIBILITY_INLINES_HIDDEN OFF" _content "${_content}")
         file(WRITE "${_path}" "${_content}")
     endif()
 endforeach()

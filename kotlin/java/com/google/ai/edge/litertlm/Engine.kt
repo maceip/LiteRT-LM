@@ -62,6 +62,12 @@ class Engine(val engineConfig: EngineConfig) : AutoCloseable {
     synchronized(lock) {
       check(!isInitialized()) { "Engine is already initialized." }
 
+      val mainBackendNumThreads =
+        (engineConfig.backend as? Backend.CPU)?.numOfThreads?.let { if (it > 0) it else -1 } ?: -1
+      val audioBackendNumThreads =
+        (engineConfig.audioBackend as? Backend.CPU)?.numOfThreads?.let { if (it > 0) it else -1 }
+          ?: -1
+
       handle =
         LiteRtLmJni.nativeCreateEngine(
           engineConfig.modelPath,
@@ -73,7 +79,12 @@ class Engine(val engineConfig: EngineConfig) : AutoCloseable {
           engineConfig.maxNumTokens ?: -1,
           engineConfig.cacheDir ?: "",
           @OptIn(ExperimentalApi::class) ExperimentalFlags.enableBenchmark,
-          @OptIn(ExperimentalApi::class) ExperimentalFlags.npuLibrariesDir,
+          @OptIn(ExperimentalApi::class) ExperimentalFlags.enableSpeculativeDecoding,
+          (engineConfig.backend as? Backend.NPU)?.nativeLibraryDir ?: "",
+          (engineConfig.visionBackend as? Backend.NPU)?.nativeLibraryDir ?: "",
+          (engineConfig.audioBackend as? Backend.NPU)?.nativeLibraryDir ?: "",
+          mainBackendNumThreads,
+          audioBackendNumThreads,
         )
     }
   }
@@ -109,15 +120,23 @@ class Engine(val engineConfig: EngineConfig) : AutoCloseable {
       val toolManager = ToolManager(conversationConfig.tools)
       val messagesJson: JsonArray =
         JsonArray().apply {
-          conversationConfig.systemMessage?.let {
-            // Convert the message's role to Role.SYSTEM for backward compatibility.
-            this.add(Message(it.contents, Role.SYSTEM).toJson())
-          }
-
-          conversationConfig.systemInstruction?.let { this.add(Message(it, Role.SYSTEM).toJson()) }
+          conversationConfig.systemInstruction?.let { this.add(Message(Role.SYSTEM, it).toJson()) }
 
           for (message in conversationConfig.initialMessages) {
             this.add(message.toJson())
+          }
+        }
+
+      // Convert the channels to a JSON array, if provided.
+      // If `channels` is null, the `Conversation` uses the default from the
+      // `LlmMetadata` or the model type.
+      // If channels is empty, channels will be disabled.
+      val channelsJson: JsonArray? =
+        conversationConfig.channels?.let { channels ->
+          JsonArray().apply {
+            for (channel in channels) {
+              this.add(channel.toJson())
+            }
           }
         }
 
@@ -128,9 +147,12 @@ class Engine(val engineConfig: EngineConfig) : AutoCloseable {
           conversationConfig.samplerConfig,
           messagesJson.toString(),
           toolManager.getToolsDescription().toString(),
+          channelsJson?.toString(),
+          conversationConfig.extraContext.toJsonObject().toString(),
           ExperimentalFlags.enableConversationConstrainedDecoding,
         ),
         toolManager,
+        conversationConfig.automaticToolCalling,
       )
     }
   }

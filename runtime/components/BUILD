@@ -16,6 +16,7 @@
 # [Google-internal load of `cc_library`]
 # [Google-internal load of `cc_shared_library`]
 # [Google-internal load of `cc_test`]
+# [Google-internal load of `objc_library`]
 load(
     "@litert//litert/build_common:litert_build_defs.bzl",
     "export_lrt_runtime_only_linkopt",
@@ -63,6 +64,7 @@ cc_library(
     deps = [
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:span",
         "//runtime/util:convert_tensor_buffer",
@@ -257,8 +259,10 @@ cc_library(
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
         "@com_google_absl//absl/types:span",
+        "//runtime/util:litert_status_util",
     ],
 )
 
@@ -374,7 +378,11 @@ cc_library(
             "@litert//litert/cc:litert_api_with_dynamic_runtime",
         ],
         "//conditions:default": [
+            "@litert//litert/c:litert_common",
+            "@litert//litert/cc:litert_environment",
+            "@litert//litert/cc:litert_environment_options",
             "@litert//litert/cc:litert_tensor_buffer",
+            "@litert//litert/cc/internal:litert_handle",
         ],
     }),
 )
@@ -386,9 +394,7 @@ cc_library(
     deps = select({
         # If CAPI is linked dynamically, need to link the sampler dynamically as well.
         "@litert//litert:litert_link_capi_so": [],
-        "@platforms//os:ios": [],
-        "//conditions:default": [
-        ],
+        "//conditions:default": [],
     }) + select({
         "//conditions:default": [],
     }),

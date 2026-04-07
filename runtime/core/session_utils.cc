@@ -22,6 +22,7 @@
 
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "litert/cc/internal/litert_detail.h"  // from @litert
@@ -51,7 +52,7 @@ absl::StatusOr<InputText> StringToProcessedInputText(
     ASSIGN_OR_RETURN(bos_string, tokenizer.TokenIdsToText({bos_token_id}));
   }
   bool bos_token_found = false;
-  if (!bos_string.empty() && StartsWith(text, bos_string)) {
+  if (!bos_string.empty() && absl::StartsWith(text, bos_string)) {
     text = text.substr(bos_string.size());
     bos_token_found = true;
   }
@@ -60,7 +61,10 @@ absl::StatusOr<InputText> StringToProcessedInputText(
   if (benchmark_info.has_value()) {
     benchmark_prefill_token_count =
         benchmark_info->GetBenchmarkParams().num_prefill_tokens();
+    RETURN_IF_ERROR(
+        const_cast<BenchmarkInfo&>(*benchmark_info).TimeTextToTokenIdsStart());
   }
+
   ASSIGN_OR_RETURN(std::vector<int> ids, tokenizer.TextToTokenIds(text));
   if (benchmark_prefill_token_count > 0) {
     // If benchmark is enabled, we will use the benchmark prefill token
@@ -68,6 +72,10 @@ absl::StatusOr<InputText> StringToProcessedInputText(
     ids.resize(benchmark_prefill_token_count);
   } else if (bos_token_found) {
     ids.insert(ids.begin(), session_config.GetStartTokenId());
+  }
+  if (benchmark_info.has_value()) {
+    RETURN_IF_ERROR(const_cast<BenchmarkInfo&>(*benchmark_info)
+                        .TimeTextToTokenIdsEnd(ids.size()));
   }
   ASSIGN_OR_RETURN(auto ids_buffer, tokenizer.TokenIdsToTensorBuffer(ids));
   return InputText(std::move(ids_buffer));
@@ -123,7 +131,7 @@ absl::StatusOr<std::vector<InputData>> ApplyPromptTemplates(
       // will treat the BOS string differently from other strings. If the BOS
       // string is empty, it means the BOS token id is not valid. In this case,
       // we will not check for the BOS string in the input.
-      if (!bos_string.empty() && StartsWith(raw_text, bos_string)) {
+      if (!bos_string.empty() && absl::StartsWith(raw_text, bos_string)) {
         return absl::InvalidArgumentError(
             "Input contains bos control token. Control token should not be "
             "included in the input.");
@@ -181,13 +189,16 @@ absl::StatusOr<std::vector<InputData>> PreprocessContents(
         preprocessed_contents.emplace_back(std::move(processed_input_text));
       }
     } else if (const auto* input_image = std::get_if<InputImage>(&content)) {
-      if (input_image->IsTensorBuffer()) {
+      if (input_image->IsTensorBuffer() || input_image->IsTensorBufferMap()) {
         ASSIGN_OR_RETURN(auto input_image_copy, input_image->CreateCopy());
         preprocessed_contents.emplace_back(std::move(input_image_copy));
       } else {
         return absl::InternalError(
             "Image must be preprocessed before being used in SessionAdvanced.");
       }
+    } else if (const auto* input_image_end =
+                   std::get_if<InputImageEnd>(&content)) {
+      preprocessed_contents.emplace_back(InputImageEnd());
     } else if (const auto* input_audio = std::get_if<InputAudio>(&content)) {
       if (input_audio->IsTensorBuffer()) {
         ASSIGN_OR_RETURN(auto input_audio_copy, input_audio->CreateCopy());
@@ -199,6 +210,9 @@ absl::StatusOr<std::vector<InputData>> PreprocessContents(
     } else if (const auto* input_audio_end =
                    std::get_if<InputAudioEnd>(&content)) {
       preprocessed_contents.emplace_back(InputAudioEnd());
+    } else {
+      return absl::InternalError(
+          "Unsupported input type in preprocessed_contents.");
     }
   }
   return preprocessed_contents;

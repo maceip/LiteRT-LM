@@ -26,7 +26,6 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
-#include "litert/cc/internal/scoped_file.h"  // from @litert
 #include "runtime/components/tokenizer.h"
 #include "runtime/executor/audio_executor_settings.h"
 #include "runtime/executor/executor_settings_base.h"
@@ -36,6 +35,7 @@
 #include "runtime/proto/llm_metadata.pb.h"
 #include "runtime/proto/llm_model_type.pb.h"
 #include "runtime/proto/sampler_params.pb.h"
+#include "runtime/util/scoped_file.h"
 
 namespace litert::lm {
 
@@ -78,13 +78,14 @@ class EngineSettings {
   static absl::StatusOr<EngineSettings> CreateDefault(
       ModelAssets model_assets, Backend backend = Backend::CPU,
       std::optional<Backend> vision_backend = std::nullopt,
-      std::optional<Backend> audio_backend = std::nullopt);
+      std::optional<Backend> audio_backend = std::nullopt,
+      std::optional<Backend> sampler_backend = std::nullopt);
 
   // Updates the EngineSettings fields by loading the metadata from the model
   // assets. The function also validates to check if all of the required fields
   // are set correctly. Returns an error if the validation fails.
   absl::Status MaybeUpdateAndValidate(
-      Tokenizer& tokenizer,
+      Tokenizer* tokenizer,
       const proto::LlmMetadata* absl_nullable metadata_from_file,
       absl::string_view input_prompt_as_hint = "",
       const std::optional<std::string>& text_backend_constraint = std::nullopt,
@@ -124,6 +125,13 @@ class EngineSettings {
   // created and returned.
   proto::LlmMetadata& GetMutableLlmMetadata();
 
+  // Returns true if the engine may load different sections of the litertlm file
+  // in parallel.
+  bool GetParallelFileSectionLoading() const;
+  // Sets whether the engine should load different sections of the litertlm file
+  // in parallel.
+  void SetParallelFileSectionLoading(bool parallel_file_section_loading);
+
  private:
   explicit EngineSettings(
       LlmExecutorSettings executor_settings,
@@ -146,6 +154,10 @@ class EngineSettings {
   // Default metadata for the model. This is loaded from the model assets (if
   // present).
   std::optional<proto::LlmMetadata> metadata_;
+
+  // Whether the engine should load different sections of the litertlm file in
+  // parallel.
+  bool parallel_file_section_loading_ = true;
 };
 std::ostream& operator<<(std::ostream& os, const EngineSettings& settings);
 
@@ -273,9 +285,7 @@ class SessionConfig {
   // Backend to use for sampling.
   Backend sampler_backend_ = Backend::UNSPECIFIED;
 
-  // Whether to apply the deprecated prompt templates in the session.
-  // TODO - b/453312248: Remove this field once the prompt templates are
-  // removed.
+  // Whether to apply the prompt templates in the session.
   bool apply_prompt_template_in_session_ = true;
 
   // Whether to use external sampler.

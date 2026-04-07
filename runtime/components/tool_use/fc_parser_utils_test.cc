@@ -47,6 +47,22 @@ TEST(FcParserUtilsTest, ParseToolCallWithStringArgument) {
               }])json")));
 }
 
+TEST(FcParserUtilsTest, ParseToolCallNoArgumentsEmptyBraces) {
+  EXPECT_THAT(ParseFcExpression(R"(call:tool_name{})"),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([{
+                "name": "tool_name",
+                "arguments": {}
+              }])json")));
+}
+
+TEST(FcParserUtilsTest, ParseToolCallNoArgumentsNoBraces) {
+  EXPECT_THAT(ParseFcExpression(R"(call:tool_name)"),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([{
+                "name": "tool_name",
+                "arguments": {}
+              }])json")));
+}
+
 TEST(FcParserUtilsTest, ParseToolCallWithSingleQuotesInStringArgument) {
   EXPECT_THAT(ParseFcExpression(
                   R"(call:tool_name{text:<escape>foo 'bar' baz<escape>})"),
@@ -198,6 +214,23 @@ TEST(FcParserUtilsTest, DuplicateKeysInObject) {
                 "arguments": {
                   "a": 1,
                   "b": 2
+                }
+              }])json")));
+}
+TEST(FcParserUtilsTest, ToolNameWithDotsAndDashes) {
+  EXPECT_THAT(ParseFcExpression(R"(call:tool.name-123{})"),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([{
+                "name": "tool.name-123",
+                "arguments": {}
+              }])json")));
+}
+
+TEST(FcParserUtilsTest, ParameterNameWithDotsAndDashes) {
+  EXPECT_THAT(ParseFcExpression(R"(call:tool_name{param.name-123:1})"),
+              IsOkAndHolds(nlohmann::ordered_json::parse(R"json([{
+                "name": "tool_name",
+                "arguments": {
+                  "param.name-123": 1
                 }
               }])json")));
 }

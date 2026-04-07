@@ -18,6 +18,7 @@
 #include <string>
 
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "nlohmann/json_fwd.hpp"  // from @nlohmann_json
 
 namespace litert::lm {
@@ -54,7 +55,8 @@ namespace litert::lm {
 // }
 // ```
 absl::StatusOr<std::string> FormatValueAsFc(
-    const nlohmann::ordered_json& value);
+    const nlohmann::ordered_json& value,
+    absl::string_view escape_tag = "<escape>");
 
 // Formats a JSON tool declaration in the FC format.
 //
@@ -122,7 +124,9 @@ absl::StatusOr<std::string> FormatValueAsFc(
 //   }
 // }
 // ```
-absl::StatusOr<std::string> FormatToolAsFc(const nlohmann::ordered_json& tool);
+absl::StatusOr<std::string> FormatToolAsFc(
+    const nlohmann::ordered_json& tool,
+    absl::string_view escape_tag = "<escape>");
 
 }  // namespace litert::lm
 
