@@ -35,6 +35,7 @@
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
+#include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
 #include "absl/time/time.h"  // from @com_google_absl
 #include "litert/cc/litert_environment.h"  // from @litert
@@ -637,19 +638,18 @@ absl::StatusOr<std::unique_ptr<ExecutionManager>> ExecutionManager::Create(
     ModelResources* absl_nullable model_resources,
     std::unique_ptr<LlmExecutor> absl_nonnull llm_executor,
     std::unique_ptr<VisionExecutorSettings> absl_nullable
-        vision_executor_settings,
+    vision_executor_settings,
     std::unique_ptr<AudioExecutorSettings> absl_nullable
-        audio_executor_settings,
+    audio_executor_settings,
     ::litert::Environment* absl_nullable litert_env,
     std::unique_ptr<AudioExecutor> absl_nullable audio_executor) {
   std::unique_ptr<Sampler> sampler;
   ASSIGN_OR_RETURN(
       auto resource_manager,
-      ResourceManager::Create(
-          model_resources, std::move(llm_executor),
-          std::move(vision_executor_settings),
-          std::move(audio_executor_settings), litert_env,
-          std::move(audio_executor)));
+      ResourceManager::Create(model_resources, std::move(llm_executor),
+                              std::move(vision_executor_settings),
+                              std::move(audio_executor_settings), litert_env,
+                              std::move(audio_executor)));
   return absl::WrapUnique(
       new ExecutionManager(tokenizer, std::move(resource_manager), litert_env));
 }
@@ -1024,6 +1024,27 @@ absl::Status ExecutionManager::AddTextScoringTask(
 
   return CreateTask(session_id, task_id, std::move(task), std::move(dep_tasks),
                     cancelled, std::move(callback));
+}
+
+absl::StatusOr<int> ExecutionManager::GetCurrentStep(
+    const SessionInfo& session_info) {
+  ASSIGN_OR_RETURN(auto llm_executor,
+                   resource_manager_->AcquireExecutorWithContextHandler(
+                       session_info.context_handler));
+  return llm_executor->GetCurrentStep();
+}
+
+absl::Status ExecutionManager::SetCurrentStep(const SessionInfo& session_info,
+                                              int target_step) {
+  ASSIGN_OR_RETURN(auto llm_executor,
+                   resource_manager_->AcquireExecutorWithContextHandler(
+                       session_info.context_handler));
+  ASSIGN_OR_RETURN(int current_step, llm_executor->GetCurrentStep());
+  if (target_step > current_step) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "Target step is greater than the current step: ", current_step));
+  }
+  return llm_executor->SetCurrentStep(target_step);
 }
 
 }  // namespace litert::lm

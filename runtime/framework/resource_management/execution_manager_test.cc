@@ -879,5 +879,74 @@ TEST_F(ExecutionManagerTest, AddTextScoringTask) {
   EXPECT_FLOAT_EQ(scores[0], 0.0f);
 }
 
+TEST_F(ExecutionManagerTest, GetCurrentStep) {
+  CreateExecutionManager(CreateDefaultFakeLlmExecutor());
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+  ASSERT_OK_AND_ASSIGN(auto session_info,
+                       execution_manager_->GetSessionInfo(session_id));
+
+  // Initially step should be 0.
+  ASSERT_OK_AND_ASSIGN(int step1,
+                       execution_manager_->GetCurrentStep(*session_info));
+  EXPECT_EQ(step1, 0);
+
+  // Run a prefill task.
+  std::vector<InputData> inputs;
+  ASSERT_OK_AND_ASSIGN(auto input_text,
+                       tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
+  inputs.push_back(InputText(std::move(input_text)));
+  ASSERT_OK_AND_ASSIGN(const TaskId task_id,
+                       execution_manager_->GetNewTaskId());
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_id, std::move(inputs), {},
+      std::make_shared<std::atomic<bool>>(false), nullptr));
+  EXPECT_OK(execution_manager_->WaitUntilDone(task_id, absl::Seconds(3)));
+
+  // After prefill, step should be updated (3 tokens).
+  ASSERT_OK_AND_ASSIGN(int step2,
+                       execution_manager_->GetCurrentStep(*session_info));
+  EXPECT_EQ(step2, 3);
+}
+
+TEST_F(ExecutionManagerTest, SetCurrentStep) {
+  CreateExecutionManager(CreateDefaultFakeLlmExecutor());
+  ASSERT_OK_AND_ASSIGN(auto session_config, CreateDefaultSessionConfig());
+  ASSERT_OK_AND_ASSIGN(const SessionId session_id,
+                       execution_manager_->RegisterNewSession(session_config));
+  ASSERT_OK_AND_ASSIGN(auto session_info,
+                       execution_manager_->GetSessionInfo(session_id));
+
+  // Run a prefill task to increase step to 3.
+  std::vector<InputData> inputs;
+  ASSERT_OK_AND_ASSIGN(auto input_text,
+                       tokenizer_->TokenIdsToTensorBuffer({1, 2, 3}));
+  inputs.push_back(InputText(std::move(input_text)));
+  ASSERT_OK_AND_ASSIGN(const TaskId task_id,
+                       execution_manager_->GetNewTaskId());
+  ASSERT_OK(execution_manager_->AddPrefillTask(
+      session_id, task_id, std::move(inputs), {},
+      std::make_shared<std::atomic<bool>>(false), nullptr));
+  EXPECT_OK(execution_manager_->WaitUntilDone(task_id, absl::Seconds(3)));
+
+  // Verify current step is 3.
+  ASSERT_OK_AND_ASSIGN(int step1,
+                       execution_manager_->GetCurrentStep(*session_info));
+  EXPECT_EQ(step1, 3);
+
+  // Set current step to 1.
+  EXPECT_OK(execution_manager_->SetCurrentStep(*session_info, 1));
+
+  // Verify current step is now 1.
+  ASSERT_OK_AND_ASSIGN(int step2,
+                       execution_manager_->GetCurrentStep(*session_info));
+  EXPECT_EQ(step2, 1);
+
+  // Try to set current step to 5 (greater than current step 1).
+  EXPECT_THAT(execution_manager_->SetCurrentStep(*session_info, 5),
+              testing::status::StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
 }  // namespace
 }  // namespace litert::lm

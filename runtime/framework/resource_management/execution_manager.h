@@ -121,7 +121,7 @@ class ExecutionManager {
       std::unique_ptr<VisionExecutorSettings> absl_nullable
       vision_executor_settings,
       std::unique_ptr<AudioExecutorSettings> absl_nullable
-          audio_executor_settings,
+      audio_executor_settings,
       ::litert::Environment* absl_nullable litert_env,
       std::unique_ptr<AudioExecutor> absl_nullable audio_executor = nullptr);
 
@@ -253,6 +253,20 @@ class ExecutionManager {
       std::shared_ptr<std::atomic<bool>> absl_nonnull cancelled,
       absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback)
       ABSL_LOCKS_EXCLUDED(session_and_task_lookup_mutex_);
+
+  // Returns the current step of the session.
+  // - session_info: The session info of the session.
+  // Returns:
+  // - The current step of the session.
+  absl::StatusOr<int> GetCurrentStep(const SessionInfo& session_info);
+
+  // Sets the current step of the session to the target step.
+  // - session_info: The session info of the session.
+  // - target_step: The step to set the executor's current step to.
+  // Returns:
+  // - OK if the current step is set successfully.
+  // - INVALID_ARGUMENT if the target step is greater than the current step.
+  absl::Status SetCurrentStep(const SessionInfo& session_info, int target_step);
 
   // Returns the audio executor properties.
   absl::StatusOr<AudioExecutorProperties> GetAudioExecutorProperties() const {
