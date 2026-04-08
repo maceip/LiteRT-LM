@@ -518,6 +518,12 @@ Conversation::PrefetchMetrics Conversation::GetPrefetchMetricsForTest() const {
   return prefetch_metrics_;
 }
 
+void Conversation::RecordPrefetchMetric(
+    absl::FunctionRef<void(PrefetchMetrics&)> updater) {
+  absl::MutexLock lock(&policy_mutex_);
+  updater(prefetch_metrics_);
+}
+
 Conversation::BoundaryEvent Conversation::DetectBoundaryEvent(
     const nlohmann::ordered_json& json_msg) const {
   auto detect_from_object = [](const nlohmann::ordered_json& obj)
@@ -841,9 +847,11 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
   pack.strategy = policy_snapshot.context_shift_strategy;
   pack.validity_hash = validity_hash;
 
-  absl::MutexLock lock(&policy_mutex_);
-  pending_prefetch_pack_ = std::move(pack);
-  prefetch_metrics_.planned_count++;
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    pending_prefetch_pack_ = std::move(pack);
+  }
+  RecordPrefetchMetric([](PrefetchMetrics& metrics) { metrics.planned_count++; });
 }
 
 absl::StatusOr<bool> Conversation::TryInstallPrefetchPackIfValid(int target_step) {
@@ -865,8 +873,8 @@ absl::StatusOr<bool> Conversation::TryInstallPrefetchPackIfValid(int target_step
   const size_t current_hash = ComputePrefetchValidityHash();
   if (pack->validity_hash != current_hash ||
       pack->source_checkpoint_step < target_step) {
-    absl::MutexLock lock(&policy_mutex_);
-    prefetch_metrics_.stale_discard_count++;
+    RecordPrefetchMetric(
+        [](PrefetchMetrics& metrics) { metrics.stale_discard_count++; });
     return false;
   }
 
@@ -880,10 +888,8 @@ absl::StatusOr<bool> Conversation::TryInstallPrefetchPackIfValid(int target_step
   }
   RETURN_IF_ERROR(IgnoreEmptyInputError(session_->RunPrefill(pack->replay_inputs)));
 
-  {
-    absl::MutexLock lock(&policy_mutex_);
-    prefetch_metrics_.install_hit_count++;
-  }
+  RecordPrefetchMetric(
+      [](PrefetchMetrics& metrics) { metrics.install_hit_count++; });
   return true;
 }
 
@@ -1476,9 +1482,15 @@ absl::Status Conversation::MaybeApplyContextShift() {
       std::max(1, static_cast<int>(max_context_tokens_ *
                                    runtime_policy.context_shift_target_ratio));
 
+  const absl::Time prefetch_timer_start = absl::Now();
   ASSIGN_OR_RETURN(const bool prefetch_installed,
                    TryInstallPrefetchPackIfValid(target_step));
   if (prefetch_installed) {
+    const double install_latency_ms =
+        absl::ToDoubleMilliseconds(absl::Now() - prefetch_timer_start);
+    RecordPrefetchMetric([install_latency_ms](PrefetchMetrics& metrics) {
+      metrics.install_latency_ms_total += install_latency_ms;
+    });
     checkpoint_message_index_ = std::nullopt;
     if (!session_->SaveCheckpoint(kContextShiftAnchorCheckpoint).ok()) {
       context_shift_supported_ = false;
@@ -1488,6 +1500,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
 
   int replay_count = static_cast<int>(candidate_messages.size());
   int shifted_step = *current_step_or;
+  const absl::Time baseline_timer_start = absl::Now();
 
   while (true) {
     auto rewind_status =
@@ -1517,6 +1530,16 @@ absl::Status Conversation::MaybeApplyContextShift() {
     }
     --replay_count;
   }
+
+  const double baseline_latency_ms =
+      absl::ToDoubleMilliseconds(absl::Now() - baseline_timer_start);
+  RecordPrefetchMetric([baseline_latency_ms](PrefetchMetrics& metrics) {
+    metrics.baseline_recompute_latency_ms_total += baseline_latency_ms;
+    if (metrics.install_attempt_count > metrics.install_hit_count) {
+      metrics.fallback_count++;
+    }
+    metrics.parity_check_count++;
+  });
 
   if (shifted_step > target_step && replay_count == 0 &&
       runtime_policy.context_shift_reset_on_exhaustion) {

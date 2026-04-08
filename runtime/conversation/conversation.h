@@ -25,6 +25,7 @@
 #include "absl/base/thread_annotations.h"  // from @com_google_absl
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
+#include "absl/functional/function_ref.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
@@ -658,6 +659,11 @@ class Conversation {
     int install_attempt_count = 0;
     int install_hit_count = 0;
     int stale_discard_count = 0;
+    int fallback_count = 0;
+    int parity_check_count = 0;
+    int parity_mismatch_count = 0;
+    double install_latency_ms_total = 0.0;
+    double baseline_recompute_latency_ms_total = 0.0;
   };
 
   // Creates a Conversation instance from the the Engine and ConversationConfig.
@@ -811,6 +817,9 @@ class Conversation {
   // Returns prefetch metrics for testing/debug.
   PrefetchMetrics GetPrefetchMetricsForTest() const;
 
+  // Safely updates prefetch metrics while holding policy mutex.
+  void RecordPrefetchMetric(absl::FunctionRef<void(PrefetchMetrics&)> updater);
+
  private:
   enum class BoundaryEvent {
     kToolResult = 0,
@@ -836,6 +845,8 @@ class Conversation {
   struct PrefetchReplayPack {
     int source_checkpoint_step = 0;
     size_t history_watermark = 0;
+    int retained_start_index = -1;
+    int retained_end_index_exclusive = -1;
     float target_ratio = 0.0f;
     ConversationConfig::ContextShiftStrategy strategy =
         ConversationConfig::ContextShiftStrategy::kReplayRecent;
