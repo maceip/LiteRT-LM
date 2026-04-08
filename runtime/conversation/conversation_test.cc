@@ -383,6 +383,106 @@ TEST(ConversationConfigTest, ContextShiftConfigValidation) {
   EXPECT_FALSE(invalid_preface.ok());
 }
 
+TEST(ConversationConfigTest, ParseMemoryPolicyYamlSupportsAllStrategies) {
+  struct TestCase {
+    absl::string_view strategy;
+    ConversationConfig::MemoryStrategy expected;
+  };
+
+  const std::vector<TestCase> test_cases = {
+      {"hard_reset_replay_window",
+       ConversationConfig::MemoryStrategy::kHardResetReplayWindow},
+      {"summarize_protected_tail",
+       ConversationConfig::MemoryStrategy::kSummarizeProtectedTail},
+      {"virtual_memory_paging",
+       ConversationConfig::MemoryStrategy::kVirtualMemoryPaging},
+      {"fact_memory_extraction_update",
+       ConversationConfig::MemoryStrategy::kFactMemoryExtractionUpdate},
+      {"semantic_compression_consolidation_adaptive_retrieval",
+       ConversationConfig::MemoryStrategy::
+           kSemanticCompressionConsolidationAdaptiveRetrieval},
+      {"learned_compression_policy",
+       ConversationConfig::MemoryStrategy::kLearnedCompressionPolicy},
+      {"incremental_hierarchical_aggregation",
+       ConversationConfig::MemoryStrategy::kIncrementalHierarchicalAggregation},
+      {"active_recall_surprise_update",
+       ConversationConfig::MemoryStrategy::kActiveRecallSurpriseUpdate},
+      {"contextual_forgetting_interference_management",
+       ConversationConfig::MemoryStrategy::
+           kContextualForgettingInterferenceManagement},
+      {"token_efficient_kv_cache_management",
+       ConversationConfig::MemoryStrategy::kTokenEfficientKvCacheManagement},
+      {"reflection_metacognitive_buffering",
+       ConversationConfig::MemoryStrategy::kReflectionMetacognitiveBuffering},
+      {"self_correcting_fact_graph",
+       ConversationConfig::MemoryStrategy::kSelfCorrectingFactGraph},
+      {"slow_fast_memory_architecture",
+       ConversationConfig::MemoryStrategy::kSlowFastMemoryArchitecture},
+      {"heat_based_tiered_migration",
+       ConversationConfig::MemoryStrategy::kHeatBasedTieredMigration},
+      {"context_quarantine_isolated_scratchpads",
+       ConversationConfig::MemoryStrategy::
+           kContextQuarantineIsolatedScratchpads},
+      {"mcp_active_metadata",
+       ConversationConfig::MemoryStrategy::kMcpActiveMetadata},
+  };
+
+  for (const auto& tc : test_cases) {
+    const std::string yaml = absl::StrCat(
+        "profile_id: shared-profile\n"
+        "strategy: ",
+        tc.strategy,
+        "\n"
+        "context_shift:\n"
+        "  enabled: true\n"
+        "  trigger_ratio: 0.9\n"
+        "  retain_recent_messages: 8\n"
+        "  target_ratio: 0.8\n"
+        "  reset_on_exhaustion: true\n"
+        "  shift_strategy: replay_recent\n");
+
+    ASSERT_OK_AND_ASSIGN(auto policy,
+                         ConversationConfig::ParseMemoryPolicyYaml(yaml));
+    EXPECT_EQ(policy.strategy, tc.expected) << "strategy=" << tc.strategy;
+    EXPECT_TRUE(policy.context_shift_enabled);
+    EXPECT_EQ(policy.context_shift_retain_recent_messages, 8);
+    EXPECT_EQ(policy.context_shift_strategy,
+              ConversationConfig::ContextShiftStrategy::kReplayRecent);
+    ASSERT_TRUE(policy.profile_id.has_value());
+    EXPECT_EQ(*policy.profile_id, "shared-profile");
+  }
+}
+
+TEST(ConversationConfigTest, LoadMemoryPolicyYamlFile) {
+  const std::filesystem::path yaml_path =
+      std::filesystem::temp_directory_path() /
+      "litert_lm_runtime_memory_policy.yaml";
+  {
+    std::ofstream out(yaml_path);
+    ASSERT_TRUE(out.is_open());
+    out << "strategy: raptor\n";
+    out << "context_shift_enabled: true\n";
+    out << "context_shift_trigger_ratio: 0.75\n";
+    out << "context_shift_retain_recent_messages: 6\n";
+    out << "context_shift_target_ratio: 0.5\n";
+    out << "context_shift_reset_on_exhaustion: false\n";
+    out << "context_shift_strategy: drop_all_but_system\n";
+  }
+
+  ASSERT_OK_AND_ASSIGN(
+      auto policy,
+      ConversationConfig::LoadMemoryPolicyYamlFile(yaml_path.string()));
+  EXPECT_EQ(policy.strategy,
+            ConversationConfig::MemoryStrategy::kIncrementalHierarchicalAggregation);
+  EXPECT_TRUE(policy.context_shift_enabled);
+  EXPECT_EQ(policy.context_shift_retain_recent_messages, 6);
+  EXPECT_EQ(policy.context_shift_strategy,
+            ConversationConfig::ContextShiftStrategy::kDropAllButSystem);
+
+  std::error_code ec;
+  std::filesystem::remove(yaml_path, ec);
+}
+
 struct ConversationTestParams {
   bool enable_constrained_decoding;
   bool prefill_preface_on_init;
@@ -1101,6 +1201,79 @@ TEST_P(ConversationTest, SendMessageWithContextShiftDropAllButSystem) {
                                                   {"content", "Q1"}}));
   ASSERT_OK(conversation->SendMessage(JsonMessage{{"role", "user"},
                                                   {"content", "Q2"}}));
+}
+
+TEST_P(ConversationTest, RuntimeMemoryPolicyOverrideEnablesContextShift) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  auto get_text = [](const InputText& it) -> std::string {
+    auto status_or_view = it.GetRawTextString();
+    if (!status_or_view.ok()) return "";
+    return std::string(*status_or_view);
+  };
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(
+                    ResultOf(get_text, HasSubstr("Q1"))))))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+
+    EXPECT_CALL(*mock_session_ptr,
+                SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr,
+                SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(
+                    ResultOf(get_text,
+                             AllOf(HasSubstr("Q2"), Not(HasSubstr("Q1")),
+                                   Not(HasSubstr("A1"))))))))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+
+  ConversationConfig::RuntimeMemoryPolicy runtime_policy{
+      .strategy = ConversationConfig::MemoryStrategy::kHardResetReplayWindow,
+      .context_shift_enabled = true,
+      .context_shift_trigger_ratio = 0.5f,
+      .context_shift_retain_recent_messages = 4,
+      .context_shift_target_ratio = 0.3f,
+      .context_shift_reset_on_exhaustion = true,
+      .context_shift_strategy =
+          ConversationConfig::ContextShiftStrategy::kDropAllButSystem,
+      .profile_id = std::string("runtime-override"),
+  };
+  ASSERT_OK(conversation->SetRuntimeMemoryPolicy(runtime_policy));
+
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q2"}}));
 }
 
 TEST_P(ConversationTest, SendMessageWithContextShiftBudgetShrink) {

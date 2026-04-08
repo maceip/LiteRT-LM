@@ -15,9 +15,12 @@
 #include "runtime/conversation/conversation.h"
 
 #include <algorithm>
+#include <cctype>
+#include <fstream>
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <variant>
@@ -28,6 +31,7 @@
 #include "absl/memory/memory.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
+#include "absl/strings/numbers.h"  // from @com_google_absl
 #include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
@@ -116,11 +120,438 @@ Message MaybeStripChannelContentFromMessage(
   return json_message;
 }
 
+std::string Trim(std::string input) {
+  const auto begin = input.find_first_not_of(" \t\r\n");
+  if (begin == std::string::npos) {
+    return "";
+  }
+  const auto end = input.find_last_not_of(" \t\r\n");
+  return input.substr(begin, end - begin + 1);
+}
+
+std::string NormalizeStrategyName(absl::string_view strategy_name) {
+  std::string out;
+  out.reserve(strategy_name.size());
+  bool prev_underscore = false;
+  for (char c : strategy_name) {
+    if (std::isalnum(static_cast<unsigned char>(c))) {
+      out.push_back(static_cast<char>(
+          std::tolower(static_cast<unsigned char>(c))));
+      prev_underscore = false;
+      continue;
+    }
+    if (!prev_underscore) {
+      out.push_back('_');
+      prev_underscore = true;
+    }
+  }
+  while (!out.empty() && out.front() == '_') out.erase(out.begin());
+  while (!out.empty() && out.back() == '_') out.pop_back();
+  return out;
+}
+
+absl::Status ValidateRuntimeMemoryPolicy(
+    const ConversationConfig::RuntimeMemoryPolicy& policy) {
+  if (policy.context_shift_trigger_ratio <= 0.0f ||
+      policy.context_shift_trigger_ratio > 1.0f) {
+    return absl::InvalidArgumentError(
+        "context_shift_trigger_ratio must be in (0, 1].");
+  }
+  if (policy.context_shift_retain_recent_messages < 0) {
+    return absl::InvalidArgumentError(
+        "context_shift_retain_recent_messages must be >= 0.");
+  }
+  if (policy.context_shift_target_ratio <= 0.0f ||
+      policy.context_shift_target_ratio > 1.0f) {
+    return absl::InvalidArgumentError(
+        "context_shift_target_ratio must be in (0, 1].");
+  }
+  if (policy.context_shift_target_ratio > policy.context_shift_trigger_ratio) {
+    return absl::InvalidArgumentError(
+        "context_shift_target_ratio must be <= context_shift_trigger_ratio.");
+  }
+  switch (policy.context_shift_strategy) {
+    case ConversationConfig::ContextShiftStrategy::kReplayRecent:
+    case ConversationConfig::ContextShiftStrategy::kDropAllButSystem:
+      break;
+  }
+  switch (policy.strategy) {
+    case ConversationConfig::MemoryStrategy::kHardResetReplayWindow:
+    case ConversationConfig::MemoryStrategy::kSummarizeProtectedTail:
+    case ConversationConfig::MemoryStrategy::kVirtualMemoryPaging:
+    case ConversationConfig::MemoryStrategy::kFactMemoryExtractionUpdate:
+    case ConversationConfig::MemoryStrategy::
+        kSemanticCompressionConsolidationAdaptiveRetrieval:
+    case ConversationConfig::MemoryStrategy::kLearnedCompressionPolicy:
+    case ConversationConfig::MemoryStrategy::
+        kIncrementalHierarchicalAggregation:
+    case ConversationConfig::MemoryStrategy::kActiveRecallSurpriseUpdate:
+    case ConversationConfig::MemoryStrategy::
+        kContextualForgettingInterferenceManagement:
+    case ConversationConfig::MemoryStrategy::kTokenEfficientKvCacheManagement:
+    case ConversationConfig::MemoryStrategy::kReflectionMetacognitiveBuffering:
+    case ConversationConfig::MemoryStrategy::kSelfCorrectingFactGraph:
+    case ConversationConfig::MemoryStrategy::kSlowFastMemoryArchitecture:
+    case ConversationConfig::MemoryStrategy::kHeatBasedTieredMigration:
+    case ConversationConfig::MemoryStrategy::
+        kContextQuarantineIsolatedScratchpads:
+    case ConversationConfig::MemoryStrategy::kMcpActiveMetadata:
+      break;
+  }
+  return absl::OkStatus();
+}
+
+bool TryParseBool(absl::string_view text, bool* out) {
+  std::string lowered = NormalizeStrategyName(text);
+  if (lowered == "true" || lowered == "yes" || lowered == "on" ||
+      lowered == "1") {
+    *out = true;
+    return true;
+  }
+  if (lowered == "false" || lowered == "no" || lowered == "off" ||
+      lowered == "0") {
+    *out = false;
+    return true;
+  }
+  return false;
+}
+
+absl::StatusOr<std::optional<std::string>> GetYamlValue(
+    const absl::flat_hash_map<std::string, std::string>& kv,
+    std::initializer_list<absl::string_view> keys) {
+  for (absl::string_view key : keys) {
+    auto it = kv.find(std::string(key));
+    if (it != kv.end()) {
+      return it->second;
+    }
+  }
+  return std::nullopt;
+}
+
+absl::StatusOr<absl::flat_hash_map<std::string, std::string>>
+ParseConstrainedYaml(absl::string_view yaml_text) {
+  absl::flat_hash_map<std::string, std::string> out;
+  std::vector<std::pair<int, std::string>> key_stack;
+  std::stringstream ss(std::string(yaml_text));
+  std::string line;
+  int line_number = 0;
+  while (std::getline(ss, line)) {
+    ++line_number;
+    const auto comment_pos = line.find('#');
+    if (comment_pos != std::string::npos) {
+      line.erase(comment_pos);
+    }
+    const std::string trimmed = Trim(line);
+    if (trimmed.empty()) {
+      continue;
+    }
+    int indent = 0;
+    while (indent < static_cast<int>(line.size()) && line[indent] == ' ') {
+      ++indent;
+    }
+    const auto colon_pos = trimmed.find(':');
+    if (colon_pos == std::string::npos) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Invalid YAML line ", line_number, ": missing ':'"));
+    }
+    std::string key = Trim(trimmed.substr(0, colon_pos));
+    std::string value = Trim(trimmed.substr(colon_pos + 1));
+    if (key.empty()) {
+      return absl::InvalidArgumentError(
+          absl::StrCat("Invalid YAML line ", line_number, ": empty key"));
+    }
+
+    while (!key_stack.empty() && indent <= key_stack.back().first) {
+      key_stack.pop_back();
+    }
+
+    if (value.empty()) {
+      key_stack.push_back({indent, key});
+      continue;
+    }
+
+    std::string dotted_key;
+    for (const auto& [_, prefix] : key_stack) {
+      absl::StrAppend(&dotted_key, prefix, ".");
+    }
+    absl::StrAppend(&dotted_key, key);
+    out[dotted_key] = value;
+    out[key] = value;
+  }
+  return out;
+}
+
 }  // namespace
 
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
     const Engine& engine) {
   return ConversationConfig::Builder().Build(engine);
+}
+
+absl::StatusOr<ConversationConfig::MemoryStrategy>
+ConversationConfig::MemoryStrategyFromString(absl::string_view strategy_name) {
+  const std::string normalized = NormalizeStrategyName(strategy_name);
+  const auto& S = ConversationConfig::MemoryStrategy;
+  static const absl::flat_hash_map<std::string, MemoryStrategy> kMap = {
+      {"hard_reset_replay_window", S::kHardResetReplayWindow},
+      {"step_style_context_manager", S::kHardResetReplayWindow},
+      {"summarize_protected_tail", S::kSummarizeProtectedTail},
+      {"hermes_style", S::kSummarizeProtectedTail},
+      {"virtual_memory_paging", S::kVirtualMemoryPaging},
+      {"memgpt", S::kVirtualMemoryPaging},
+      {"fact_memory_extraction_update", S::kFactMemoryExtractionUpdate},
+      {"mem0", S::kFactMemoryExtractionUpdate},
+      {"mem0_g", S::kFactMemoryExtractionUpdate},
+      {"semantic_compression_consolidation_adaptive_retrieval",
+       S::kSemanticCompressionConsolidationAdaptiveRetrieval},
+      {"simplemem", S::kSemanticCompressionConsolidationAdaptiveRetrieval},
+      {"learned_compression_policy", S::kLearnedCompressionPolicy},
+      {"acon", S::kLearnedCompressionPolicy},
+      {"incremental_hierarchical_aggregation",
+       S::kIncrementalHierarchicalAggregation},
+      {"raptor", S::kIncrementalHierarchicalAggregation},
+      {"active_recall_surprise_update", S::kActiveRecallSurpriseUpdate},
+      {"swirl", S::kActiveRecallSurpriseUpdate},
+      {"contextual_forgetting_interference_management",
+       S::kContextualForgettingInterferenceManagement},
+      {"token_efficient_kv_cache_management",
+       S::kTokenEfficientKvCacheManagement},
+      {"streamingllm", S::kTokenEfficientKvCacheManagement},
+      {"reflection_metacognitive_buffering",
+       S::kReflectionMetacognitiveBuffering},
+      {"self_correcting_fact_graph", S::kSelfCorrectingFactGraph},
+      {"self_rag", S::kSelfCorrectingFactGraph},
+      {"slow_fast_memory_architecture", S::kSlowFastMemoryArchitecture},
+      {"context_forcing", S::kSlowFastMemoryArchitecture},
+      {"heat_based_tiered_migration", S::kHeatBasedTieredMigration},
+      {"memoryos", S::kHeatBasedTieredMigration},
+      {"a_mem", S::kHeatBasedTieredMigration},
+      {"context_quarantine_isolated_scratchpads",
+       S::kContextQuarantineIsolatedScratchpads},
+      {"mcp_active_metadata", S::kMcpActiveMetadata},
+      {"mcp", S::kMcpActiveMetadata},
+  };
+  if (auto it = kMap.find(normalized); it != kMap.end()) {
+    return it->second;
+  }
+  return absl::InvalidArgumentError(
+      absl::StrCat("Unknown memory strategy: ", strategy_name));
+}
+
+absl::string_view ConversationConfig::MemoryStrategyToString(
+    MemoryStrategy strategy) {
+  switch (strategy) {
+    case MemoryStrategy::kHardResetReplayWindow:
+      return "hard_reset_replay_window";
+    case MemoryStrategy::kSummarizeProtectedTail:
+      return "summarize_protected_tail";
+    case MemoryStrategy::kVirtualMemoryPaging:
+      return "virtual_memory_paging";
+    case MemoryStrategy::kFactMemoryExtractionUpdate:
+      return "fact_memory_extraction_update";
+    case MemoryStrategy::kSemanticCompressionConsolidationAdaptiveRetrieval:
+      return "semantic_compression_consolidation_adaptive_retrieval";
+    case MemoryStrategy::kLearnedCompressionPolicy:
+      return "learned_compression_policy";
+    case MemoryStrategy::kIncrementalHierarchicalAggregation:
+      return "incremental_hierarchical_aggregation";
+    case MemoryStrategy::kActiveRecallSurpriseUpdate:
+      return "active_recall_surprise_update";
+    case MemoryStrategy::kContextualForgettingInterferenceManagement:
+      return "contextual_forgetting_interference_management";
+    case MemoryStrategy::kTokenEfficientKvCacheManagement:
+      return "token_efficient_kv_cache_management";
+    case MemoryStrategy::kReflectionMetacognitiveBuffering:
+      return "reflection_metacognitive_buffering";
+    case MemoryStrategy::kSelfCorrectingFactGraph:
+      return "self_correcting_fact_graph";
+    case MemoryStrategy::kSlowFastMemoryArchitecture:
+      return "slow_fast_memory_architecture";
+    case MemoryStrategy::kHeatBasedTieredMigration:
+      return "heat_based_tiered_migration";
+    case MemoryStrategy::kContextQuarantineIsolatedScratchpads:
+      return "context_quarantine_isolated_scratchpads";
+    case MemoryStrategy::kMcpActiveMetadata:
+      return "mcp_active_metadata";
+  }
+  return "hard_reset_replay_window";
+}
+
+absl::StatusOr<ConversationConfig::SafeBoundary>
+ConversationConfig::SafeBoundaryFromString(
+    absl::string_view safe_boundary_name) {
+  const std::string normalized = NormalizeStrategyName(safe_boundary_name);
+  if (normalized == "tool_result") {
+    return SafeBoundary::kToolResult;
+  }
+  if (normalized == "turn_boundary") {
+    return SafeBoundary::kTurnBoundary;
+  }
+  return absl::InvalidArgumentError(
+      absl::StrCat("Unknown safe boundary: ", safe_boundary_name));
+}
+
+absl::string_view ConversationConfig::SafeBoundaryToString(
+    SafeBoundary safe_boundary) {
+  switch (safe_boundary) {
+    case SafeBoundary::kTurnBoundary:
+      return "turn_boundary";
+    case SafeBoundary::kToolResult:
+      return "tool_result";
+  }
+  return "tool_result";
+}
+
+absl::StatusOr<ConversationConfig::RuntimeMemoryPolicy>
+ConversationConfig::ParseMemoryPolicyYaml(absl::string_view yaml_text) {
+  ASSIGN_OR_RETURN(auto kv, ParseConstrainedYaml(yaml_text));
+  RuntimeMemoryPolicy policy;
+
+  ASSIGN_OR_RETURN(std::optional<std::string> profile_id,
+                   GetYamlValue(kv, {"profile_id", "profile.id"}));
+  if (profile_id.has_value()) {
+    policy.profile_id = profile_id.value();
+  }
+  ASSIGN_OR_RETURN(std::optional<std::string> version,
+                   GetYamlValue(kv, {"version", "profile.version"}));
+  if (version.has_value()) {
+    policy.version = version.value();
+  }
+  ASSIGN_OR_RETURN(std::optional<std::string> compatibility,
+                   GetYamlValue(kv, {"compatibility",
+                                     "profile.compatibility",
+                                     "schema_compatibility"}));
+  if (compatibility.has_value()) {
+    policy.compatibility = compatibility.value();
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> strategy_text,
+                   GetYamlValue(kv, {"strategy", "memory.strategy"}));
+  if (!strategy_text.has_value()) {
+    return absl::InvalidArgumentError("Missing required YAML key: strategy");
+  }
+  ASSIGN_OR_RETURN(policy.strategy, MemoryStrategyFromString(*strategy_text));
+
+  ASSIGN_OR_RETURN(std::optional<std::string> enabled_text,
+                   GetYamlValue(kv, {"context_shift_enabled",
+                                     "context_shift.enabled"}));
+  if (enabled_text.has_value()) {
+    bool enabled = false;
+    if (!TryParseBool(*enabled_text, &enabled)) {
+      return absl::InvalidArgumentError(
+          "context_shift_enabled must be a boolean");
+    }
+    policy.context_shift_enabled = enabled;
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> trigger_text,
+                   GetYamlValue(kv, {"context_shift_trigger_ratio",
+                                     "context_shift.trigger_ratio"}));
+  if (trigger_text.has_value() &&
+      !absl::SimpleAtof(*trigger_text, &policy.context_shift_trigger_ratio)) {
+    return absl::InvalidArgumentError(
+        "context_shift_trigger_ratio must be float");
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> retain_text,
+                   GetYamlValue(kv, {"context_shift_retain_recent_messages",
+                                     "context_shift.retain_recent_messages"}));
+  if (retain_text.has_value() &&
+      !absl::SimpleAtoi(*retain_text,
+                        &policy.context_shift_retain_recent_messages)) {
+    return absl::InvalidArgumentError(
+        "context_shift_retain_recent_messages must be int");
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> target_text,
+                   GetYamlValue(kv, {"context_shift_target_ratio",
+                                     "context_shift.target_ratio"}));
+  if (target_text.has_value() &&
+      !absl::SimpleAtof(*target_text, &policy.context_shift_target_ratio)) {
+    return absl::InvalidArgumentError(
+        "context_shift_target_ratio must be float");
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> reset_text,
+                   GetYamlValue(kv, {"context_shift_reset_on_exhaustion",
+                                     "context_shift.reset_on_exhaustion"}));
+  if (reset_text.has_value()) {
+    bool reset = false;
+    if (!TryParseBool(*reset_text, &reset)) {
+      return absl::InvalidArgumentError(
+          "context_shift_reset_on_exhaustion must be a boolean");
+    }
+    policy.context_shift_reset_on_exhaustion = reset;
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> shift_strategy_text,
+                   GetYamlValue(kv, {"context_shift_strategy",
+                                     "context_shift.shift_strategy"}));
+  if (shift_strategy_text.has_value()) {
+    const std::string normalized = NormalizeStrategyName(*shift_strategy_text);
+    if (normalized == "replay_recent") {
+      policy.context_shift_strategy = ContextShiftStrategy::kReplayRecent;
+    } else if (normalized == "drop_all_but_system") {
+      policy.context_shift_strategy = ContextShiftStrategy::kDropAllButSystem;
+    } else {
+      return absl::InvalidArgumentError(
+          "context_shift_strategy must be replay_recent or drop_all_but_system");
+    }
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> allow_runtime_tuning_text,
+                   GetYamlValue(kv, {"allow_runtime_tuning",
+                                     "overrides.allow_runtime_tuning"}));
+  if (allow_runtime_tuning_text.has_value()) {
+    bool allow = true;
+    if (!TryParseBool(*allow_runtime_tuning_text, &allow)) {
+      return absl::InvalidArgumentError(
+          "allow_runtime_tuning must be a boolean");
+    }
+    policy.allow_runtime_tuning = allow;
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> safe_boundary_text,
+                   GetYamlValue(kv, {"safe_boundary", "overrides.safe_boundary"}));
+  if (safe_boundary_text.has_value()) {
+    ASSIGN_OR_RETURN(policy.safe_boundary,
+                     SafeBoundaryFromString(*safe_boundary_text));
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> shadow_strategy_text,
+                   GetYamlValue(kv, {"shadow_strategy",
+                                     "shadow.strategy"}));
+  if (shadow_strategy_text.has_value()) {
+    ASSIGN_OR_RETURN(policy.shadow_strategy,
+                     MemoryStrategyFromString(*shadow_strategy_text));
+  }
+
+  ASSIGN_OR_RETURN(std::optional<std::string> emit_transition_note_text,
+                   GetYamlValue(kv, {"emit_transition_note",
+                                     "overrides.emit_transition_note"}));
+  if (emit_transition_note_text.has_value()) {
+    bool emit = true;
+    if (!TryParseBool(*emit_transition_note_text, &emit)) {
+      return absl::InvalidArgumentError(
+          "emit_transition_note must be a boolean");
+    }
+    policy.emit_transition_note = emit;
+  }
+
+  RETURN_IF_ERROR(ValidateRuntimeMemoryPolicy(policy));
+  return policy;
+}
+
+absl::StatusOr<ConversationConfig::RuntimeMemoryPolicy>
+ConversationConfig::LoadMemoryPolicyYamlFile(absl::string_view yaml_file_path) {
+  std::ifstream input(std::string(yaml_file_path));
+  if (!input.is_open()) {
+    return absl::NotFoundError(
+        absl::StrCat("Failed to open yaml file: ", yaml_file_path));
+  }
+  std::stringstream buffer;
+  buffer << input.rdbuf();
+  return ParseMemoryPolicyYaml(buffer.str());
 }
 
 absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
@@ -136,7 +567,8 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
     int context_shift_retain_recent_messages,
     float context_shift_target_ratio,
     bool context_shift_reset_on_exhaustion,
-    ContextShiftStrategy context_shift_strategy) {
+    ContextShiftStrategy context_shift_strategy,
+    MemoryStrategy memory_strategy) {
   if (preface.has_value() && !std::holds_alternative<JsonPreface>(*preface)) {
     return absl::InvalidArgumentError("Only JsonPreface is supported for now.");
   }
@@ -161,6 +593,25 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
   switch (context_shift_strategy) {
     case ContextShiftStrategy::kReplayRecent:
     case ContextShiftStrategy::kDropAllButSystem:
+      break;
+  }
+  switch (memory_strategy) {
+    case MemoryStrategy::kHardResetReplayWindow:
+    case MemoryStrategy::kSummarizeProtectedTail:
+    case MemoryStrategy::kVirtualMemoryPaging:
+    case MemoryStrategy::kFactMemoryExtractionUpdate:
+    case MemoryStrategy::kSemanticCompressionConsolidationAdaptiveRetrieval:
+    case MemoryStrategy::kLearnedCompressionPolicy:
+    case MemoryStrategy::kIncrementalHierarchicalAggregation:
+    case MemoryStrategy::kActiveRecallSurpriseUpdate:
+    case MemoryStrategy::kContextualForgettingInterferenceManagement:
+    case MemoryStrategy::kTokenEfficientKvCacheManagement:
+    case MemoryStrategy::kReflectionMetacognitiveBuffering:
+    case MemoryStrategy::kSelfCorrectingFactGraph:
+    case MemoryStrategy::kSlowFastMemoryArchitecture:
+    case MemoryStrategy::kHeatBasedTieredMigration:
+    case MemoryStrategy::kContextQuarantineIsolatedScratchpads:
+    case MemoryStrategy::kMcpActiveMetadata:
       break;
   }
   if (context_shift_enabled && !prefill_preface_on_init &&
@@ -234,7 +685,7 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
       filter_channel_content_from_kv_cache, context_shift_enabled,
       context_shift_trigger_ratio, context_shift_retain_recent_messages,
       context_shift_target_ratio, context_shift_reset_on_exhaustion,
-      context_shift_strategy);
+      context_shift_strategy, memory_strategy);
 }
 
 absl::StatusOr<std::string>
@@ -768,6 +1219,47 @@ void Conversation::CancelGroup(absl::string_view task_group_id) {
   }
 }
 
+absl::Status Conversation::SetRuntimeMemoryPolicy(
+    const ConversationConfig::RuntimeMemoryPolicy& policy) {
+  RETURN_IF_ERROR(ValidateRuntimeMemoryPolicy(policy));
+  {
+    absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+    runtime_memory_policy_override_ = policy;
+  }
+  if (policy.context_shift_enabled) {
+    absl::Status checkpoint_status =
+        session_->SaveCheckpoint(kContextShiftAnchorCheckpoint);
+    if (absl::IsUnimplemented(checkpoint_status)) {
+      context_shift_supported_ = false;
+      return absl::OkStatus();
+    }
+    RETURN_IF_ERROR(checkpoint_status);
+    context_shift_supported_ = true;
+  }
+  return absl::OkStatus();
+}
+
+absl::Status Conversation::SetRuntimeMemoryPolicyFromYaml(
+    absl::string_view yaml_text) {
+  ASSIGN_OR_RETURN(auto policy,
+                   ConversationConfig::ParseMemoryPolicyYaml(yaml_text));
+  return SetRuntimeMemoryPolicy(policy);
+}
+
+absl::Status Conversation::SetRuntimeMemoryPolicyFromYamlFile(
+    absl::string_view yaml_file_path) {
+  ASSIGN_OR_RETURN(auto policy,
+                   ConversationConfig::LoadMemoryPolicyYamlFile(yaml_file_path));
+  return SetRuntimeMemoryPolicy(policy);
+}
+
+ConversationConfig::RuntimeMemoryPolicy Conversation::GetActiveMemoryPolicy()
+    const {
+  absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+  return runtime_memory_policy_override_.value_or(
+      config_.runtime_memory_policy());
+}
+
 absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
   ASSIGN_OR_RETURN(auto session, session_->Clone());
   ASSIGN_OR_RETURN(
@@ -799,6 +1291,11 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
   {
     absl::MutexLock lock(history_mutex_);  // NOLINT
     new_conversation->history_ = history_;
+  }
+  {
+    absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+    new_conversation->runtime_memory_policy_override_ =
+        runtime_memory_policy_override_;
   }
   return new_conversation;
 }
@@ -920,7 +1417,8 @@ Conversation::RewindAndGetInputDataVector() {
 }
 
 absl::Status Conversation::MaybeApplyContextShift() {
-  if (!config_.context_shift_enabled() || !context_shift_supported_ ||
+  const ConversationConfig::RuntimeMemoryPolicy policy = GetActiveMemoryPolicy();
+  if (!policy.context_shift_enabled || !context_shift_supported_ ||
       max_context_tokens_ <= 0 || is_appending_message_) {
     return absl::OkStatus();
   }
@@ -936,20 +1434,20 @@ absl::Status Conversation::MaybeApplyContextShift() {
 
   const int trigger_step =
       std::max(1, static_cast<int>(max_context_tokens_ *
-                                   config_.context_shift_trigger_ratio()));
+                                   policy.context_shift_trigger_ratio));
   if (*current_step_or < trigger_step) {
     return absl::OkStatus();
   }
 
   const bool use_replay_recent =
-      config_.context_shift_strategy() ==
+      policy.context_shift_strategy ==
       ConversationConfig::ContextShiftStrategy::kReplayRecent;
   std::vector<Message> candidate_messages;
   if (use_replay_recent) {
     absl::MutexLock lock(history_mutex_);  // NOLINT
     const int retain_count =
         std::min(static_cast<int>(history_.size()),
-                 config_.context_shift_retain_recent_messages());
+                 policy.context_shift_retain_recent_messages);
     if (retain_count > 0) {
       candidate_messages.assign(history_.end() - retain_count, history_.end());
     }
@@ -963,7 +1461,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
 
   const int target_step =
       std::max(1, static_cast<int>(max_context_tokens_ *
-                                   config_.context_shift_target_ratio()));
+                                   policy.context_shift_target_ratio));
   int replay_count = static_cast<int>(candidate_messages.size());
   int shifted_step = *current_step_or;
 
@@ -997,7 +1495,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
   }
 
   if (shifted_step > target_step && replay_count == 0 &&
-      config_.context_shift_reset_on_exhaustion()) {
+      policy.context_shift_reset_on_exhaustion) {
     ASSIGN_OR_RETURN(std::unique_ptr<Engine::Session> new_session,
                      engine_.CreateSession(config_.GetSessionConfig()));
     session_ = std::move(new_session);

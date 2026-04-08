@@ -63,10 +63,76 @@ class ConversationConfig {
     kDropAllButSystem = 1,
   };
 
+  // High-level memory management strategy selection.
+  enum class MemoryStrategy {
+    kHardResetReplayWindow = 0,
+    kSummarizeProtectedTail = 1,
+    kVirtualMemoryPaging = 2,
+    kFactMemoryExtractionUpdate = 3,
+    kSemanticCompressionConsolidationAdaptiveRetrieval = 4,
+    kLearnedCompressionPolicy = 5,
+    kIncrementalHierarchicalAggregation = 6,
+    kActiveRecallSurpriseUpdate = 7,
+    kContextualForgettingInterferenceManagement = 8,
+    kTokenEfficientKvCacheManagement = 9,
+    kReflectionMetacognitiveBuffering = 10,
+    kSelfCorrectingFactGraph = 11,
+    kSlowFastMemoryArchitecture = 12,
+    kHeatBasedTieredMigration = 13,
+    kContextQuarantineIsolatedScratchpads = 14,
+    kMcpActiveMetadata = 15,
+  };
+
+  // Runtime memory policy used by hybrid profile+override control.
+  enum class SafeBoundary {
+    kTurnBoundary = 0,
+    kToolResult = 1,
+  };
+
+  struct RuntimeMemoryPolicy {
+    MemoryStrategy strategy = MemoryStrategy::kHardResetReplayWindow;
+    bool context_shift_enabled = false;
+    float context_shift_trigger_ratio = 0.9f;
+    int context_shift_retain_recent_messages = 8;
+    float context_shift_target_ratio = 0.8f;
+    bool context_shift_reset_on_exhaustion = true;
+    ContextShiftStrategy context_shift_strategy =
+        ContextShiftStrategy::kReplayRecent;
+    std::optional<std::string> profile_id = std::nullopt;
+    std::optional<std::string> version = std::nullopt;
+    std::optional<std::string> compatibility = std::nullopt;
+    bool allow_runtime_tuning = true;
+    SafeBoundary safe_boundary = SafeBoundary::kToolResult;
+    std::optional<MemoryStrategy> shadow_strategy = std::nullopt;
+    bool emit_transition_note = true;
+  };
+
   // Creates a default ConversationConfig from the given Engine.
   // Args:
   // - `engine`: The Engine instance to be used for creating the default config.
   static absl::StatusOr<ConversationConfig> CreateDefault(const Engine& engine);
+
+  // Converts a strategy string (e.g. "hard_reset_replay_window") to enum.
+  static absl::StatusOr<MemoryStrategy> MemoryStrategyFromString(
+      absl::string_view strategy_name);
+
+  // Converts strategy enum to canonical profile string.
+  static absl::string_view MemoryStrategyToString(MemoryStrategy strategy);
+
+  // Converts a safe-boundary string (e.g. "tool_result") to enum.
+  static absl::StatusOr<SafeBoundary> SafeBoundaryFromString(
+      absl::string_view safe_boundary_name);
+
+  // Converts safe-boundary enum to canonical profile string.
+  static absl::string_view SafeBoundaryToString(SafeBoundary safe_boundary);
+
+  // Parses a constrained YAML memory profile into runtime policy.
+  static absl::StatusOr<RuntimeMemoryPolicy> ParseMemoryPolicyYaml(
+      absl::string_view yaml_text);
+
+  // Loads and parses a constrained YAML memory profile from file path.
+  static absl::StatusOr<RuntimeMemoryPolicy> LoadMemoryPolicyYamlFile(
+      absl::string_view yaml_file_path);
 
   // Returns the SessionConfig used for creating the ConversationConfig.
   const SessionConfig& GetSessionConfig() const { return session_config_; }
@@ -124,6 +190,25 @@ class ConversationConfig {
   // Returns the context-shift strategy.
   ContextShiftStrategy context_shift_strategy() const {
     return context_shift_strategy_;
+  }
+
+  // Returns the selected high-level memory strategy.
+  MemoryStrategy memory_strategy() const { return memory_strategy_; }
+
+  // Returns an equivalent runtime policy based on static config.
+  RuntimeMemoryPolicy runtime_memory_policy() const {
+    return RuntimeMemoryPolicy{
+        .strategy = memory_strategy_,
+        .context_shift_enabled = context_shift_enabled_,
+        .context_shift_trigger_ratio = context_shift_trigger_ratio_,
+        .context_shift_retain_recent_messages =
+            context_shift_retain_recent_messages_,
+        .context_shift_target_ratio = context_shift_target_ratio_,
+        .context_shift_reset_on_exhaustion =
+            context_shift_reset_on_exhaustion_,
+        .context_shift_strategy = context_shift_strategy_,
+        .profile_id = std::nullopt,
+    };
   }
 
  public:
@@ -255,6 +340,26 @@ class ConversationConfig {
       return *this;
     }
 
+    // Sets the high-level memory strategy.
+    Builder& SetMemoryStrategy(MemoryStrategy strategy) {
+      memory_strategy_ = strategy;
+      return *this;
+    }
+
+    // Sets all runtime memory policy fields in one call.
+    Builder& SetRuntimeMemoryPolicy(const RuntimeMemoryPolicy& policy) {
+      memory_strategy_ = policy.strategy;
+      context_shift_enabled_ = policy.context_shift_enabled;
+      context_shift_trigger_ratio_ = policy.context_shift_trigger_ratio;
+      context_shift_retain_recent_messages_ =
+          policy.context_shift_retain_recent_messages;
+      context_shift_target_ratio_ = policy.context_shift_target_ratio;
+      context_shift_reset_on_exhaustion_ =
+          policy.context_shift_reset_on_exhaustion;
+      context_shift_strategy_ = policy.context_shift_strategy;
+      return *this;
+    }
+
     absl::StatusOr<ConversationConfig> Build(const Engine& engine) {
       return ConversationConfig::CreateInternal(
           engine, session_config_, preface_, overwrite_prompt_template_,
@@ -263,7 +368,7 @@ class ConversationConfig {
           filter_channel_content_from_kv_cache_, context_shift_enabled_,
           context_shift_trigger_ratio_, context_shift_retain_recent_messages_,
           context_shift_target_ratio_, context_shift_reset_on_exhaustion_,
-          context_shift_strategy_);
+          context_shift_strategy_, memory_strategy_);
     }
 
     // Returns a unique pointer to a ConversationConfig.
@@ -290,6 +395,7 @@ class ConversationConfig {
     bool context_shift_reset_on_exhaustion_ = true;
     ContextShiftStrategy context_shift_strategy_ =
         ContextShiftStrategy::kReplayRecent;
+    MemoryStrategy memory_strategy_ = MemoryStrategy::kHardResetReplayWindow;
   };
 
   // Returns the constrained decoding config.
@@ -334,6 +440,7 @@ class ConversationConfig {
   //   if replay cannot fit the target budget.
   // - `context_shift_strategy`: Strategy for what conversation context to keep
   //   during context shift.
+  // - `memory_strategy`: High-level memory strategy identifier.
   static absl::StatusOr<ConversationConfig> CreateInternal(
       const Engine& engine, const SessionConfig& session_config,
       std::optional<Preface> preface = std::nullopt,
@@ -352,7 +459,8 @@ class ConversationConfig {
       float context_shift_target_ratio = 0.8f,
       bool context_shift_reset_on_exhaustion = true,
       ContextShiftStrategy context_shift_strategy =
-          ContextShiftStrategy::kReplayRecent);
+          ContextShiftStrategy::kReplayRecent,
+      MemoryStrategy memory_strategy = MemoryStrategy::kHardResetReplayWindow);
 
   explicit ConversationConfig(SessionConfig session_config, Preface preface,
                               PromptTemplate prompt_template,
@@ -369,7 +477,9 @@ class ConversationConfig {
                               float context_shift_target_ratio = 0.8f,
                               bool context_shift_reset_on_exhaustion = true,
                               ContextShiftStrategy context_shift_strategy =
-                                  ContextShiftStrategy::kReplayRecent)
+                                  ContextShiftStrategy::kReplayRecent,
+                              MemoryStrategy memory_strategy =
+                                  MemoryStrategy::kHardResetReplayWindow)
       : session_config_(std::move(session_config)),
         preface_(std::move(preface)),
         prompt_template_(std::move(prompt_template)),
@@ -387,7 +497,8 @@ class ConversationConfig {
         context_shift_target_ratio_(context_shift_target_ratio),
         context_shift_reset_on_exhaustion_(
             context_shift_reset_on_exhaustion),
-        context_shift_strategy_(context_shift_strategy) {}
+        context_shift_strategy_(context_shift_strategy),
+        memory_strategy_(memory_strategy) {}
 
   SessionConfig session_config_;
   Preface preface_;
@@ -404,6 +515,7 @@ class ConversationConfig {
   float context_shift_target_ratio_;
   bool context_shift_reset_on_exhaustion_;
   ContextShiftStrategy context_shift_strategy_;
+  MemoryStrategy memory_strategy_;
 };
 
 // Optional arguments for sending a message to the LLM.
@@ -652,6 +764,17 @@ class Conversation {
   // continue using the Conversation after cancellation.
   void CancelGroup(absl::string_view task_group_id);
 
+  // Applies a runtime memory policy override for this conversation instance.
+  absl::Status SetRuntimeMemoryPolicy(
+      const ConversationConfig::RuntimeMemoryPolicy& policy);
+
+  // Applies runtime memory policy from YAML text.
+  absl::Status SetRuntimeMemoryPolicyFromYaml(absl::string_view yaml_text);
+
+  // Applies runtime memory policy from YAML file path.
+  absl::Status SetRuntimeMemoryPolicyFromYamlFile(
+      absl::string_view yaml_file_path);
+
  private:
   explicit Conversation(
       Engine& engine, std::unique_ptr<Engine::Session> session,
@@ -726,6 +849,25 @@ class Conversation {
   // context usage reaches the configured threshold.
   absl::Status MaybeApplyContextShift();
 
+  // Returns currently active runtime memory policy (override or config).
+  ConversationConfig::RuntimeMemoryPolicy GetActiveMemoryPolicy() const;
+
+  // Applies queued policy updates at safe boundary if any.
+  absl::Status ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(
+      ConversationConfig::SafeBoundary boundary);
+
+  // Applies a policy immediately. Caller must ensure boundary safety.
+  absl::Status ApplyRuntimeMemoryPolicyNow(
+      const ConversationConfig::RuntimeMemoryPolicy& policy);
+
+  // Anchors context with short replay and optional transition note.
+  absl::Status AnchorContextForPolicyTransition(
+      const ConversationConfig::RuntimeMemoryPolicy& policy);
+
+  // Queues a policy update to be applied at a safe boundary.
+  void QueueRuntimeMemoryPolicyUpdate(
+      const ConversationConfig::RuntimeMemoryPolicy& policy);
+
   // Prefills the configured preface on the current session when enabled.
   absl::Status PrefillPrefaceIfConfigured();
 
@@ -779,6 +921,15 @@ class Conversation {
 
   // Max number of tokens supported by the model context.
   int max_context_tokens_ = 0;
+
+  // Runtime override for memory policy that can be changed between turns.
+  mutable absl::Mutex memory_policy_mutex_;
+  std::optional<ConversationConfig::RuntimeMemoryPolicy>
+      runtime_memory_policy_override_ ABSL_GUARDED_BY(memory_policy_mutex_);
+  std::optional<ConversationConfig::RuntimeMemoryPolicy>
+      pending_runtime_memory_policy_update_
+          ABSL_GUARDED_BY(memory_policy_mutex_);
+  bool policy_transition_blocked_ ABSL_GUARDED_BY(memory_policy_mutex_) = false;
 };
 }  // namespace litert::lm
 

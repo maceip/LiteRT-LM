@@ -160,6 +160,7 @@ cc_test(
     data = [
         "//runtime/components/testdata",
         "//runtime/testdata",
+        "//runtime/conversation/testdata",
     ],
     shard_count = 4,
     tags = ["requires-mac-inputs:hard"],  # Required for running on Forge on Mac.
