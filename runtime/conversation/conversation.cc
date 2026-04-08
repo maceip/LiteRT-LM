@@ -834,18 +834,53 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
     policy_snapshot = active_context_shift_policy_;
   }
   size_t history_size = 0;
-  {
+  std::vector<Message> candidate_messages;
+  if (policy_snapshot.context_shift_strategy ==
+      ConversationConfig::ContextShiftStrategy::kReplayRecent) {
+    absl::MutexLock lock(&history_mutex_);
+    history_size = history_.size();
+    const int retain_count =
+        std::min(static_cast<int>(history_.size()),
+                 policy_snapshot.context_shift_retain_recent_messages);
+    if (retain_count > 0) {
+      candidate_messages.assign(history_.end() - retain_count, history_.end());
+    }
+  } else {
     absl::MutexLock lock(&history_mutex_);
     history_size = history_.size();
   }
+
+  if (config_.filter_channel_content_from_kv_cache()) {
+    for (auto& message : candidate_messages) {
+      message = MaybeStripChannelContentFromMessage(
+          message, /*strip_channel_content=*/true);
+    }
+  }
+
+  std::vector<InputData> precomputed_replay_inputs;
+  if (!candidate_messages.empty()) {
+    auto replay_inputs_or = GetInputDataVectorForMessages(
+        /*old_messages=*/absl::Span<const Message>(),
+        absl::MakeConstSpan(candidate_messages), OptionalArgs());
+    if (replay_inputs_or.ok()) {
+      precomputed_replay_inputs = std::move(*replay_inputs_or);
+    }
+  }
+
   const size_t validity_hash = ComputePrefetchValidityHash();
 
   PrefetchReplayPack pack;
   pack.source_checkpoint_step = current_step;
   pack.history_watermark = history_size;
+  if (!candidate_messages.empty()) {
+    pack.retained_start_index =
+        static_cast<int>(history_size - candidate_messages.size());
+    pack.retained_end_index_exclusive = static_cast<int>(history_size);
+  }
   pack.target_ratio = policy_snapshot.context_shift_target_ratio;
   pack.strategy = policy_snapshot.context_shift_strategy;
   pack.validity_hash = validity_hash;
+  pack.replay_inputs = std::move(precomputed_replay_inputs);
 
   {
     absl::MutexLock lock(&policy_mutex_);
