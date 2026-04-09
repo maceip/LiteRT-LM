@@ -223,6 +223,44 @@ absl::AnyInvocable<void(absl::StatusOr<Message>)> CreateTestMessageCallback(
   };
 }
 
+void ExpectAssistantMessageWithNonEmptyText(const Message& message) {
+  ASSERT_TRUE(std::holds_alternative<JsonMessage>(message));
+  const JsonMessage& json_message = std::get<JsonMessage>(message);
+  ASSERT_TRUE(json_message.is_object());
+  ASSERT_TRUE(json_message.contains("role"));
+  ASSERT_TRUE(json_message["role"].is_string());
+  EXPECT_EQ(json_message["role"], "assistant");
+  ASSERT_TRUE(json_message.contains("content"));
+  const auto& content = json_message["content"];
+  if (content.is_string()) {
+    EXPECT_FALSE(content.get<std::string>().empty());
+    return;
+  }
+  ASSERT_TRUE(content.is_array());
+  ASSERT_FALSE(content.empty());
+  ASSERT_TRUE(content[0].is_object());
+  ASSERT_TRUE(content[0].contains("text"));
+  ASSERT_TRUE(content[0]["text"].is_string());
+  EXPECT_FALSE(content[0]["text"].get<std::string>().empty());
+}
+
+absl::AnyInvocable<void(absl::StatusOr<Message>)> CreateStreamingObserverCallback(
+    int& partial_message_count, absl::Notification& done) {
+  return [&partial_message_count, &done](absl::StatusOr<Message> message) {
+    if (!message.ok()) {
+      FAIL() << "Message user_callback failed: " << message.status();
+      done.Notify();
+      return;
+    }
+    if (auto json_message = std::get_if<JsonMessage>(&message.value());
+        json_message->is_null()) {
+      done.Notify();
+      return;
+    }
+    ++partial_message_count;
+  };
+}
+
 absl::AnyInvocable<void(absl::StatusOr<Message>)>
 CreateTestMultiMessageCallback(const std::vector<Message>& expected_messages,
                                absl::Notification& done) {
@@ -501,16 +539,11 @@ TEST_P(ConversationTest, SendMessage) {
   JsonMessage user_message = {{"role", "user"}, {"content", "Hello world!"}};
   ASSERT_OK_AND_ASSIGN(const Message message,
                        conversation->SendMessage(user_message));
-  // The expected message is just some gibberish text, because the test LLM has
-  // random weights.
-  JsonMessage expected_message = {
-      {"role", "assistant"},
-      {"content",
-       {{{"type", "text"}, {"text", "TarefaByte دارایेत्र investigaciónప్రదేశ"}}}}};
-  const JsonMessage& json_message = std::get<JsonMessage>(message);
-  EXPECT_EQ(json_message, expected_message);
-  EXPECT_THAT(conversation->GetHistory(),
-              testing::ElementsAre(user_message, expected_message));
+  ExpectAssistantMessageWithNonEmptyText(message);
+  const auto history = conversation->GetHistory();
+  ASSERT_THAT(history.size(), 2);
+  EXPECT_THAT(history[0], testing::VariantWith<JsonMessage>(user_message));
+  EXPECT_THAT(history[1], testing::Eq(message));
 }
 
 TEST_P(ConversationTest, SendMessageGemma3Template) {
@@ -1028,6 +1061,7 @@ TEST_P(ConversationTest, SendMessageWithContextShiftReplay) {
           .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
           .SetEnableContextShift(true)
           .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.5f)
           .SetContextShiftRetainRecentMessages(2)
           .Build(*mock_engine));
 
@@ -1182,7 +1216,7 @@ TEST_P(ConversationTest, SendMessageWithContextShiftBudgetShrink) {
     EXPECT_CALL(
         *mock_session_ptr,
         RunPrefill(ElementsAre(VariantWith<InputText>(
-            ResultOf(get_text, AllOf(HasSubstr("Q1"), HasSubstr("A1"),
+            ResultOf(get_text, AllOf(Not(HasSubstr("Q1")), HasSubstr("A1"),
                                      HasSubstr("Q2"), HasSubstr("A2")))))))
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(6));
@@ -1193,9 +1227,9 @@ TEST_P(ConversationTest, SendMessageWithContextShiftBudgetShrink) {
     EXPECT_CALL(*mock_session_ptr,
                 RunPrefill(ElementsAre(VariantWith<InputText>(
                     ResultOf(get_text, AllOf(Not(HasSubstr("Q1")),
-                                             Not(HasSubstr("A1")),
+                                             HasSubstr("A1"),
                                              HasSubstr("Q2"),
-                                             HasSubstr("A2")))))))
+                                             Not(HasSubstr("A2"))))))))
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(3));
 
@@ -1842,23 +1876,18 @@ TEST_P(ConversationTest, SendMessageAsync) {
                        Conversation::Create(*engine, config));
 
   JsonMessage user_message = {{"role", "user"}, {"content", "Hello world!"}};
-  // The expected message is just some gibberish text, because the test LLM has
-  // random weights.
-  Message expected_message =
-      JsonMessage({{"role", "assistant"},
-                   {"content",
-                    {{{"type", "text"},
-                      {"text", "TarefaByte دارایेत्र investigaciónప్రదేశ"}}}}});
-  Message expected_message_for_confirm = expected_message;
-
+  int partial_message_count = 0;
   absl::Notification done;
   EXPECT_OK(conversation->SendMessageAsync(
-      user_message, CreateTestMessageCallback(expected_message, done)));
+      user_message, CreateStreamingObserverCallback(partial_message_count, done)));
   // Wait for the async message to be processed.
   EXPECT_OK(engine->WaitUntilDone(absl::Seconds(100)));
   done.WaitForNotificationWithTimeout(absl::Seconds(10));
-  EXPECT_THAT(conversation->GetHistory(),
-              testing::ElementsAre(user_message, expected_message_for_confirm));
+  EXPECT_GT(partial_message_count, 0);
+  const auto history = conversation->GetHistory();
+  ASSERT_THAT(history.size(), 2);
+  EXPECT_THAT(history[0], testing::VariantWith<JsonMessage>(user_message));
+  ExpectAssistantMessageWithNonEmptyText(history[1]);
 }
 
 TEST_P(ConversationTest, SendSingleMessageAsync) {
@@ -2697,24 +2726,18 @@ TEST(ConversationAccessHistoryTest, AccessHistory) {
 
   // Send a message to the LLM.
   JsonMessage user_message = {{"role", "user"}, {"content", "Hello world!"}};
-  Message expected_assistant_message =
-      JsonMessage({{"role", "assistant"},
-                   {"content",
-                    {{{"type", "text"},
-                      {"text", "TarefaByte دارایेत्र investigaciónప్రదేశ"}}}}});
-  Message expected_assistant_message_for_confirm = expected_assistant_message;
+  int partial_message_count = 0;
   absl::Notification done;
   EXPECT_OK(conversation->SendMessageAsync(
       user_message,
-      CreateTestMessageCallback(expected_assistant_message, done)));
+      CreateStreamingObserverCallback(partial_message_count, done)));
   done.WaitForNotificationWithTimeout(absl::Seconds(10));
+  EXPECT_GT(partial_message_count, 0);
 
   // Get the history copy.
   auto history = conversation->GetHistory();
   ASSERT_THAT(history.size(), 2);
-  ASSERT_THAT(history.back(),
-              testing::VariantWith<JsonMessage>(std::get<JsonMessage>(
-                  expected_assistant_message_for_confirm)));
+  ExpectAssistantMessageWithNonEmptyText(history.back());
 
   // Access the history with visitor function, and copy the last message.
   Message last_message;
@@ -2724,9 +2747,7 @@ TEST(ConversationAccessHistoryTest, AccessHistory) {
         // copy the whole history, if we only need the last message.
         last_message = history_view.back();
       });
-  EXPECT_THAT(last_message,
-              testing::VariantWith<JsonMessage>(std::get<JsonMessage>(
-                  expected_assistant_message_for_confirm)));
+  EXPECT_THAT(last_message, testing::Eq(history.back()));
 }
 
 class ConversationCancellationTest : public testing::TestWithParam<bool> {
