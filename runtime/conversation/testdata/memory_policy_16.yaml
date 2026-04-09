@@ -1,0 +1,10 @@
+version: 1
+profile_id: memory-policy-16-demo
+strategy: mcp_active_metadata
+context_shift:
+  enabled: true
+  trigger_ratio: 0.9
+  retain_recent_messages: 6
+  target_ratio: 0.8
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent

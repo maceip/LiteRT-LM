@@ -897,6 +897,64 @@ TEST_F(SessionAdvancedTest,
   EXPECT_THAT(texts, testing::ElementsAre("'", "s", " it"));
 }
 
+TEST_F(SessionAdvancedTest, SaveAndRewindCheckpoint) {
+  ASSERT_OK_AND_ASSIGN(auto session, CreateTestSession());
+
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("Hello World!"));
+
+  EXPECT_OK(session->RunPrefill(inputs));
+
+  EXPECT_OK(session->SaveCheckpoint("checkpoint-1"));
+
+  auto decode_config = DecodeConfig::CreateDefault();
+  decode_config.SetMaxOutputTokens(2);
+  ASSERT_OK_AND_ASSIGN(auto responses1, session->RunDecode(decode_config));
+  EXPECT_EQ(responses1.GetTexts().size(), 1);
+  EXPECT_EQ(responses1.GetTexts()[0], " How'");
+
+  EXPECT_OK(session->SaveCheckpoint("checkpoint-2"));
+
+  EXPECT_OK(session->RewindToCheckpoint("checkpoint-1"));
+
+  decode_config.SetMaxOutputTokens(2);
+  ASSERT_OK_AND_ASSIGN(auto responses3, session->RunDecode(decode_config));
+  EXPECT_EQ(responses3.GetTexts().size(), 1);
+  EXPECT_EQ(responses3.GetTexts()[0], " How'");
+
+  EXPECT_THAT(session->RewindToCheckpoint("checkpoint-2"),
+              StatusIs(absl::StatusCode::kNotFound));
+
+  EXPECT_THAT(session->RewindToCheckpoint("non-existent"),
+              StatusIs(absl::StatusCode::kNotFound));
+}
+
+TEST_F(SessionAdvancedTest, GetCurrentStep) {
+  ASSERT_OK_AND_ASSIGN(auto session, CreateTestSession());
+
+  // Initially step should be 0.
+  ASSERT_OK_AND_ASSIGN(int step1, session->GetCurrentStep());
+  EXPECT_EQ(step1, 0);
+
+  std::vector<InputData> inputs;
+  inputs.emplace_back(InputText("Hello World!"));
+
+  EXPECT_OK(session->RunPrefill(inputs));
+
+  // After prefill, step should be number of prefill tokens.
+  // Fake executor uses 8 tokens for "Hello World!".
+  ASSERT_OK_AND_ASSIGN(int step2, session->GetCurrentStep());
+  EXPECT_EQ(step2, 8);
+
+  auto decode_config = DecodeConfig::CreateDefault();
+  decode_config.SetMaxOutputTokens(2);
+  ASSERT_OK_AND_ASSIGN(auto responses, session->RunDecode(decode_config));
+
+  // After decode, step should increase by number of decoded tokens.
+  ASSERT_OK_AND_ASSIGN(int step3, session->GetCurrentStep());
+  EXPECT_EQ(step3, 10);
+}
+
 TEST_F(SessionAdvancedTest, RunPrefillAndDecodeAsyncWithInternalSampler) {
   const std::vector<std::vector<int>> stop_token_ids = {{2294}};
   SessionConfig session_config = SessionConfig::CreateDefault();

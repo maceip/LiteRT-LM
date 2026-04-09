@@ -303,13 +303,6 @@ absl::Status EngineSettings::MaybeUpdateAndValidate(
   if (IsBenchmarkEnabled()) {
     advanced_settings.is_benchmark = true;
     main_executor_settings_.SetAdvancedSettings(advanced_settings);
-  } else if (!advanced_settings.gpu_context_low_priority.has_value()) {
-    // When we are not in benchmark mode, we set the OpenCL context low priority
-    // for generic models, such that the UI thread can be smoother.
-    advanced_settings.gpu_context_low_priority =
-        metadata.has_llm_model_type() &&
-        metadata.llm_model_type().has_generic_model();
-    main_executor_settings_.SetAdvancedSettings(advanced_settings);
   }
 
   if (!metadata.has_jinja_prompt_template()) {

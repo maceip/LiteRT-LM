@@ -109,9 +109,11 @@ cc_library(
         ":internal_callback_util",
         ":io_types",
         ":prompt_utils",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/functional:any_invocable",
+        "@com_google_absl//absl/functional:function_ref",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
@@ -160,6 +162,7 @@ cc_test(
     data = [
         "//runtime/components/testdata",
         "//runtime/testdata",
+        "//runtime/conversation/testdata",
     ],
     shard_count = 4,
     tags = ["requires-mac-inputs:hard"],  # Required for running on Forge on Mac.
