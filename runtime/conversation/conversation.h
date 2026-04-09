@@ -15,6 +15,7 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_CONVERSATION_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_CONVERSATION_H_
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,6 +25,7 @@
 #include "absl/base/thread_annotations.h"  // from @com_google_absl
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
+#include "absl/functional/function_ref.h"  // from @com_google_absl
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
@@ -55,6 +57,12 @@ namespace litert::lm {
 // build Conversation.
 class ConversationConfig {
  public:
+  // Boundary event for applying queued runtime policy updates.
+  enum class PolicyApplyBoundary {
+    kToolResult = 0,
+    kTurnBoundary = 1,
+  };
+
   // Policy for session-level context shift behavior.
   enum class ContextShiftStrategy {
     // Replays recent messages and may shrink replay window to fit budget.
@@ -583,6 +591,10 @@ struct OptionalArgs {
   // context only applies to a single message and is merged with the extra
   // context provided in the Preface, overwriting existing keys.
   std::optional<nlohmann::ordered_json> extra_context = std::nullopt;
+
+  // Optional runtime policy update request.
+  std::optional<ContextShiftPolicyUpdateRequest> policy_update_request =
+      std::nullopt;
 };
 
 // A multi-turn centric stateful Conversation API for high-level user
@@ -629,6 +641,33 @@ struct OptionalArgs {
 //
 class Conversation {
  public:
+  // Structured transition record for runtime policy changes.
+  struct PolicyTransitionRecord {
+    enum class Action {
+      kQueued = 0,
+      kApplied = 1,
+      kRejected = 2,
+    };
+    Action action;
+    std::string old_policy;
+    std::string new_policy;
+    std::string boundary;
+    std::string reason;
+  };
+
+  // Prefetch planner/install metrics.
+  struct PrefetchMetrics {
+    int planned_count = 0;
+    int install_attempt_count = 0;
+    int install_hit_count = 0;
+    int stale_discard_count = 0;
+    int fallback_count = 0;
+    int parity_check_count = 0;
+    int parity_mismatch_count = 0;
+    double install_latency_ms_total = 0.0;
+    double baseline_recompute_latency_ms_total = 0.0;
+  };
+
   // Creates a Conversation instance from the the Engine and ConversationConfig.
   // Args:
   // - `engine`: The Engine instance to be used for creating the Conversation.
@@ -787,6 +826,39 @@ class Conversation {
   }
 
  private:
+  enum class BoundaryEvent {
+    kToolResult = 0,
+    kTurnBoundary = 1,
+    kUnknown = 2,
+  };
+
+  struct ContextShiftRuntimePolicy {
+    bool context_shift_enabled = false;
+    float context_shift_trigger_ratio = 0.9f;
+    int context_shift_retain_recent_messages = 8;
+    float context_shift_target_ratio = 0.8f;
+    bool context_shift_reset_on_exhaustion = true;
+    ConversationConfig::ContextShiftStrategy context_shift_strategy =
+        ConversationConfig::ContextShiftStrategy::kReplayRecent;
+  };
+
+  struct PendingPolicyUpdate {
+    ContextShiftPolicyUpdateRequest request;
+    BoundaryEvent boundary;
+  };
+
+  struct PrefetchReplayPack {
+    int source_checkpoint_step = 0;
+    size_t history_watermark = 0;
+    int retained_start_index = -1;
+    int retained_end_index_exclusive = -1;
+    float target_ratio = 0.0f;
+    ConversationConfig::ContextShiftStrategy strategy =
+        ConversationConfig::ContextShiftStrategy::kReplayRecent;
+    size_t validity_hash = 0;
+    std::vector<InputData> replay_inputs;
+  };
+
   explicit Conversation(
       Engine& engine, std::unique_ptr<Engine::Session> session,
       std::unique_ptr<ModelDataProcessor> model_data_processor, Preface preface,
@@ -902,6 +974,32 @@ class Conversation {
 
   // Whether the current conversation is in message appending state.
   bool is_appending_message_ = false;
+
+  // Mutex protecting runtime policy queue/state and prefetch metadata.
+  mutable absl::Mutex policy_mutex_;
+
+  // Whether a model turn is active (prefill/decode or append mode).
+  bool model_turn_active_ ABSL_GUARDED_BY(policy_mutex_) = false;
+
+  // Active effective context-shift policy.
+  ContextShiftRuntimePolicy active_context_shift_policy_
+      ABSL_GUARDED_BY(policy_mutex_);
+
+  // Pending policy updates queue.
+  std::vector<PendingPolicyUpdate> pending_policy_updates_
+      ABSL_GUARDED_BY(policy_mutex_);
+
+  // Structured transition records.
+  std::vector<PolicyTransitionRecord> policy_transition_records_
+      ABSL_GUARDED_BY(policy_mutex_);
+
+  // Deterministic internal transition notes.
+  std::vector<std::string> transition_notes_ ABSL_GUARDED_BY(policy_mutex_);
+
+  // Prefetch replay pack + metrics.
+  std::optional<PrefetchReplayPack> pending_prefetch_pack_
+      ABSL_GUARDED_BY(policy_mutex_);
+  PrefetchMetrics prefetch_metrics_ ABSL_GUARDED_BY(policy_mutex_);
 
   // Mutex for task_controllers_.
   mutable absl::Mutex task_controllers_mutex_;

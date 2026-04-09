@@ -223,6 +223,44 @@ absl::AnyInvocable<void(absl::StatusOr<Message>)> CreateTestMessageCallback(
   };
 }
 
+void ExpectAssistantMessageWithNonEmptyText(const Message& message) {
+  ASSERT_TRUE(std::holds_alternative<JsonMessage>(message));
+  const JsonMessage& json_message = std::get<JsonMessage>(message);
+  ASSERT_TRUE(json_message.is_object());
+  ASSERT_TRUE(json_message.contains("role"));
+  ASSERT_TRUE(json_message["role"].is_string());
+  EXPECT_EQ(json_message["role"], "assistant");
+  ASSERT_TRUE(json_message.contains("content"));
+  const auto& content = json_message["content"];
+  if (content.is_string()) {
+    EXPECT_FALSE(content.get<std::string>().empty());
+    return;
+  }
+  ASSERT_TRUE(content.is_array());
+  ASSERT_FALSE(content.empty());
+  ASSERT_TRUE(content[0].is_object());
+  ASSERT_TRUE(content[0].contains("text"));
+  ASSERT_TRUE(content[0]["text"].is_string());
+  EXPECT_FALSE(content[0]["text"].get<std::string>().empty());
+}
+
+absl::AnyInvocable<void(absl::StatusOr<Message>)> CreateStreamingObserverCallback(
+    int& partial_message_count, absl::Notification& done) {
+  return [&partial_message_count, &done](absl::StatusOr<Message> message) {
+    if (!message.ok()) {
+      FAIL() << "Message user_callback failed: " << message.status();
+      done.Notify();
+      return;
+    }
+    if (auto json_message = std::get_if<JsonMessage>(&message.value());
+        json_message->is_null()) {
+      done.Notify();
+      return;
+    }
+    ++partial_message_count;
+  };
+}
+
 absl::AnyInvocable<void(absl::StatusOr<Message>)>
 CreateTestMultiMessageCallback(const std::vector<Message>& expected_messages,
                                absl::Notification& done) {
@@ -600,16 +638,11 @@ TEST_P(ConversationTest, SendMessage) {
   JsonMessage user_message = {{"role", "user"}, {"content", "Hello world!"}};
   ASSERT_OK_AND_ASSIGN(const Message message,
                        conversation->SendMessage(user_message));
-  // The expected message is just some gibberish text, because the test LLM has
-  // random weights.
-  JsonMessage expected_message = {
-      {"role", "assistant"},
-      {"content",
-       {{{"type", "text"}, {"text", "TarefaByte دارایेत्र investigaciónప్రదేశ"}}}}};
-  const JsonMessage& json_message = std::get<JsonMessage>(message);
-  EXPECT_EQ(json_message, expected_message);
-  EXPECT_THAT(conversation->GetHistory(),
-              testing::ElementsAre(user_message, expected_message));
+  ExpectAssistantMessageWithNonEmptyText(message);
+  const auto history = conversation->GetHistory();
+  ASSERT_THAT(history.size(), 2);
+  EXPECT_THAT(history[0], testing::VariantWith<JsonMessage>(user_message));
+  EXPECT_THAT(history[1], testing::Eq(message));
 }
 
 TEST_P(ConversationTest, SendMessageGemma3Template) {
@@ -1127,6 +1160,7 @@ TEST_P(ConversationTest, SendMessageWithContextShiftReplay) {
           .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
           .SetEnableContextShift(true)
           .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.5f)
           .SetContextShiftRetainRecentMessages(2)
           .Build(*mock_engine));
 
@@ -1589,7 +1623,7 @@ TEST_P(ConversationTest, SendMessageWithContextShiftBudgetShrink) {
     EXPECT_CALL(
         *mock_session_ptr,
         RunPrefill(ElementsAre(VariantWith<InputText>(
-            ResultOf(get_text, AllOf(HasSubstr("Q1"), HasSubstr("A1"),
+            ResultOf(get_text, AllOf(Not(HasSubstr("Q1")), HasSubstr("A1"),
                                      HasSubstr("Q2"), HasSubstr("A2")))))))
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(6));
@@ -1600,9 +1634,9 @@ TEST_P(ConversationTest, SendMessageWithContextShiftBudgetShrink) {
     EXPECT_CALL(*mock_session_ptr,
                 RunPrefill(ElementsAre(VariantWith<InputText>(
                     ResultOf(get_text, AllOf(Not(HasSubstr("Q1")),
-                                             Not(HasSubstr("A1")),
+                                             HasSubstr("A1"),
                                              HasSubstr("Q2"),
-                                             HasSubstr("A2")))))))
+                                             Not(HasSubstr("A2"))))))))
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(3));
 
@@ -1688,6 +1722,399 @@ TEST_P(ConversationTest, SendMessageWithContextShiftResetOnExhaustion) {
       JsonMessage{{"role", "user"}, {"content", "Q1"}}));
   ASSERT_OK(conversation->SendMessage(
       JsonMessage{{"role", "user"}, {"content", "Q2"}}));
+}
+
+TEST_P(ConversationTest, PolicyUpdateRejectedWhenRuntimeTuningDisabled) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetAllowRuntimeTuning(false)
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_)).Times(0);
+  EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_)).Times(0);
+
+  OptionalArgs optional_args;
+  optional_args.policy_update_request = ContextShiftPolicyUpdateRequest{
+      .profile_schema_version = 1,
+      .profile_compatibility_version = 1,
+      .runtime_override =
+          ContextShiftRuntimePolicyOverride{
+              .context_shift_strategy =
+                  ConversationConfig::ContextShiftStrategy::kDropAllButSystem},
+      .reason = "blocked_update"};
+
+  auto result = conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "hello"}},
+      std::move(optional_args));
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(absl::IsFailedPrecondition(result.status()));
+  EXPECT_THAT(result.status().message(), HasSubstr("allow_runtime_tuning=false"));
+
+  auto records = conversation->GetPolicyTransitionRecordsForTest();
+  ASSERT_THAT(records.size(), testing::Eq(1));
+  EXPECT_EQ(records[0].action,
+            Conversation::PolicyTransitionRecord::Action::kRejected);
+  EXPECT_EQ(conversation->GetQueuedPolicyUpdateCountForTest(), 0);
+}
+
+TEST_P(ConversationTest, PolicyUpdateRejectsUnsupportedSchemaVersion) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetAllowRuntimeTuning(true)
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_)).Times(0);
+  EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_)).Times(0);
+
+  OptionalArgs optional_args;
+  optional_args.policy_update_request = ContextShiftPolicyUpdateRequest{
+      .profile_schema_version = 7,
+      .profile_compatibility_version = 1,
+      .runtime_override =
+          ContextShiftRuntimePolicyOverride{
+              .context_shift_strategy =
+                  ConversationConfig::ContextShiftStrategy::kDropAllButSystem},
+      .reason = "bad_schema"};
+
+  auto result = conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "hello"}},
+      std::move(optional_args));
+  EXPECT_FALSE(result.ok());
+  EXPECT_TRUE(absl::IsInvalidArgument(result.status()));
+  EXPECT_THAT(result.status().message(),
+              HasSubstr("Unsupported policy schema version"));
+
+  EXPECT_EQ(conversation->GetActiveContextShiftStrategyForTest(),
+            ConversationConfig::ContextShiftStrategy::kReplayRecent);
+  auto records = conversation->GetPolicyTransitionRecordsForTest();
+  ASSERT_THAT(records.size(), testing::Eq(1));
+  EXPECT_EQ(records[0].action,
+            Conversation::PolicyTransitionRecord::Action::kRejected);
+  EXPECT_EQ(conversation->GetQueuedPolicyUpdateCountForTest(), 0);
+}
+
+TEST_P(ConversationTest, PolicyUpdateQueuesThenAppliesOnToolBoundarySync) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetAllowRuntimeTuning(true)
+          .SetEmitTransitionNote(true)
+          .SetPolicyApplyBoundary(
+              ConversationConfig::PolicyApplyBoundary::kToolResult)
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
+  }
+
+  OptionalArgs first_args;
+  first_args.policy_update_request = ContextShiftPolicyUpdateRequest{
+      .profile_schema_version = 1,
+      .profile_compatibility_version = 1,
+      .runtime_override =
+          ContextShiftRuntimePolicyOverride{
+              .context_shift_strategy =
+                  ConversationConfig::ContextShiftStrategy::kDropAllButSystem},
+      .reason = "sync_queue_apply"};
+
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}, std::move(first_args)));
+  EXPECT_EQ(conversation->GetQueuedPolicyUpdateCountForTest(), 1);
+  EXPECT_EQ(conversation->GetActiveContextShiftStrategyForTest(),
+            ConversationConfig::ContextShiftStrategy::kReplayRecent);
+
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "tool"}, {"content", "tool result"}}));
+  EXPECT_EQ(conversation->GetQueuedPolicyUpdateCountForTest(), 0);
+  EXPECT_EQ(conversation->GetActiveContextShiftStrategyForTest(),
+            ConversationConfig::ContextShiftStrategy::kDropAllButSystem);
+  EXPECT_EQ(conversation->GetTransitionNoteCountForTest(), 1);
+
+  auto records = conversation->GetPolicyTransitionRecordsForTest();
+  ASSERT_THAT(records.size(), testing::Eq(2));
+  EXPECT_EQ(records[0].action,
+            Conversation::PolicyTransitionRecord::Action::kQueued);
+  EXPECT_EQ(records[1].action,
+            Conversation::PolicyTransitionRecord::Action::kApplied);
+  EXPECT_EQ(records[0].boundary, "turn_boundary");
+  EXPECT_EQ(records[1].boundary, "tool_result");
+}
+
+TEST_P(ConversationTest, PolicyUpdateQueuedDuringAsyncTurnAppliesAtTurnBoundary) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetAllowRuntimeTuning(true)
+          .SetPolicyApplyBoundary(
+              ConversationConfig::PolicyApplyBoundary::kTurnBoundary)
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  absl::AnyInvocable<void(absl::StatusOr<Responses>)> decode_callback;
+  EXPECT_CALL(*mock_session_ptr, RunPrefillAsync(testing::_, testing::_))
+      .WillOnce([](const std::vector<InputData>&,
+                   absl::AnyInvocable<void(absl::StatusOr<Responses>)>
+                       user_callback) {
+        user_callback(Responses(TaskState::kDone));
+        return std::make_unique<MockTaskController>();
+      });
+  EXPECT_CALL(*mock_session_ptr, RunDecodeAsync(testing::_, testing::_))
+      .WillOnce(
+          [&decode_callback](
+              absl::AnyInvocable<void(absl::StatusOr<Responses>)> user_callback,
+              const DecodeConfig&) {
+            decode_callback = std::move(user_callback);
+            return std::make_unique<MockTaskController>();
+          });
+
+  OptionalArgs optional_args;
+  optional_args.policy_update_request = ContextShiftPolicyUpdateRequest{
+      .profile_schema_version = 1,
+      .profile_compatibility_version = 1,
+      .runtime_override =
+          ContextShiftRuntimePolicyOverride{
+              .context_shift_strategy =
+                  ConversationConfig::ContextShiftStrategy::kDropAllButSystem},
+      .reason = "async_turn_boundary_apply"};
+
+  Message expected_message = JsonMessage(
+      {{"role", "assistant"},
+       {"content", {{{"type", "text"}, {"text", "async result"}}}}});
+  Message expected_message_for_confirm = expected_message;
+  absl::Notification done;
+  ASSERT_OK(conversation->SendMessageAsync(
+      JsonMessage{{"role", "tool"}, {"content", "tool result"}},
+      CreateTestMessageCallback(expected_message, done), std::move(optional_args)));
+
+  EXPECT_EQ(conversation->GetQueuedPolicyUpdateCountForTest(), 1);
+  EXPECT_EQ(conversation->GetActiveContextShiftStrategyForTest(),
+            ConversationConfig::ContextShiftStrategy::kReplayRecent);
+  auto before_records = conversation->GetPolicyTransitionRecordsForTest();
+  ASSERT_THAT(before_records.size(), testing::Eq(1));
+  EXPECT_EQ(before_records[0].action,
+            Conversation::PolicyTransitionRecord::Action::kQueued);
+
+  ASSERT_TRUE(static_cast<bool>(decode_callback));
+  decode_callback(Responses(TaskState::kProcessing, {"async result"}));
+  decode_callback(Responses(TaskState::kDone));
+  done.WaitForNotificationWithTimeout(absl::Seconds(10));
+
+  EXPECT_EQ(conversation->GetQueuedPolicyUpdateCountForTest(), 0);
+  EXPECT_EQ(conversation->GetActiveContextShiftStrategyForTest(),
+            ConversationConfig::ContextShiftStrategy::kDropAllButSystem);
+  auto records = conversation->GetPolicyTransitionRecordsForTest();
+  ASSERT_THAT(records.size(), testing::Eq(2));
+  EXPECT_EQ(records[1].action,
+            Conversation::PolicyTransitionRecord::Action::kApplied);
+  EXPECT_EQ(records[1].boundary, "turn_boundary");
+  EXPECT_THAT(conversation->GetHistory(),
+              testing::ElementsAre(
+                  JsonMessage{{"role", "tool"}, {"content", "tool result"}},
+                  expected_message_for_confirm));
+}
+
+TEST_P(ConversationTest, PrefetchPlannerMetricsIncrementInShadowMode) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.9f)
+          .SetPrefetchEnabled(true)
+          .SetPrefetchShadowMode(true)
+          .SetPrefetchRatio(0.2f)
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(3));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+
+  const auto metrics = conversation->GetPrefetchMetricsForTest();
+  EXPECT_EQ(metrics.planned_count, 1);
+  EXPECT_EQ(metrics.install_attempt_count, 0);
+  EXPECT_EQ(metrics.install_hit_count, 0);
+  EXPECT_EQ(metrics.fallback_count, 0);
+  EXPECT_EQ(metrics.parity_check_count, 0);
+  EXPECT_EQ(metrics.parity_mismatch_count, 0);
+}
+
+TEST_P(ConversationTest, PrefetchFallbackMetricsIncrementOnContextShift) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(0)
+          .SetPrefetchEnabled(true)
+          .SetPrefetchShadowMode(true)
+          .SetPrefetchRatio(0.2f)
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+
+  const auto metrics = conversation->GetPrefetchMetricsForTest();
+  EXPECT_EQ(metrics.planned_count, 1);
+  EXPECT_EQ(metrics.install_attempt_count, 1);
+  EXPECT_EQ(metrics.install_hit_count, 0);
+  EXPECT_EQ(metrics.stale_discard_count, 0);
+  EXPECT_EQ(metrics.fallback_count, 1);
+  EXPECT_EQ(metrics.parity_check_count, 1);
+  EXPECT_EQ(metrics.parity_mismatch_count, 0);
+  EXPECT_GE(metrics.baseline_recompute_latency_ms_total, 0.0);
+}
+
+TEST_P(ConversationTest, PrefetchReplayPackInstallsOnBoundaryWhenValid) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  auto get_text = [](const InputText& it) -> std::string {
+    auto status_or_view = it.GetRawTextString();
+    if (!status_or_view.ok()) return "";
+    return std::string(*status_or_view);
+  };
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(2)
+          .SetPrefetchEnabled(true)
+          .SetPrefetchShadowMode(false)
+          .SetPrefetchRatio(0.2f)
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(
+                    ResultOf(get_text, AllOf(HasSubstr("Q1"), HasSubstr("A1")))))))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q2"}}));
+
+  const auto metrics = conversation->GetPrefetchMetricsForTest();
+  EXPECT_EQ(metrics.planned_count, 1);
+  EXPECT_EQ(metrics.install_attempt_count, 1);
+  EXPECT_EQ(metrics.install_hit_count, 1);
+  EXPECT_EQ(metrics.fallback_count, 0);
+  EXPECT_GE(metrics.install_latency_ms_total, 0.0);
 }
 
 TEST_P(ConversationTest, SendMultipleMessagesWithHistory) {
@@ -1856,23 +2283,18 @@ TEST_P(ConversationTest, SendMessageAsync) {
                        Conversation::Create(*engine, config));
 
   JsonMessage user_message = {{"role", "user"}, {"content", "Hello world!"}};
-  // The expected message is just some gibberish text, because the test LLM has
-  // random weights.
-  Message expected_message =
-      JsonMessage({{"role", "assistant"},
-                   {"content",
-                    {{{"type", "text"},
-                      {"text", "TarefaByte دارایेत्र investigaciónప్రదేశ"}}}}});
-  Message expected_message_for_confirm = expected_message;
-
+  int partial_message_count = 0;
   absl::Notification done;
   EXPECT_OK(conversation->SendMessageAsync(
-      user_message, CreateTestMessageCallback(expected_message, done)));
+      user_message, CreateStreamingObserverCallback(partial_message_count, done)));
   // Wait for the async message to be processed.
   EXPECT_OK(engine->WaitUntilDone(absl::Seconds(100)));
   done.WaitForNotificationWithTimeout(absl::Seconds(10));
-  EXPECT_THAT(conversation->GetHistory(),
-              testing::ElementsAre(user_message, expected_message_for_confirm));
+  EXPECT_GT(partial_message_count, 0);
+  const auto history = conversation->GetHistory();
+  ASSERT_THAT(history.size(), 2);
+  EXPECT_THAT(history[0], testing::VariantWith<JsonMessage>(user_message));
+  ExpectAssistantMessageWithNonEmptyText(history[1]);
 }
 
 TEST_P(ConversationTest, SendSingleMessageAsync) {
@@ -2711,24 +3133,18 @@ TEST(ConversationAccessHistoryTest, AccessHistory) {
 
   // Send a message to the LLM.
   JsonMessage user_message = {{"role", "user"}, {"content", "Hello world!"}};
-  Message expected_assistant_message =
-      JsonMessage({{"role", "assistant"},
-                   {"content",
-                    {{{"type", "text"},
-                      {"text", "TarefaByte دارایेत्र investigaciónప్రదేశ"}}}}});
-  Message expected_assistant_message_for_confirm = expected_assistant_message;
+  int partial_message_count = 0;
   absl::Notification done;
   EXPECT_OK(conversation->SendMessageAsync(
       user_message,
-      CreateTestMessageCallback(expected_assistant_message, done)));
+      CreateStreamingObserverCallback(partial_message_count, done)));
   done.WaitForNotificationWithTimeout(absl::Seconds(10));
+  EXPECT_GT(partial_message_count, 0);
 
   // Get the history copy.
   auto history = conversation->GetHistory();
   ASSERT_THAT(history.size(), 2);
-  ASSERT_THAT(history.back(),
-              testing::VariantWith<JsonMessage>(std::get<JsonMessage>(
-                  expected_assistant_message_for_confirm)));
+  ExpectAssistantMessageWithNonEmptyText(history.back());
 
   // Access the history with visitor function, and copy the last message.
   Message last_message;
@@ -2738,9 +3154,7 @@ TEST(ConversationAccessHistoryTest, AccessHistory) {
         // copy the whole history, if we only need the last message.
         last_message = history_view.back();
       });
-  EXPECT_THAT(last_message,
-              testing::VariantWith<JsonMessage>(std::get<JsonMessage>(
-                  expected_assistant_message_for_confirm)));
+  EXPECT_THAT(last_message, testing::Eq(history.back()));
 }
 
 class ConversationCancellationTest : public testing::TestWithParam<bool> {

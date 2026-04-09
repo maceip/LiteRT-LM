@@ -632,6 +632,9 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateInternal(
     return absl::InvalidArgumentError(
         "context_shift_target_ratio must be <= context_shift_trigger_ratio.");
   }
+  if (prefetch_ratio < 0.0f || prefetch_ratio > 1.0f) {
+    return absl::InvalidArgumentError("prefetch_ratio must be in [0, 1].");
+  }
   switch (context_shift_strategy) {
     case ContextShiftStrategy::kReplayRecent:
     case ContextShiftStrategy::kDropAllButSystem:
@@ -893,6 +896,19 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
       std::move(constraint_provider)));
   conversation->max_context_tokens_ =
       engine.GetEngineSettings().GetMainExecutorSettings().GetMaxNumTokens();
+  {
+    absl::MutexLock lock(&conversation->policy_mutex_);
+    conversation->active_context_shift_policy_ =
+        ContextShiftRuntimePolicy{
+            .context_shift_enabled = config.context_shift_enabled(),
+            .context_shift_trigger_ratio = config.context_shift_trigger_ratio(),
+            .context_shift_retain_recent_messages =
+                config.context_shift_retain_recent_messages(),
+            .context_shift_target_ratio = config.context_shift_target_ratio(),
+            .context_shift_reset_on_exhaustion =
+                config.context_shift_reset_on_exhaustion(),
+            .context_shift_strategy = config.context_shift_strategy()};
+  }
   RETURN_IF_ERROR(conversation->PrefillPrefaceIfConfigured());
   if (config.context_shift_enabled()) {
     if (!conversation->session_->SaveCheckpoint(kContextShiftAnchorCheckpoint)
@@ -953,6 +969,484 @@ void Conversation::AddTaskController(
     absl::MutexLock lock(task_controllers_mutex_);
     task_controllers_[*task_group_id].emplace_back(std::move(task_controller));
   }
+}
+
+std::vector<Conversation::PolicyTransitionRecord>
+Conversation::GetPolicyTransitionRecordsForTest() const {
+  absl::MutexLock lock(&policy_mutex_);
+  return policy_transition_records_;
+}
+
+int Conversation::GetTransitionNoteCountForTest() const {
+  absl::MutexLock lock(&policy_mutex_);
+  return transition_notes_.size();
+}
+
+ConversationConfig::ContextShiftStrategy
+Conversation::GetActiveContextShiftStrategyForTest() const {
+  absl::MutexLock lock(&policy_mutex_);
+  return active_context_shift_policy_.context_shift_strategy;
+}
+
+int Conversation::GetQueuedPolicyUpdateCountForTest() const {
+  absl::MutexLock lock(&policy_mutex_);
+  return pending_policy_updates_.size();
+}
+
+Conversation::PrefetchMetrics Conversation::GetPrefetchMetricsForTest() const {
+  absl::MutexLock lock(&policy_mutex_);
+  return prefetch_metrics_;
+}
+
+void Conversation::RecordPrefetchMetric(
+    absl::FunctionRef<void(PrefetchMetrics&)> updater) {
+  absl::MutexLock lock(&policy_mutex_);
+  updater(prefetch_metrics_);
+}
+
+Conversation::BoundaryEvent Conversation::DetectBoundaryEvent(
+    const nlohmann::ordered_json& json_msg) const {
+  auto detect_from_object = [](const nlohmann::ordered_json& obj)
+      -> std::optional<BoundaryEvent> {
+    if (!obj.is_object() || !obj.contains(kRoleKey) || !obj[kRoleKey].is_string()) {
+      return std::nullopt;
+    }
+    const auto role = obj[kRoleKey].get<absl::string_view>();
+    if (role == kTool) {
+      return BoundaryEvent::kToolResult;
+    }
+    return BoundaryEvent::kTurnBoundary;
+  };
+
+  if (json_msg.is_array()) {
+    bool saw_turn_boundary = false;
+    for (const auto& message : json_msg) {
+      auto detected = detect_from_object(message);
+      if (!detected.has_value()) {
+        continue;
+      }
+      if (*detected == BoundaryEvent::kToolResult) {
+        return BoundaryEvent::kToolResult;
+      }
+      saw_turn_boundary = true;
+    }
+    return saw_turn_boundary ? BoundaryEvent::kTurnBoundary
+                             : BoundaryEvent::kUnknown;
+  }
+
+  if (auto detected = detect_from_object(json_msg); detected.has_value()) {
+    return *detected;
+  }
+  return BoundaryEvent::kUnknown;
+}
+
+absl::Status Conversation::RequestPolicyUpdate(
+    const ContextShiftPolicyUpdateRequest& request, BoundaryEvent boundary) {
+  ContextShiftRuntimePolicy old_policy;
+  ContextShiftRuntimePolicy new_policy;
+  absl::Status validation_status;
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    old_policy = active_context_shift_policy_;
+    validation_status = ValidatePolicyUpdateRequest(request, old_policy);
+    if (!validation_status.ok()) {
+      new_policy = old_policy;
+    } else {
+      new_policy = ResolveEffectivePolicy(old_policy, request.runtime_override);
+      pending_policy_updates_.push_back(PendingPolicyUpdate{
+          .request = request,
+          .boundary = boundary,
+      });
+    }
+  }
+  if (!validation_status.ok()) {
+    RecordPolicyTransition(PolicyTransitionRecord::Action::kRejected, boundary,
+                           validation_status.message(), old_policy, new_policy);
+    return validation_status;
+  }
+  RecordPolicyTransition(PolicyTransitionRecord::Action::kQueued, boundary,
+                         request.reason, old_policy, new_policy);
+  return absl::OkStatus();
+}
+
+absl::Status Conversation::MaybeApplyQueuedPolicyAtBoundary(BoundaryEvent boundary) {
+  if (boundary == BoundaryEvent::kUnknown) {
+    return absl::OkStatus();
+  }
+
+  const bool should_apply_for_boundary =
+      (config_.policy_apply_boundary() ==
+       ConversationConfig::PolicyApplyBoundary::kToolResult &&
+       boundary == BoundaryEvent::kToolResult) ||
+      (config_.policy_apply_boundary() ==
+       ConversationConfig::PolicyApplyBoundary::kTurnBoundary &&
+       boundary == BoundaryEvent::kTurnBoundary);
+  if (!should_apply_for_boundary) {
+    return absl::OkStatus();
+  }
+
+  std::vector<PendingPolicyUpdate> updates_to_apply;
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    if (model_turn_active_ || is_appending_message_ ||
+        pending_policy_updates_.empty()) {
+      return absl::OkStatus();
+    }
+    updates_to_apply = std::move(pending_policy_updates_);
+    pending_policy_updates_.clear();
+  }
+
+  for (const auto& update : updates_to_apply) {
+    ContextShiftRuntimePolicy old_policy;
+    ContextShiftRuntimePolicy new_policy;
+    absl::Status status;
+    bool applied = false;
+    {
+      absl::MutexLock lock(&policy_mutex_);
+      old_policy = active_context_shift_policy_;
+      status = ValidatePolicyUpdateRequest(update.request, old_policy);
+      if (status.ok()) {
+        new_policy = ResolveEffectivePolicy(old_policy, update.request.runtime_override);
+        active_context_shift_policy_ = new_policy;
+        applied = true;
+      } else {
+        new_policy = old_policy;
+      }
+    }
+
+    if (!status.ok()) {
+      RecordPolicyTransition(PolicyTransitionRecord::Action::kRejected, boundary,
+                             status.message(), old_policy, new_policy);
+      continue;
+    }
+
+    if (applied && old_policy.context_shift_enabled != new_policy.context_shift_enabled &&
+        new_policy.context_shift_enabled && context_shift_supported_) {
+      if (!session_->SaveCheckpoint(kContextShiftAnchorCheckpoint).ok()) {
+        context_shift_supported_ = false;
+      }
+    }
+    RecordPolicyTransition(PolicyTransitionRecord::Action::kApplied, boundary,
+                           update.request.reason, old_policy, new_policy);
+    MaybeEmitTransitionNote(boundary, old_policy, new_policy);
+  }
+
+  return absl::OkStatus();
+}
+
+absl::Status Conversation::ValidatePolicyUpdateRequest(
+    const ContextShiftPolicyUpdateRequest& request,
+    const ContextShiftRuntimePolicy& current_policy) const {
+  if (request.profile_schema_version != 1) {
+    return absl::InvalidArgumentError(absl::StrCat(
+        "Unsupported policy schema version: ",
+        request.profile_schema_version, ". Expected 1."));
+  }
+  if (request.profile_compatibility_version != 1) {
+    return absl::FailedPreconditionError(
+        absl::StrCat("Unsupported policy compatibility version: ",
+                     request.profile_compatibility_version, ". Expected 1."));
+  }
+  if (!config_.allow_runtime_tuning()) {
+    return absl::FailedPreconditionError(
+        "Runtime policy tuning is disabled by profile "
+        "(allow_runtime_tuning=false).");
+  }
+
+  const auto& override = request.runtime_override;
+  if (override.context_shift_trigger_ratio.has_value()) {
+    const float trigger = *override.context_shift_trigger_ratio;
+    if (trigger <= 0.0f || trigger > 1.0f) {
+      return absl::InvalidArgumentError(
+          "context_shift_trigger_ratio override must be in (0, 1].");
+    }
+  }
+  if (override.context_shift_target_ratio.has_value()) {
+    const float target = *override.context_shift_target_ratio;
+    if (target <= 0.0f || target > 1.0f) {
+      return absl::InvalidArgumentError(
+          "context_shift_target_ratio override must be in (0, 1].");
+    }
+  }
+  if (override.context_shift_retain_recent_messages.has_value() &&
+      *override.context_shift_retain_recent_messages < 0) {
+    return absl::InvalidArgumentError(
+        "context_shift_retain_recent_messages override must be >= 0.");
+  }
+  const float effective_trigger = override.context_shift_trigger_ratio.value_or(
+      current_policy.context_shift_trigger_ratio);
+  const float effective_target = override.context_shift_target_ratio.value_or(
+      current_policy.context_shift_target_ratio);
+  if (effective_target > effective_trigger) {
+    return absl::InvalidArgumentError(
+        "context_shift_target_ratio override must be <= "
+        "context_shift_trigger_ratio after arbitration.");
+  }
+  return absl::OkStatus();
+}
+
+Conversation::ContextShiftRuntimePolicy Conversation::ResolveEffectivePolicy(
+    const ContextShiftRuntimePolicy& current_policy,
+    const ContextShiftRuntimePolicyOverride& runtime_override) const {
+  ContextShiftRuntimePolicy resolved = current_policy;
+
+  if (runtime_override.context_shift_enabled.has_value()) {
+    resolved.context_shift_enabled = *runtime_override.context_shift_enabled;
+  }
+  if (runtime_override.context_shift_trigger_ratio.has_value()) {
+    resolved.context_shift_trigger_ratio =
+        *runtime_override.context_shift_trigger_ratio;
+  }
+  if (runtime_override.context_shift_retain_recent_messages.has_value()) {
+    resolved.context_shift_retain_recent_messages =
+        *runtime_override.context_shift_retain_recent_messages;
+  }
+  if (runtime_override.context_shift_target_ratio.has_value()) {
+    resolved.context_shift_target_ratio = *runtime_override.context_shift_target_ratio;
+  }
+  if (runtime_override.context_shift_reset_on_exhaustion.has_value()) {
+    resolved.context_shift_reset_on_exhaustion =
+        *runtime_override.context_shift_reset_on_exhaustion;
+  }
+  if (runtime_override.context_shift_strategy.has_value()) {
+    resolved.context_shift_strategy = *runtime_override.context_shift_strategy;
+  }
+
+  // Runtime/model hard caps.
+  resolved.context_shift_trigger_ratio =
+      std::clamp(resolved.context_shift_trigger_ratio, 0.001f, 1.0f);
+  resolved.context_shift_target_ratio =
+      std::clamp(resolved.context_shift_target_ratio, 0.001f, 1.0f);
+  resolved.context_shift_retain_recent_messages =
+      std::max(0, resolved.context_shift_retain_recent_messages);
+  if (resolved.context_shift_target_ratio > resolved.context_shift_trigger_ratio) {
+    resolved.context_shift_target_ratio = resolved.context_shift_trigger_ratio;
+  }
+  if (max_context_tokens_ <= 0) {
+    resolved.context_shift_enabled = false;
+  }
+  return resolved;
+}
+
+std::string Conversation::SerializePolicy(
+    const ContextShiftRuntimePolicy& policy) const {
+  return absl::StrCat(
+      "enabled=", policy.context_shift_enabled ? "true" : "false",
+      ";trigger=", policy.context_shift_trigger_ratio,
+      ";retain=", policy.context_shift_retain_recent_messages,
+      ";target=", policy.context_shift_target_ratio,
+      ";reset=", policy.context_shift_reset_on_exhaustion ? "true" : "false",
+      ";strategy=", static_cast<int>(policy.context_shift_strategy));
+}
+
+void Conversation::RecordPolicyTransition(
+    PolicyTransitionRecord::Action action, BoundaryEvent boundary,
+    absl::string_view reason, const ContextShiftRuntimePolicy& old_policy,
+    const ContextShiftRuntimePolicy& new_policy) {
+  auto boundary_to_string = [](BoundaryEvent boundary_value) -> std::string {
+    switch (boundary_value) {
+      case BoundaryEvent::kToolResult:
+        return "tool_result";
+      case BoundaryEvent::kTurnBoundary:
+        return "turn_boundary";
+      case BoundaryEvent::kUnknown:
+        return "unknown";
+    }
+    return "unknown";
+  };
+
+  PolicyTransitionRecord record{
+      .action = action,
+      .old_policy = SerializePolicy(old_policy),
+      .new_policy = SerializePolicy(new_policy),
+      .boundary = boundary_to_string(boundary),
+      .reason = std::string(reason),
+  };
+  absl::MutexLock lock(&policy_mutex_);
+  policy_transition_records_.push_back(std::move(record));
+}
+
+void Conversation::MaybeEmitTransitionNote(
+    BoundaryEvent boundary, const ContextShiftRuntimePolicy& old_policy,
+    const ContextShiftRuntimePolicy& new_policy) {
+  if (!config_.emit_transition_note()) {
+    return;
+  }
+  const std::string old_serialized = SerializePolicy(old_policy);
+  const std::string new_serialized = SerializePolicy(new_policy);
+  if (old_serialized == new_serialized) {
+    return;
+  }
+
+  auto boundary_to_string = [](BoundaryEvent boundary_value) -> std::string {
+    switch (boundary_value) {
+      case BoundaryEvent::kToolResult:
+        return "tool_result";
+      case BoundaryEvent::kTurnBoundary:
+        return "turn_boundary";
+      case BoundaryEvent::kUnknown:
+        return "unknown";
+    }
+    return "unknown";
+  };
+
+  std::string note =
+      absl::StrCat("policy_transition_note|boundary=",
+                   boundary_to_string(boundary), "|old=", old_serialized,
+                   "|new=", new_serialized);
+  absl::MutexLock lock(&policy_mutex_);
+  transition_notes_.push_back(std::move(note));
+}
+
+void Conversation::MaybePlanPrefetchPack(int current_step) {
+  if (!config_.prefetch_enabled() || max_context_tokens_ <= 0) {
+    return;
+  }
+  const int prefetch_trigger_step =
+      std::max(1, static_cast<int>(max_context_tokens_ * config_.prefetch_ratio()));
+  if (current_step < prefetch_trigger_step) {
+    return;
+  }
+
+  ContextShiftRuntimePolicy policy_snapshot;
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    policy_snapshot = active_context_shift_policy_;
+  }
+  size_t history_size = 0;
+  std::vector<Message> candidate_messages;
+  if (policy_snapshot.context_shift_strategy ==
+      ConversationConfig::ContextShiftStrategy::kReplayRecent) {
+    absl::MutexLock lock(&history_mutex_);
+    history_size = history_.size();
+    const int retain_count =
+        std::min(static_cast<int>(history_.size()),
+                 policy_snapshot.context_shift_retain_recent_messages);
+    if (retain_count > 0) {
+      candidate_messages.assign(history_.end() - retain_count, history_.end());
+    }
+  } else {
+    absl::MutexLock lock(&history_mutex_);
+    history_size = history_.size();
+  }
+
+  if (config_.filter_channel_content_from_kv_cache()) {
+    for (auto& message : candidate_messages) {
+      message = MaybeStripChannelContentFromMessage(
+          message, /*strip_channel_content=*/true);
+    }
+  }
+
+  std::vector<InputData> precomputed_replay_inputs;
+  if (!candidate_messages.empty()) {
+    auto replay_inputs_or = GetInputDataVectorForMessages(
+        /*old_messages=*/absl::Span<const Message>(),
+        absl::MakeConstSpan(candidate_messages), OptionalArgs());
+    if (replay_inputs_or.ok()) {
+      precomputed_replay_inputs = std::move(*replay_inputs_or);
+    }
+  }
+
+  const size_t validity_hash = ComputePrefetchValidityHash();
+
+  PrefetchReplayPack pack;
+  pack.source_checkpoint_step = current_step;
+  pack.history_watermark = history_size;
+  if (!candidate_messages.empty()) {
+    pack.retained_start_index =
+        static_cast<int>(history_size - candidate_messages.size());
+    pack.retained_end_index_exclusive = static_cast<int>(history_size);
+  }
+  pack.target_ratio = policy_snapshot.context_shift_target_ratio;
+  pack.strategy = policy_snapshot.context_shift_strategy;
+  pack.validity_hash = validity_hash;
+  pack.replay_inputs = std::move(precomputed_replay_inputs);
+
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    pending_prefetch_pack_ = std::move(pack);
+  }
+  RecordPrefetchMetric([](PrefetchMetrics& metrics) { metrics.planned_count++; });
+}
+
+absl::StatusOr<bool> Conversation::TryInstallPrefetchPackIfValid(int target_step) {
+  if (!config_.prefetch_enabled()) {
+    return false;
+  }
+
+  std::optional<PrefetchReplayPack> pack;
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    if (!pending_prefetch_pack_.has_value()) {
+      return false;
+    }
+    prefetch_metrics_.install_attempt_count++;
+    pack = std::move(pending_prefetch_pack_);
+    pending_prefetch_pack_.reset();
+  }
+
+  const size_t current_hash = ComputePrefetchValidityHash();
+  if (pack->validity_hash != current_hash ||
+      pack->source_checkpoint_step < target_step) {
+    RecordPrefetchMetric(
+        [](PrefetchMetrics& metrics) { metrics.stale_discard_count++; });
+    return false;
+  }
+
+  if (config_.prefetch_shadow_mode() || pack->replay_inputs.empty()) {
+    return false;
+  }
+
+  auto rewind_status = session_->RewindToCheckpoint(kContextShiftAnchorCheckpoint);
+  if (!rewind_status.ok()) {
+    return rewind_status;
+  }
+  RETURN_IF_ERROR(IgnoreEmptyInputError(session_->RunPrefill(pack->replay_inputs)));
+
+  RecordPrefetchMetric(
+      [](PrefetchMetrics& metrics) { metrics.install_hit_count++; });
+  return true;
+}
+
+size_t Conversation::ComputePrefetchValidityHash() const {
+  size_t history_size = 0;
+  {
+    absl::MutexLock lock(&history_mutex_);
+    history_size = history_.size();
+  }
+
+  ContextShiftRuntimePolicy policy_snapshot;
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    policy_snapshot = active_context_shift_policy_;
+  }
+
+  size_t seed = 0;
+  auto hash_combine = [&seed](size_t value) {
+    seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  };
+  hash_combine(std::hash<int>{}(max_context_tokens_));
+  hash_combine(std::hash<size_t>{}(history_size));
+  hash_combine(std::hash<bool>{}(policy_snapshot.context_shift_enabled));
+  hash_combine(std::hash<float>{}(policy_snapshot.context_shift_trigger_ratio));
+  hash_combine(
+      std::hash<int>{}(policy_snapshot.context_shift_retain_recent_messages));
+  hash_combine(std::hash<float>{}(policy_snapshot.context_shift_target_ratio));
+  hash_combine(
+      std::hash<bool>{}(policy_snapshot.context_shift_reset_on_exhaustion));
+  hash_combine(
+      std::hash<int>{}(static_cast<int>(policy_snapshot.context_shift_strategy)));
+  return seed;
+}
+
+void Conversation::SetModelTurnActive(bool active) {
+  absl::MutexLock lock(&policy_mutex_);
+  model_turn_active_ = active;
+}
+
+bool Conversation::IsModelTurnActive() const {
+  absl::MutexLock lock(&policy_mutex_);
+  return model_turn_active_;
 }
 
 absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
@@ -1062,6 +1556,9 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
         checkpoint_message_index_ = history_.size() - 1;
       }
     }
+    SetModelTurnActive(false);
+    RETURN_IF_ERROR(
+        MaybeApplyQueuedPolicyAtBoundary(BoundaryEvent::kTurnBoundary));
 
     model_turn_cleanup.Cancel();
     SetModelTurnActive(false);
@@ -1485,6 +1982,16 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
   new_conversation->context_shift_supported_ = context_shift_supported_;
   new_conversation->max_context_tokens_ = max_context_tokens_;
   {
+    absl::MutexLock lock(&policy_mutex_);
+    new_conversation->model_turn_active_ = model_turn_active_;
+    new_conversation->active_context_shift_policy_ = active_context_shift_policy_;
+    new_conversation->pending_policy_updates_ = pending_policy_updates_;
+    new_conversation->policy_transition_records_ = policy_transition_records_;
+    new_conversation->transition_notes_ = transition_notes_;
+    new_conversation->pending_prefetch_pack_.reset();
+    new_conversation->prefetch_metrics_ = prefetch_metrics_;
+  }
+  {
     absl::MutexLock lock(history_mutex_);  // NOLINT
     new_conversation->history_ = history_;
   }
@@ -1628,6 +2135,8 @@ absl::Status Conversation::MaybeApplyContextShift() {
     return current_step_or.status();
   }
 
+  MaybePlanPrefetchPack(*current_step_or);
+
   const int trigger_step =
       std::max(1, static_cast<int>(max_context_tokens_ *
                                    policy.context_shift_trigger_ratio));
@@ -1660,6 +2169,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
                                    policy.context_shift_target_ratio));
   int replay_count = static_cast<int>(candidate_messages.size());
   int shifted_step = *current_step_or;
+  const absl::Time baseline_timer_start = absl::Now();
 
   while (true) {
     auto rewind_status =
@@ -1689,6 +2199,16 @@ absl::Status Conversation::MaybeApplyContextShift() {
     }
     --replay_count;
   }
+
+  const double baseline_latency_ms =
+      absl::ToDoubleMilliseconds(absl::Now() - baseline_timer_start);
+  RecordPrefetchMetric([baseline_latency_ms](PrefetchMetrics& metrics) {
+    metrics.baseline_recompute_latency_ms_total += baseline_latency_ms;
+    if (metrics.install_attempt_count > metrics.install_hit_count) {
+      metrics.fallback_count++;
+    }
+    metrics.parity_check_count++;
+  });
 
   if (shifted_step > target_step && replay_count == 0 &&
       policy.context_shift_reset_on_exhaustion) {

@@ -376,6 +376,7 @@ cc_library(
         "//runtime/components/tool_use:fc_tool_format_utils",
         "//runtime/components/tool_use:parser_utils",
         "//runtime/conversation:io_types",
+        "//runtime/conversation:prompt_utils",
         "//runtime/engine:io_types",
         "//runtime/util:litert_status_util",
         "//runtime/util:memory_mapped_file",
