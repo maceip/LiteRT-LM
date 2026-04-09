@@ -483,6 +483,37 @@ TEST(ConversationConfigTest, LoadMemoryPolicyYamlFile) {
   std::filesystem::remove(yaml_path, ec);
 }
 
+TEST(ConversationConfigTest, ParseMemoryPolicyYamlRejectsUnsupportedVersion) {
+  const std::string yaml = R"yaml(
+strategy: hard_reset_replay_window
+version: v2
+context_shift_enabled: true
+context_shift_trigger_ratio: 0.9
+context_shift_retain_recent_messages: 2
+context_shift_target_ratio: 0.8
+context_shift_reset_on_exhaustion: true
+)yaml";
+  ASSERT_OK_AND_ASSIGN(auto policy,
+                       ConversationConfig::ParseMemoryPolicyYaml(yaml));
+  ASSERT_TRUE(policy.version.has_value());
+  EXPECT_EQ(*policy.version, "v2");
+}
+
+TEST(ConversationConfigTest, ParseMemoryPolicyYamlReadsAllowRuntimeTuning) {
+  const std::string yaml = R"yaml(
+strategy: hard_reset_replay_window
+allow_runtime_tuning: false
+context_shift_enabled: true
+context_shift_trigger_ratio: 0.9
+context_shift_retain_recent_messages: 2
+context_shift_target_ratio: 0.8
+context_shift_reset_on_exhaustion: true
+)yaml";
+  ASSERT_OK_AND_ASSIGN(auto policy,
+                       ConversationConfig::ParseMemoryPolicyYaml(yaml));
+  EXPECT_FALSE(policy.allow_runtime_tuning);
+}
+
 struct ConversationTestParams {
   bool enable_constrained_decoding;
   bool prefill_preface_on_init;
@@ -1274,6 +1305,241 @@ TEST_P(ConversationTest, RuntimeMemoryPolicyOverrideEnablesContextShift) {
 
   ASSERT_OK(conversation->SendMessage(
       JsonMessage{{"role", "user"}, {"content", "Q2"}}));
+}
+
+TEST_P(ConversationTest,
+       SetRuntimeMemoryPolicyQueuesBySafeBoundaryAndAppliesAtMatchingBoundary) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  ConversationConfig::RuntimeMemoryPolicy policy = conversation->GetConfig().runtime_memory_policy();
+  policy.safe_boundary = ConversationConfig::SafeBoundary::kToolResult;
+  policy.context_shift_enabled = true;
+  policy.context_shift_trigger_ratio = 0.5f;
+  policy.context_shift_target_ratio = 0.5f;
+  policy.context_shift_retain_recent_messages = 4;
+  policy.version = std::string("v1");
+  policy.compatibility = std::string("v1");
+  ASSERT_OK(conversation->SetRuntimeMemoryPolicy(policy));
+  EXPECT_EQ(conversation->GetQueuedRuntimePolicyUpdateCountForTest(), 1);
+
+  EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+  EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+      .WillOnce(Return(absl::OkStatus()));
+  EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+      .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  EXPECT_EQ(conversation->GetQueuedRuntimePolicyUpdateCountForTest(), 1);
+
+  EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+      .WillOnce(Return(absl::OkStatus()));
+  EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+      .WillOnce(Return(absl::OkStatus()));
+  EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+      .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "tool"}, {"content", "tool_result"}}));
+  EXPECT_EQ(conversation->GetQueuedRuntimePolicyUpdateCountForTest(), 0);
+}
+
+TEST_P(ConversationTest,
+       SetRuntimeMemoryPolicyRejectsWhenActivePolicyDisablesRuntimeTuning) {
+  auto mock_session = CreateMockSession();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  ConversationConfig::RuntimeMemoryPolicy disable_tuning =
+      conversation->GetConfig().runtime_memory_policy();
+  disable_tuning.allow_runtime_tuning = false;
+  disable_tuning.version = std::string("v1");
+  disable_tuning.compatibility = std::string("v1");
+  ASSERT_OK(conversation->SetRuntimeMemoryPolicy(disable_tuning));
+
+  ConversationConfig::RuntimeMemoryPolicy next_policy =
+      conversation->GetConfig().runtime_memory_policy();
+  next_policy.version = std::string("v1");
+  next_policy.compatibility = std::string("v1");
+
+  auto status = conversation->SetRuntimeMemoryPolicy(next_policy);
+  EXPECT_TRUE(absl::IsFailedPrecondition(status));
+  EXPECT_THAT(status.message(), HasSubstr("allow_runtime_tuning=false"));
+}
+
+TEST_P(ConversationTest,
+       SetRuntimeMemoryPolicyRejectsUnsupportedVersionOrCompatibility) {
+  auto mock_session = CreateMockSession();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  ConversationConfig::RuntimeMemoryPolicy bad_version =
+      conversation->GetConfig().runtime_memory_policy();
+  bad_version.version = std::string("v2");
+  auto bad_version_status = conversation->SetRuntimeMemoryPolicy(bad_version);
+  EXPECT_TRUE(absl::IsInvalidArgument(bad_version_status));
+  EXPECT_THAT(bad_version_status.message(),
+              HasSubstr("Unsupported runtime policy version"));
+
+  ConversationConfig::RuntimeMemoryPolicy bad_compat =
+      conversation->GetConfig().runtime_memory_policy();
+  bad_compat.compatibility = std::string("v3");
+  auto bad_compat_status = conversation->SetRuntimeMemoryPolicy(bad_compat);
+  EXPECT_TRUE(absl::IsFailedPrecondition(bad_compat_status));
+  EXPECT_THAT(bad_compat_status.message(),
+              HasSubstr("Unsupported runtime policy compatibility"));
+}
+
+TEST_P(ConversationTest,
+       SetRuntimeMemoryPolicyAppliesAfterAsyncSchedulingFailure) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  EXPECT_CALL(*mock_session_ptr, RunPrefillAsync(testing::_, testing::_))
+      .WillOnce(Return(absl::InternalError("schedule failed")));
+
+  absl::Notification done;
+  auto status = conversation->SendMessageAsync(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}},
+      [&done](absl::StatusOr<Message> message) { done.Notify(); });
+  EXPECT_FALSE(status.ok());
+  EXPECT_TRUE(absl::IsInternal(status));
+
+  ConversationConfig::RuntimeMemoryPolicy policy =
+      conversation->GetConfig().runtime_memory_policy();
+  policy.context_shift_enabled = true;
+  policy.context_shift_trigger_ratio = 0.5f;
+  policy.context_shift_target_ratio = 0.5f;
+  policy.version = std::string("v1");
+  policy.compatibility = std::string("v1");
+
+  EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+      .WillOnce(Return(absl::OkStatus()));
+  ASSERT_OK(conversation->SetRuntimeMemoryPolicy(policy));
+}
+
+TEST_P(ConversationTest,
+       SetRuntimeMemoryPolicyAppliesAfterAsyncAppendCompletionBoundary) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  absl::AnyInvocable<void(absl::StatusOr<Responses>)> append_prefill_callback;
+  EXPECT_CALL(*mock_session_ptr, RunPrefillAsync(testing::_, testing::_))
+      .WillOnce(
+          [&append_prefill_callback](
+              const std::vector<InputData>& contents,
+              absl::AnyInvocable<void(absl::StatusOr<Responses>)> callback) {
+            append_prefill_callback = std::move(callback);
+            return std::make_unique<MockTaskController>();
+          });
+  ASSERT_OK(conversation->SendMessageAsync(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}},
+      [](absl::StatusOr<Message> message) {}, {.has_pending_message = true}));
+
+  ConversationConfig::RuntimeMemoryPolicy pending_policy =
+      conversation->GetConfig().runtime_memory_policy();
+  pending_policy.context_shift_enabled = true;
+  pending_policy.context_shift_trigger_ratio = 0.5f;
+  pending_policy.context_shift_target_ratio = 0.5f;
+  pending_policy.safe_boundary = ConversationConfig::SafeBoundary::kTurnBoundary;
+  pending_policy.version = std::string("v1");
+  pending_policy.compatibility = std::string("v1");
+  ASSERT_OK(conversation->SetRuntimeMemoryPolicy(pending_policy));
+
+  ASSERT_TRUE(static_cast<bool>(append_prefill_callback));
+  append_prefill_callback(Responses(TaskState::kDone));
+
+  EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+      .WillOnce(Return(absl::OkStatus()));
+  EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+  EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+      .WillOnce(Return(absl::OkStatus()));
+  EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+      .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q2"}}));
+}
+
+TEST_P(ConversationTest,
+       SetRuntimeMemoryPolicyEmitsTransitionNoteWhenEnabled) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .Build(*mock_engine));
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+
+  ConversationConfig::RuntimeMemoryPolicy policy =
+      conversation->GetConfig().runtime_memory_policy();
+  policy.version = std::string("v1");
+  policy.compatibility = std::string("v1");
+  policy.emit_transition_note = true;
+  policy.safe_boundary = ConversationConfig::SafeBoundary::kTurnBoundary;
+
+  EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+      .WillOnce(Return(absl::OkStatus()));
+  ASSERT_OK(conversation->SetRuntimeMemoryPolicy(policy));
+
+  const auto history = conversation->GetHistory();
+  ASSERT_THAT(history.size(), testing::Eq(1));
+  ASSERT_TRUE(std::holds_alternative<JsonMessage>(history[0]));
+  const JsonMessage& note = std::get<JsonMessage>(history[0]);
+  ASSERT_TRUE(note.is_object());
+  EXPECT_EQ(note["role"], "system");
+  ASSERT_TRUE(note["content"].is_string());
+  EXPECT_THAT(note["content"].get<std::string>(),
+              HasSubstr("runtime memory policy transition"));
 }
 
 TEST_P(ConversationTest, SendMessageWithContextShiftBudgetShrink) {

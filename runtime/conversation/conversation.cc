@@ -26,6 +26,7 @@
 #include <variant>
 #include <vector>
 
+#include "absl/cleanup/cleanup.h"  // from @com_google_absl
 #include "absl/container/flat_hash_map.h"  // from @com_google_absl
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
 #include "absl/memory/memory.h"  // from @com_google_absl
@@ -64,6 +65,7 @@ namespace {
 
 constexpr absl::string_view kRoleKey = "role";
 constexpr absl::string_view kUser = "user";
+constexpr absl::string_view kTool = "tool";
 constexpr absl::string_view kChannelsKey = "channels";
 constexpr absl::string_view kChannelContentCheckpoint =
     "channel_content_checkpoint";
@@ -104,6 +106,23 @@ bool ContainsUserMessage(const nlohmann::ordered_json& json_msg) {
     return false;
   }
   return json_msg.is_object() && IsUserMessage(json_msg);
+}
+
+bool IsToolMessage(const nlohmann::ordered_json& json_msg) {
+  return json_msg.contains(kRoleKey) && json_msg[kRoleKey].is_string() &&
+         json_msg[kRoleKey].get<absl::string_view>() == kTool;
+}
+
+bool ContainsToolMessage(const nlohmann::ordered_json& json_msg) {
+  if (json_msg.is_array()) {
+    for (const auto& message : json_msg) {
+      if (message.is_object() && IsToolMessage(message)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return json_msg.is_object() && IsToolMessage(json_msg);
 }
 
 Message MaybeStripChannelContentFromMessage(
@@ -214,6 +233,29 @@ bool TryParseBool(absl::string_view text, bool* out) {
     return true;
   }
   return false;
+}
+
+bool IsSupportedPolicyFieldValue(absl::string_view value) {
+  const std::string normalized = NormalizeStrategyName(value);
+  return normalized == "1" || normalized == "v1" ||
+         normalized == "phase_a_v1";
+}
+
+absl::Status ValidateRuntimePolicyVersionCompatibility(
+    const ConversationConfig::RuntimeMemoryPolicy& policy) {
+  if (policy.version.has_value() &&
+      !IsSupportedPolicyFieldValue(*policy.version)) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unsupported runtime policy version: ",
+                     *policy.version, ". Expected v1-compatible value."));
+  }
+  if (policy.compatibility.has_value() &&
+      !IsSupportedPolicyFieldValue(*policy.compatibility)) {
+    return absl::FailedPreconditionError(
+        absl::StrCat("Unsupported runtime policy compatibility: ",
+                     *policy.compatibility, ". Expected v1-compatible value."));
+  }
+  return absl::OkStatus();
 }
 
 absl::StatusOr<std::optional<std::string>> GetYamlValue(
@@ -919,6 +961,12 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
     return absl::InvalidArgumentError("Json message is required for now.");
   }
   auto json_message = std::get<nlohmann::ordered_json>(message);
+  const ConversationConfig::SafeBoundary incoming_boundary =
+      ContainsToolMessage(json_message)
+          ? ConversationConfig::SafeBoundary::kToolResult
+          : ConversationConfig::SafeBoundary::kTurnBoundary;
+  RETURN_IF_ERROR(
+      ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(incoming_boundary));
   if (ContainsUserMessage(json_message)) {
     RETURN_IF_ERROR(MaybeApplyContextShift());
   }
@@ -941,13 +989,15 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
 
   ASSIGN_OR_RETURN(const std::string& single_turn_text,
                    GetSingleTurnText(message, optional_args));
-  absl::MutexLock lock(history_mutex_);  // NOLINT
-  if (json_message.is_array()) {
-    for (const auto& message : json_message) {
-      history_.push_back(message);
+  {
+    absl::MutexLock lock(history_mutex_);  // NOLINT
+    if (json_message.is_array()) {
+      for (const auto& message : json_message) {
+        history_.push_back(message);
+      }
+    } else {
+      history_.push_back(json_message);
     }
-  } else {
-    history_.push_back(json_message);
   }
 
   ASSIGN_OR_RETURN(
@@ -958,6 +1008,8 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
   session_inputs.insert(session_inputs.end(),
                         std::make_move_iterator(message_session_inputs.begin()),
                         std::make_move_iterator(message_session_inputs.end()));
+  SetModelTurnActive(true);
+  absl::Cleanup model_turn_cleanup = [this] { SetModelTurnActive(false); };
   RETURN_IF_ERROR(IgnoreEmptyInputError(session_->RunPrefill(session_inputs)));
   if (is_appending_message_) {
     return JsonMessage();
@@ -991,22 +1043,30 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
     // Insert channel content into the message.
     InsertChannelContentIntoMessage(channel_content, assistant_message);
 
-    // Push assistant message onto history.
-    history_.push_back(assistant_message);
+    {
+      absl::MutexLock lock(history_mutex_);  // NOLINT
+      // Push assistant message onto history.
+      history_.push_back(assistant_message);
 
-    // If the assistant message contains channel content, set the checkpoint
-    // message index to the current message index. This indicates the session
-    // should be rewound to this message and prefilled again when the next user
-    // message is sent to the model. The session checkpoint itself was already
-    // saved right before the model output was decoded.
-    if (config_.filter_channel_content_from_kv_cache() &&
-        session_checkpoint_supported_ &&
-        !checkpoint_message_index_.has_value() &&
-        std::holds_alternative<nlohmann::ordered_json>(assistant_message) &&
-        std::get<nlohmann::ordered_json>(assistant_message)
-            .contains(kChannelsKey)) {
-      checkpoint_message_index_ = history_.size() - 1;
+      // If the assistant message contains channel content, set the checkpoint
+      // message index to the current message index. This indicates the session
+      // should be rewound to this message and prefilled again when the next
+      // user message is sent to the model. The session checkpoint itself was
+      // already saved right before the model output was decoded.
+      if (config_.filter_channel_content_from_kv_cache() &&
+          session_checkpoint_supported_ &&
+          !checkpoint_message_index_.has_value() &&
+          std::holds_alternative<nlohmann::ordered_json>(assistant_message) &&
+          std::get<nlohmann::ordered_json>(assistant_message)
+              .contains(kChannelsKey)) {
+        checkpoint_message_index_ = history_.size() - 1;
+      }
     }
+
+    model_turn_cleanup.Cancel();
+    SetModelTurnActive(false);
+    RETURN_IF_ERROR(ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(
+        ConversationConfig::SafeBoundary::kTurnBoundary));
 
     return assistant_message;
   }
@@ -1020,6 +1080,12 @@ absl::Status Conversation::SendMessageAsync(
     return absl::InvalidArgumentError("Json message is required for now.");
   }
   auto json_message = std::get<nlohmann::ordered_json>(message);
+  const ConversationConfig::SafeBoundary incoming_boundary =
+      ContainsToolMessage(json_message)
+          ? ConversationConfig::SafeBoundary::kToolResult
+          : ConversationConfig::SafeBoundary::kTurnBoundary;
+  RETURN_IF_ERROR(
+      ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(incoming_boundary));
   if (ContainsUserMessage(json_message)) {
     RETURN_IF_ERROR(MaybeApplyContextShift());
   }
@@ -1064,27 +1130,34 @@ absl::Status Conversation::SendMessageAsync(
 
   absl::AnyInvocable<void(Message)> complete_message_callback =
       [this](const Message& complete_message) {
-        absl::MutexLock lock(this->history_mutex_);  // NOLINT
-        this->history_.push_back(complete_message);
+        {
+          absl::MutexLock lock(this->history_mutex_);  // NOLINT
+          this->history_.push_back(complete_message);
 
-        // If the assistant message contains channel content, set the checkpoint
-        // message index. This indicates the session should be rewound to this
-        // message and prefilled again when another user message is sent to the
-        // model. The session checkpoint itself was already saved right before
-        // decode.
-        if (config_.filter_channel_content_from_kv_cache() &&
-            session_checkpoint_supported_ &&
-            !checkpoint_message_index_.has_value() &&
-            std::holds_alternative<nlohmann::ordered_json>(complete_message) &&
-            std::get<nlohmann::ordered_json>(complete_message)
-                .contains(kChannelsKey)) {
-          checkpoint_message_index_ = history_.size() - 1;
+          // If the assistant message contains channel content, set the
+          // checkpoint message index. This indicates the session should be
+          // rewound to this message and prefilled again when another user
+          // message is sent to the model. The session checkpoint itself was
+          // already saved right before decode.
+          if (config_.filter_channel_content_from_kv_cache() &&
+              session_checkpoint_supported_ &&
+              !checkpoint_message_index_.has_value() &&
+              std::holds_alternative<nlohmann::ordered_json>(complete_message) &&
+              std::get<nlohmann::ordered_json>(complete_message)
+                  .contains(kChannelsKey)) {
+            checkpoint_message_index_ = history_.size() - 1;
+          }
         }
+        SetModelTurnActive(false);
+        ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(
+            ConversationConfig::SafeBoundary::kTurnBoundary)
+            .IgnoreError();
       };
 
   absl::AnyInvocable<void()> cancel_callback = [this]() {
     absl::MutexLock lock(this->history_mutex_);  // NOLINT
     this->history_.pop_back();
+    SetModelTurnActive(false);
   };
 
   auto internal_callback =
@@ -1100,18 +1173,28 @@ absl::Status Conversation::SendMessageAsync(
       auto decode_config,
       CreateDecodeConfig(std::move(optional_args.decoding_constraint),
                          optional_args.max_output_tokens));
+  SetModelTurnActive(true);
+  absl::Cleanup model_turn_cleanup = [this] { SetModelTurnActive(false); };
   if (is_appending_message_) {
     ASSIGN_OR_RETURN(
         auto task_controller,
         session_->RunPrefillAsync(
-            session_inputs, [callback = internal_callback](
+            session_inputs, [this, callback = internal_callback](
                                 absl::StatusOr<Responses> responses) mutable {
               auto status = IgnoreEmptyInputError(responses.status());
               if (!status.ok()) {
                 (*callback)(responses.status());
+                SetModelTurnActive(false);
+                return;
+              }
+              if (IsEmptyInputError(responses.status()) ||
+                  (responses.ok() &&
+                   responses->GetTaskState() == TaskState::kDone)) {
+                SetModelTurnActive(false);
               }
             }));
     AddTaskController(optional_args.task_group_id, std::move(task_controller));
+    model_turn_cleanup.Cancel();
   } else {
     ASSIGN_OR_RETURN(
         auto prefill_task_controller,
@@ -1128,6 +1211,7 @@ absl::Status Conversation::SendMessageAsync(
                 // If prefill failed, invoke the callback with the error status
                 // and do not proceed to decode.
                 (*callback)(responses.status());
+                SetModelTurnActive(false);
               } else if (IsEmptyInputError(responses.status()) ||
                          responses->GetTaskState() == TaskState::kDone) {
                 // Scenario 2: Prefill was skipped due to empty input, or
@@ -1164,11 +1248,13 @@ absl::Status Conversation::SendMessageAsync(
                   // RunDecodeAsync failed to schedule. Invoke the callback
                   // with the error status.
                   (*callback)(decode_task_controller.status());
+                  SetModelTurnActive(false);
                 }
               }
             }));
     AddTaskController(optional_args.task_group_id,
                       std::move(prefill_task_controller));
+    model_turn_cleanup.Cancel();
   }
 
   return absl::OkStatus();
@@ -1219,22 +1305,132 @@ void Conversation::CancelGroup(absl::string_view task_group_id) {
   }
 }
 
+void Conversation::SetModelTurnActive(bool active) {
+  absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+  model_turn_active_ = active;
+}
+
+bool Conversation::IsModelTurnActive() const {
+  absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+  return model_turn_active_;
+}
+
+void Conversation::QueueRuntimeMemoryPolicyUpdate(
+    const ConversationConfig::RuntimeMemoryPolicy& policy) {
+  absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+  pending_runtime_memory_policy_update_ = policy;
+  policy_transition_blocked_ = true;
+}
+
+absl::Status Conversation::ApplyRuntimeMemoryPolicyNow(
+    const ConversationConfig::RuntimeMemoryPolicy& policy) {
+  ConversationConfig::RuntimeMemoryPolicy resolved = policy;
+
+  // Runtime override wins over static config, but still must honor
+  // model/runtime hard caps.
+  resolved.context_shift_trigger_ratio =
+      std::clamp(resolved.context_shift_trigger_ratio, 0.001f, 1.0f);
+  resolved.context_shift_target_ratio =
+      std::clamp(resolved.context_shift_target_ratio, 0.001f, 1.0f);
+  resolved.context_shift_retain_recent_messages =
+      std::max(0, resolved.context_shift_retain_recent_messages);
+  if (resolved.context_shift_target_ratio >
+      resolved.context_shift_trigger_ratio) {
+    resolved.context_shift_target_ratio = resolved.context_shift_trigger_ratio;
+  }
+  if (max_context_tokens_ <= 0) {
+    resolved.context_shift_enabled = false;
+  }
+
+  {
+    absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+    runtime_memory_policy_override_ = resolved;
+    policy_transition_blocked_ = false;
+  }
+
+  return AnchorContextForPolicyTransition(resolved);
+}
+
+absl::Status Conversation::AnchorContextForPolicyTransition(
+    const ConversationConfig::RuntimeMemoryPolicy& policy) {
+  if (policy.emit_transition_note) {
+    nlohmann::ordered_json transition_note = {
+        {std::string(kRoleKey), "system"},
+        {"content",
+         absl::StrCat(
+             "[internal] runtime memory policy transition: strategy=",
+             ConversationConfig::MemoryStrategyToString(policy.strategy),
+             ", context_shift_enabled=",
+             policy.context_shift_enabled ? "true" : "false",
+             ", context_shift_strategy=",
+             policy.context_shift_strategy ==
+                     ConversationConfig::ContextShiftStrategy::kReplayRecent
+                 ? "replay_recent"
+                 : "drop_all_but_system")}};
+    absl::MutexLock lock(history_mutex_);  // NOLINT
+    history_.push_back(std::move(transition_note));
+  }
+  if (!policy.context_shift_enabled) {
+    return absl::OkStatus();
+  }
+  absl::Status checkpoint_status =
+      session_->SaveCheckpoint(kContextShiftAnchorCheckpoint);
+  if (absl::IsUnimplemented(checkpoint_status)) {
+    context_shift_supported_ = false;
+    return absl::OkStatus();
+  }
+  RETURN_IF_ERROR(checkpoint_status);
+  context_shift_supported_ = true;
+  return absl::OkStatus();
+}
+
+absl::Status Conversation::ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(
+    ConversationConfig::SafeBoundary boundary) {
+  std::optional<ConversationConfig::RuntimeMemoryPolicy> pending_policy;
+  {
+    absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+    if (!pending_runtime_memory_policy_update_.has_value()) {
+      return absl::OkStatus();
+    }
+    if (pending_runtime_memory_policy_update_->safe_boundary != boundary) {
+      return absl::OkStatus();
+    }
+    if (model_turn_active_ || is_appending_message_) {
+      policy_transition_blocked_ = true;
+      return absl::OkStatus();
+    }
+    pending_policy = pending_runtime_memory_policy_update_;
+    pending_runtime_memory_policy_update_.reset();
+    policy_transition_blocked_ = false;
+  }
+  return ApplyRuntimeMemoryPolicyNow(*pending_policy);
+}
+
 absl::Status Conversation::SetRuntimeMemoryPolicy(
     const ConversationConfig::RuntimeMemoryPolicy& policy) {
   RETURN_IF_ERROR(ValidateRuntimeMemoryPolicy(policy));
+  RETURN_IF_ERROR(ValidateRuntimePolicyVersionCompatibility(policy));
+
+  ConversationConfig::RuntimeMemoryPolicy active_policy;
   {
     absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
-    runtime_memory_policy_override_ = policy;
-  }
-  if (policy.context_shift_enabled) {
-    absl::Status checkpoint_status =
-        session_->SaveCheckpoint(kContextShiftAnchorCheckpoint);
-    if (absl::IsUnimplemented(checkpoint_status)) {
-      context_shift_supported_ = false;
-      return absl::OkStatus();
+    if (pending_runtime_memory_policy_update_.has_value()) {
+      active_policy = *pending_runtime_memory_policy_update_;
+    } else {
+      active_policy =
+          runtime_memory_policy_override_.value_or(config_.runtime_memory_policy());
     }
-    RETURN_IF_ERROR(checkpoint_status);
-    context_shift_supported_ = true;
+  }
+  if (!active_policy.allow_runtime_tuning) {
+    return absl::FailedPreconditionError(
+        "Runtime policy tuning is disabled by active policy "
+        "(allow_runtime_tuning=false).");
+  }
+
+  QueueRuntimeMemoryPolicyUpdate(policy);
+  if (!IsModelTurnActive() && !is_appending_message_ &&
+      policy.safe_boundary == ConversationConfig::SafeBoundary::kTurnBoundary) {
+    return ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(policy.safe_boundary);
   }
   return absl::OkStatus();
 }

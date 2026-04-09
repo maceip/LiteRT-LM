@@ -104,7 +104,7 @@ class ConversationConfig {
     bool allow_runtime_tuning = true;
     SafeBoundary safe_boundary = SafeBoundary::kToolResult;
     std::optional<MemoryStrategy> shadow_strategy = std::nullopt;
-    bool emit_transition_note = true;
+    bool emit_transition_note = false;
   };
 
   // Creates a default ConversationConfig from the given Engine.
@@ -775,6 +775,17 @@ class Conversation {
   absl::Status SetRuntimeMemoryPolicyFromYamlFile(
       absl::string_view yaml_file_path);
 
+  // Returns the active runtime policy (testing/debug helper).
+  ConversationConfig::RuntimeMemoryPolicy GetActiveMemoryPolicyForTest() const {
+    return GetActiveMemoryPolicy();
+  }
+
+  // Returns whether there is a queued runtime policy update (testing helper).
+  int GetQueuedRuntimePolicyUpdateCountForTest() const {
+    absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+    return pending_runtime_memory_policy_update_.has_value() ? 1 : 0;
+  }
+
  private:
   explicit Conversation(
       Engine& engine, std::unique_ptr<Engine::Session> session,
@@ -868,6 +879,10 @@ class Conversation {
   void QueueRuntimeMemoryPolicyUpdate(
       const ConversationConfig::RuntimeMemoryPolicy& policy);
 
+  // Tracks model-turn active state for atomic policy transitions.
+  void SetModelTurnActive(bool active);
+  bool IsModelTurnActive() const;
+
   // Prefills the configured preface on the current session when enabled.
   absl::Status PrefillPrefaceIfConfigured();
 
@@ -929,6 +944,7 @@ class Conversation {
   std::optional<ConversationConfig::RuntimeMemoryPolicy>
       pending_runtime_memory_policy_update_
           ABSL_GUARDED_BY(memory_policy_mutex_);
+  bool model_turn_active_ ABSL_GUARDED_BY(memory_policy_mutex_) = false;
   bool policy_transition_blocked_ ABSL_GUARDED_BY(memory_policy_mutex_) = false;
 };
 }  // namespace litert::lm
