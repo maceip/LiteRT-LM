@@ -622,6 +622,26 @@ class ConversationConfig {
   float prefetch_ratio_;
 };
 
+// Runtime override payload for legacy policy-update requests.
+struct ContextShiftRuntimePolicyOverride {
+  std::optional<bool> context_shift_enabled = std::nullopt;
+  std::optional<float> context_shift_trigger_ratio = std::nullopt;
+  std::optional<int> context_shift_retain_recent_messages = std::nullopt;
+  std::optional<float> context_shift_target_ratio = std::nullopt;
+  std::optional<bool> context_shift_reset_on_exhaustion = std::nullopt;
+  std::optional<ConversationConfig::ContextShiftStrategy> context_shift_strategy =
+      std::nullopt;
+};
+
+// Legacy policy update request. This remains supported for compatibility and
+// is synchronized with RuntimeMemoryPolicy state in Conversation.
+struct ContextShiftPolicyUpdateRequest {
+  int profile_schema_version = 1;
+  int profile_compatibility_version = 1;
+  ContextShiftRuntimePolicyOverride runtime_override;
+  std::string reason;
+};
+
 // Optional arguments for sending a message to the LLM.
 struct OptionalArgs {
   // Whether there is a pending message to be sent. If true, only the prefill
