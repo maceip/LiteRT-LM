@@ -16,6 +16,7 @@
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_CONVERSATION_CONVERSATION_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -203,6 +204,26 @@ class ConversationConfig {
   // Returns the selected high-level memory strategy.
   MemoryStrategy memory_strategy() const { return memory_strategy_; }
 
+  // Returns whether runtime tuning is allowed for policy-update requests.
+  bool allow_runtime_tuning() const { return allow_runtime_tuning_; }
+
+  // Returns whether transition notes should be emitted for policy changes.
+  bool emit_transition_note() const { return emit_transition_note_; }
+
+  // Returns which boundary is used to apply queued control-plane policy updates.
+  PolicyApplyBoundary policy_apply_boundary() const {
+    return policy_apply_boundary_;
+  }
+
+  // Returns whether prefetch planner/install is enabled.
+  bool prefetch_enabled() const { return prefetch_enabled_; }
+
+  // Returns whether prefetch should run in shadow mode.
+  bool prefetch_shadow_mode() const { return prefetch_shadow_mode_; }
+
+  // Returns prefetch planning ratio in [0, 1].
+  float prefetch_ratio() const { return prefetch_ratio_; }
+
   // Returns an equivalent runtime policy based on static config.
   RuntimeMemoryPolicy runtime_memory_policy() const {
     return RuntimeMemoryPolicy{
@@ -216,6 +237,12 @@ class ConversationConfig {
             context_shift_reset_on_exhaustion_,
         .context_shift_strategy = context_shift_strategy_,
         .profile_id = std::nullopt,
+        .allow_runtime_tuning = allow_runtime_tuning_,
+        .safe_boundary =
+            policy_apply_boundary_ == PolicyApplyBoundary::kToolResult
+                ? SafeBoundary::kToolResult
+                : SafeBoundary::kTurnBoundary,
+        .emit_transition_note = emit_transition_note_,
     };
   }
 
@@ -365,6 +392,42 @@ class ConversationConfig {
       context_shift_reset_on_exhaustion_ =
           policy.context_shift_reset_on_exhaustion;
       context_shift_strategy_ = policy.context_shift_strategy;
+      allow_runtime_tuning_ = policy.allow_runtime_tuning;
+      emit_transition_note_ = policy.emit_transition_note;
+      policy_apply_boundary_ =
+          policy.safe_boundary == SafeBoundary::kToolResult
+              ? PolicyApplyBoundary::kToolResult
+              : PolicyApplyBoundary::kTurnBoundary;
+      return *this;
+    }
+
+    Builder& SetAllowRuntimeTuning(bool allow_runtime_tuning) {
+      allow_runtime_tuning_ = allow_runtime_tuning;
+      return *this;
+    }
+
+    Builder& SetEmitTransitionNote(bool emit_transition_note) {
+      emit_transition_note_ = emit_transition_note;
+      return *this;
+    }
+
+    Builder& SetPolicyApplyBoundary(PolicyApplyBoundary policy_apply_boundary) {
+      policy_apply_boundary_ = policy_apply_boundary;
+      return *this;
+    }
+
+    Builder& SetPrefetchEnabled(bool prefetch_enabled) {
+      prefetch_enabled_ = prefetch_enabled;
+      return *this;
+    }
+
+    Builder& SetPrefetchShadowMode(bool prefetch_shadow_mode) {
+      prefetch_shadow_mode_ = prefetch_shadow_mode;
+      return *this;
+    }
+
+    Builder& SetPrefetchRatio(float prefetch_ratio) {
+      prefetch_ratio_ = prefetch_ratio;
       return *this;
     }
 
@@ -376,7 +439,9 @@ class ConversationConfig {
           filter_channel_content_from_kv_cache_, context_shift_enabled_,
           context_shift_trigger_ratio_, context_shift_retain_recent_messages_,
           context_shift_target_ratio_, context_shift_reset_on_exhaustion_,
-          context_shift_strategy_, memory_strategy_);
+          context_shift_strategy_, memory_strategy_, allow_runtime_tuning_,
+          emit_transition_note_, policy_apply_boundary_, prefetch_enabled_,
+          prefetch_shadow_mode_, prefetch_ratio_);
     }
 
     // Returns a unique pointer to a ConversationConfig.
@@ -404,6 +469,12 @@ class ConversationConfig {
     ContextShiftStrategy context_shift_strategy_ =
         ContextShiftStrategy::kReplayRecent;
     MemoryStrategy memory_strategy_ = MemoryStrategy::kHardResetReplayWindow;
+    bool allow_runtime_tuning_ = true;
+    bool emit_transition_note_ = false;
+    PolicyApplyBoundary policy_apply_boundary_ = PolicyApplyBoundary::kTurnBoundary;
+    bool prefetch_enabled_ = false;
+    bool prefetch_shadow_mode_ = true;
+    float prefetch_ratio_ = 0.8f;
   };
 
   // Returns the constrained decoding config.
@@ -468,7 +539,13 @@ class ConversationConfig {
       bool context_shift_reset_on_exhaustion = true,
       ContextShiftStrategy context_shift_strategy =
           ContextShiftStrategy::kReplayRecent,
-      MemoryStrategy memory_strategy = MemoryStrategy::kHardResetReplayWindow);
+      MemoryStrategy memory_strategy = MemoryStrategy::kHardResetReplayWindow,
+      bool allow_runtime_tuning = true,
+      bool emit_transition_note = false,
+      PolicyApplyBoundary policy_apply_boundary =
+          PolicyApplyBoundary::kTurnBoundary,
+      bool prefetch_enabled = false, bool prefetch_shadow_mode = true,
+      float prefetch_ratio = 0.8f);
 
   explicit ConversationConfig(SessionConfig session_config, Preface preface,
                               PromptTemplate prompt_template,
@@ -487,7 +564,14 @@ class ConversationConfig {
                               ContextShiftStrategy context_shift_strategy =
                                   ContextShiftStrategy::kReplayRecent,
                               MemoryStrategy memory_strategy =
-                                  MemoryStrategy::kHardResetReplayWindow)
+                                  MemoryStrategy::kHardResetReplayWindow,
+                              bool allow_runtime_tuning = true,
+                              bool emit_transition_note = false,
+                              PolicyApplyBoundary policy_apply_boundary =
+                                  PolicyApplyBoundary::kTurnBoundary,
+                              bool prefetch_enabled = false,
+                              bool prefetch_shadow_mode = true,
+                              float prefetch_ratio = 0.8f)
       : session_config_(std::move(session_config)),
         preface_(std::move(preface)),
         prompt_template_(std::move(prompt_template)),
@@ -506,7 +590,13 @@ class ConversationConfig {
         context_shift_reset_on_exhaustion_(
             context_shift_reset_on_exhaustion),
         context_shift_strategy_(context_shift_strategy),
-        memory_strategy_(memory_strategy) {}
+        memory_strategy_(memory_strategy),
+        allow_runtime_tuning_(allow_runtime_tuning),
+        emit_transition_note_(emit_transition_note),
+        policy_apply_boundary_(policy_apply_boundary),
+        prefetch_enabled_(prefetch_enabled),
+        prefetch_shadow_mode_(prefetch_shadow_mode),
+        prefetch_ratio_(prefetch_ratio) {}
 
   SessionConfig session_config_;
   Preface preface_;
@@ -524,6 +614,32 @@ class ConversationConfig {
   bool context_shift_reset_on_exhaustion_;
   ContextShiftStrategy context_shift_strategy_;
   MemoryStrategy memory_strategy_;
+  bool allow_runtime_tuning_;
+  bool emit_transition_note_;
+  PolicyApplyBoundary policy_apply_boundary_;
+  bool prefetch_enabled_;
+  bool prefetch_shadow_mode_;
+  float prefetch_ratio_;
+};
+
+// Runtime override payload for legacy policy-update requests.
+struct ContextShiftRuntimePolicyOverride {
+  std::optional<bool> context_shift_enabled = std::nullopt;
+  std::optional<float> context_shift_trigger_ratio = std::nullopt;
+  std::optional<int> context_shift_retain_recent_messages = std::nullopt;
+  std::optional<float> context_shift_target_ratio = std::nullopt;
+  std::optional<bool> context_shift_reset_on_exhaustion = std::nullopt;
+  std::optional<ConversationConfig::ContextShiftStrategy> context_shift_strategy =
+      std::nullopt;
+};
+
+// Legacy policy update request. This remains supported for compatibility and
+// is synchronized with RuntimeMemoryPolicy state in Conversation.
+struct ContextShiftPolicyUpdateRequest {
+  int profile_schema_version = 1;
+  int profile_compatibility_version = 1;
+  ContextShiftRuntimePolicyOverride runtime_override;
+  std::string reason;
 };
 
 // Optional arguments for sending a message to the LLM.
@@ -825,6 +941,22 @@ class Conversation {
     return pending_runtime_memory_policy_update_.has_value() ? 1 : 0;
   }
 
+  // Returns structured policy transition records (testing helper).
+  std::vector<PolicyTransitionRecord> GetPolicyTransitionRecordsForTest() const;
+
+  // Returns deterministic transition note count (testing helper).
+  int GetTransitionNoteCountForTest() const;
+
+  // Returns active context shift strategy from control-plane runtime policy.
+  ConversationConfig::ContextShiftStrategy
+  GetActiveContextShiftStrategyForTest() const;
+
+  // Returns queued control-plane policy update count (testing helper).
+  int GetQueuedPolicyUpdateCountForTest() const;
+
+  // Returns prefetch metrics snapshot (testing helper).
+  PrefetchMetrics GetPrefetchMetricsForTest() const;
+
  private:
   enum class BoundaryEvent {
     kToolResult = 0,
@@ -850,13 +982,22 @@ class Conversation {
   struct PrefetchReplayPack {
     int source_checkpoint_step = 0;
     size_t history_watermark = 0;
+    uint64_t history_revision = 0;
     int retained_start_index = -1;
     int retained_end_index_exclusive = -1;
+    size_t retained_history_digest = 0;
     float target_ratio = 0.0f;
     ConversationConfig::ContextShiftStrategy strategy =
         ConversationConfig::ContextShiftStrategy::kReplayRecent;
     size_t validity_hash = 0;
     std::vector<InputData> replay_inputs;
+  };
+
+  enum class PrefetchInstallOutcome {
+    kNoPendingPack = 0,
+    kStaleDiscarded = 1,
+    kShadowSkipped = 2,
+    kInstalled = 3,
   };
 
   explicit Conversation(
@@ -932,6 +1073,18 @@ class Conversation {
   // context usage reaches the configured threshold.
   absl::Status MaybeApplyContextShift();
 
+  // Plans/installs prefetch replay packs and tracks telemetry.
+  void MaybePlanPrefetchPack(int current_step);
+  absl::StatusOr<PrefetchInstallOutcome> TryInstallPrefetchPackIfValid(
+      int target_step);
+  size_t ComputePrefetchValidityHash() const;
+  void RecordPrefetchMetric(absl::FunctionRef<void(PrefetchMetrics&)> updater);
+
+  // Computes a deterministic digest over a history slice for staleness checks.
+  size_t ComputeRetainedHistoryDigest(
+      int retained_start_index, int retained_end_index_exclusive,
+      ConversationConfig::ContextShiftStrategy strategy) const;
+
   // Returns currently active runtime memory policy (override or config).
   ConversationConfig::RuntimeMemoryPolicy GetActiveMemoryPolicy() const;
 
@@ -950,6 +1103,26 @@ class Conversation {
   // Queues a policy update to be applied at a safe boundary.
   void QueueRuntimeMemoryPolicyUpdate(
       const ConversationConfig::RuntimeMemoryPolicy& policy);
+
+  // Control-plane helpers for boundary detection + transitions.
+  BoundaryEvent DetectBoundaryEvent(const nlohmann::ordered_json& json_msg) const;
+  absl::Status RequestPolicyUpdate(const ContextShiftPolicyUpdateRequest& request,
+                                   BoundaryEvent boundary);
+  absl::Status MaybeApplyQueuedPolicyAtBoundary(BoundaryEvent boundary);
+  absl::Status ValidatePolicyUpdateRequest(
+      const ContextShiftPolicyUpdateRequest& request,
+      const ContextShiftRuntimePolicy& current_policy) const;
+  ContextShiftRuntimePolicy ResolveEffectivePolicy(
+      const ContextShiftRuntimePolicy& current_policy,
+      const ContextShiftRuntimePolicyOverride& runtime_override) const;
+  std::string SerializePolicy(const ContextShiftRuntimePolicy& policy) const;
+  void RecordPolicyTransition(PolicyTransitionRecord::Action action,
+                              BoundaryEvent boundary, absl::string_view reason,
+                              const ContextShiftRuntimePolicy& old_policy,
+                              const ContextShiftRuntimePolicy& new_policy);
+  void MaybeEmitTransitionNote(BoundaryEvent boundary,
+                               const ContextShiftRuntimePolicy& old_policy,
+                               const ContextShiftRuntimePolicy& new_policy);
 
   // Tracks model-turn active state for atomic policy transitions.
   void SetModelTurnActive(bool active);
@@ -971,15 +1144,13 @@ class Conversation {
   std::unique_ptr<ConstraintProvider> constraint_provider_ = nullptr;
   mutable absl::Mutex history_mutex_;
   std::vector<Message> history_ ABSL_GUARDED_BY(history_mutex_);
+  uint64_t history_revision_ ABSL_GUARDED_BY(history_mutex_) = 0;
 
   // Whether the current conversation is in message appending state.
   bool is_appending_message_ = false;
 
   // Mutex protecting runtime policy queue/state and prefetch metadata.
   mutable absl::Mutex policy_mutex_;
-
-  // Whether a model turn is active (prefill/decode or append mode).
-  bool model_turn_active_ ABSL_GUARDED_BY(policy_mutex_) = false;
 
   // Active effective context-shift policy.
   ContextShiftRuntimePolicy active_context_shift_policy_
