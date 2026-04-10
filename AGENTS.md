@@ -30,6 +30,14 @@ No lint tooling is configured in this repository (no `.clang-format`, no CI lint
 - `pip install litert-lm` installs the prebuilt Python SDK and CLI (`litert-lm` command).
 - Ensure `~/.local/bin` is on `PATH` for pip-installed scripts.
 
+### Running inference
+
+- Requires a `.litertlm` model file. Download from HuggingFace using `litert-lm run --from-huggingface-repo=<repo> <model-file>`.
+- Most models on HuggingFace are gated. Set `HF_TOKEN` env var or pass `--huggingface-token`.
+- When specifying the model file from a HF repo, include the `.litertlm` extension (e.g. `gemma3-1b-it-int4.litertlm`, not `gemma3-1b-it-int4`).
+- A good small test model: `litert-lm run --from-huggingface-repo=litert-community/Gemma3-1B-IT gemma3-1b-it-int4.litertlm --prompt="Hello" --backend=cpu`
+- Downloaded models are cached in `~/.cache/huggingface/hub/`. You can also pass a local path directly.
+
 ### Known issues on main (as of April 2026)
 
 - `runtime/conversation/conversation.cc` has invalid C++ at line 336 (`const auto& S = ConversationConfig::MemoryStrategy;` — cannot alias an enum class type). This blocks building `litert_lm_main` and targets depending on `//runtime/conversation:conversation`. All other runtime targets compile and test successfully.
