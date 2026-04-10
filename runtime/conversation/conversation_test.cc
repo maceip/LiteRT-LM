@@ -2473,6 +2473,68 @@ TEST_P(ConversationTest, PrefetchReadyPackCarriesBuilderIdentityMetadata) {
             Conversation::PrefetchInvalidationReason::kNone);
 }
 
+TEST_P(ConversationTest, PrefetchMetricsCaptureStructuredDimensions) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.9f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(1)
+          .SetPrefetchEnabled(true)
+          .SetPrefetchShadowMode(true)
+          .SetPrefetchRatio(0.2f)
+          .SetMemoryStrategy(
+              ConversationConfig::MemoryStrategy::kSummarizeProtectedTail)
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(3));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  auto policy = conversation->GetConfig().runtime_memory_policy();
+  policy.profile_id = std::string("phase-b-profile");
+  policy.version = std::string("v1");
+  policy.compatibility = std::string("v1");
+  ASSERT_OK(conversation->SetRuntimeMemoryPolicy(policy));
+
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  ASSERT_TRUE(conversation->WaitForPrefetchPlannerStateForTest(
+      Conversation::PrefetchLifecycleState::kReady));
+
+  const auto metrics = conversation->GetPrefetchMetricsForTest();
+  ASSERT_FALSE(metrics.events.empty());
+  const auto& last_event = metrics.events.back();
+  EXPECT_EQ(last_event.outcome,
+            Conversation::PrefetchMetrics::Outcome::kPlanned);
+  EXPECT_EQ(last_event.dimensions.profile_id, "phase-b-profile");
+  EXPECT_EQ(last_event.dimensions.strategy, "summarize_protected_tail");
+  EXPECT_EQ(last_event.dimensions.builder_id, "summarize_protected_tail");
+  EXPECT_EQ(last_event.dimensions.model_type, "gemma3");
+  EXPECT_EQ(last_event.dimensions.reason_code, "planned");
+  EXPECT_EQ(last_event.parity_mode,
+            Conversation::PrefetchParityMode::kSemanticParity);
+  EXPECT_TRUE(last_event.scaffold_only);
+}
+
 TEST_P(ConversationTest, SupersedingQueuedPlanRemovesOlderPendingTask) {
   auto mock_session = CreateMockSession();
   MockSession* mock_session_ptr = mock_session.get();
