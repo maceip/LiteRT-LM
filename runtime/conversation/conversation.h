@@ -777,11 +777,56 @@ class Conversation {
     int install_attempt_count = 0;
     int install_hit_count = 0;
     int stale_discard_count = 0;
+    int shadow_skip_count = 0;
+    int install_failure_count = 0;
     int fallback_count = 0;
     int parity_check_count = 0;
     int parity_mismatch_count = 0;
     double install_latency_ms_total = 0.0;
     double baseline_recompute_latency_ms_total = 0.0;
+  };
+
+  enum class PrefetchLifecycleState {
+    kIdle = 0,
+    kPlanned = 1,
+    kComputing = 2,
+    kReady = 3,
+    kInstalled = 4,
+    kDiscarded = 5,
+  };
+
+  enum class PrefetchInvalidationReason {
+    kNone = 0,
+    kPrefetchDisabled = 1,
+    kContextShiftDisabled = 2,
+    kBelowTrigger = 3,
+    kExistingPlanStillUseful = 4,
+    kPolicyUpdateQueued = 5,
+    kPolicyChanged = 6,
+    kHistoryRevisionChanged = 7,
+    kRetainedSliceChanged = 8,
+    kTargetStepExceeded = 9,
+    kShadowMode = 10,
+    kInstallFailed = 11,
+  };
+
+  struct PrefetchPlannerStateSnapshot {
+    PrefetchLifecycleState lifecycle_state = PrefetchLifecycleState::kIdle;
+    PrefetchInvalidationReason last_invalidation_reason =
+        PrefetchInvalidationReason::kNone;
+    uint64_t last_plan_history_revision = 0;
+    size_t last_plan_policy_digest = 0;
+    uint64_t active_plan_token = 0;
+    int last_plan_source_step = 0;
+    int last_successful_install_step = -1;
+    float last_confidence_score = 0.0f;
+  };
+
+  enum class PrefetchInstallOutcome {
+    kNoPendingPack = 0,
+    kStaleDiscarded = 1,
+    kShadowSkipped = 2,
+    kInstalled = 3,
   };
 
   // Creates a Conversation instance from the the Engine and ConversationConfig.
@@ -957,6 +1002,23 @@ class Conversation {
   // Returns prefetch metrics snapshot (testing helper).
   PrefetchMetrics GetPrefetchMetricsForTest() const;
 
+  // Returns planner state snapshot (testing helper).
+  PrefetchPlannerStateSnapshot GetPrefetchPlannerStateForTest() const;
+
+  // Triggers planning/install paths directly for focused unit tests.
+  void MaybePlanPrefetchPackForTest(int current_step) {
+    MaybePlanPrefetchPack(current_step);
+  }
+  absl::StatusOr<PrefetchInstallOutcome> TryInstallPrefetchPackForTest(
+      int target_step) {
+    return TryInstallPrefetchPackIfValid(target_step);
+  }
+
+  // Mutates one history entry for testing staleness checks.
+  absl::Status ReplaceHistoryMessageForTest(int history_index,
+                                            const Message& replacement,
+                                            bool increment_revision);
+
  private:
   enum class BoundaryEvent {
     kToolResult = 0,
@@ -980,24 +1042,35 @@ class Conversation {
   };
 
   struct PrefetchReplayPack {
+    uint64_t plan_token = 0;
     int source_checkpoint_step = 0;
     size_t history_watermark = 0;
     uint64_t history_revision = 0;
     int retained_start_index = -1;
     int retained_end_index_exclusive = -1;
     size_t retained_history_digest = 0;
+    size_t policy_digest = 0;
     float target_ratio = 0.0f;
+    float confidence_score = 0.0f;
+    int planned_target_step = 0;
     ConversationConfig::ContextShiftStrategy strategy =
         ConversationConfig::ContextShiftStrategy::kReplayRecent;
     size_t validity_hash = 0;
     std::vector<InputData> replay_inputs;
   };
 
-  enum class PrefetchInstallOutcome {
-    kNoPendingPack = 0,
-    kStaleDiscarded = 1,
-    kShadowSkipped = 2,
-    kInstalled = 3,
+  struct PrefetchPlannerState {
+    PrefetchLifecycleState lifecycle_state = PrefetchLifecycleState::kIdle;
+    PrefetchInvalidationReason last_invalidation_reason =
+        PrefetchInvalidationReason::kNone;
+    uint64_t last_plan_history_revision = 0;
+    size_t last_plan_policy_digest = 0;
+    uint64_t active_plan_token = 0;
+    uint64_t next_plan_token = 0;
+    int last_plan_source_step = 0;
+    int last_observed_step = 0;
+    int last_successful_install_step = -1;
+    float last_confidence_score = 0.0f;
   };
 
   explicit Conversation(
@@ -1077,6 +1150,11 @@ class Conversation {
   void MaybePlanPrefetchPack(int current_step);
   absl::StatusOr<PrefetchInstallOutcome> TryInstallPrefetchPackIfValid(
       int target_step);
+  float ComputePrefetchConfidenceScore(
+      int current_step, int step_delta, int last_successful_install_step,
+      const ContextShiftRuntimePolicy& policy) const;
+  size_t ComputePrefetchPolicyDigest(
+      const ContextShiftRuntimePolicy& policy) const;
   size_t ComputePrefetchValidityHash() const;
   void RecordPrefetchMetric(absl::FunctionRef<void(PrefetchMetrics&)> updater);
 
@@ -1170,6 +1248,7 @@ class Conversation {
   // Prefetch replay pack + metrics.
   std::optional<PrefetchReplayPack> pending_prefetch_pack_
       ABSL_GUARDED_BY(policy_mutex_);
+  PrefetchPlannerState prefetch_planner_state_ ABSL_GUARDED_BY(policy_mutex_);
   PrefetchMetrics prefetch_metrics_ ABSL_GUARDED_BY(policy_mutex_);
 
   // Mutex for task_controllers_.

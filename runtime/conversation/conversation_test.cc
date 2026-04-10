@@ -1992,9 +1992,19 @@ TEST_P(ConversationTest, PrefetchPlannerMetricsIncrementInShadowMode) {
   EXPECT_EQ(metrics.planned_count, 1);
   EXPECT_EQ(metrics.install_attempt_count, 0);
   EXPECT_EQ(metrics.install_hit_count, 0);
+  EXPECT_EQ(metrics.shadow_skip_count, 0);
+  EXPECT_EQ(metrics.install_failure_count, 0);
   EXPECT_EQ(metrics.fallback_count, 0);
   EXPECT_EQ(metrics.parity_check_count, 0);
   EXPECT_EQ(metrics.parity_mismatch_count, 0);
+
+  const auto planner = conversation->GetPrefetchPlannerStateForTest();
+  EXPECT_EQ(planner.lifecycle_state,
+            Conversation::PrefetchLifecycleState::kReady);
+  EXPECT_EQ(planner.last_invalidation_reason,
+            Conversation::PrefetchInvalidationReason::kNone);
+  EXPECT_GT(planner.active_plan_token, 0u);
+  EXPECT_GT(planner.last_confidence_score, 0.0f);
 }
 
 TEST_P(ConversationTest, PrefetchFallbackMetricsIncrementOnContextShift) {
@@ -2044,10 +2054,18 @@ TEST_P(ConversationTest, PrefetchFallbackMetricsIncrementOnContextShift) {
   EXPECT_EQ(metrics.install_attempt_count, 1);
   EXPECT_EQ(metrics.install_hit_count, 0);
   EXPECT_EQ(metrics.stale_discard_count, 0);
+  EXPECT_EQ(metrics.shadow_skip_count, 1);
+  EXPECT_EQ(metrics.install_failure_count, 0);
   EXPECT_EQ(metrics.fallback_count, 1);
   EXPECT_EQ(metrics.parity_check_count, 1);
   EXPECT_EQ(metrics.parity_mismatch_count, 0);
   EXPECT_GE(metrics.baseline_recompute_latency_ms_total, 0.0);
+
+  const auto planner = conversation->GetPrefetchPlannerStateForTest();
+  EXPECT_EQ(planner.lifecycle_state,
+            Conversation::PrefetchLifecycleState::kDiscarded);
+  EXPECT_EQ(planner.last_invalidation_reason,
+            Conversation::PrefetchInvalidationReason::kShadowMode);
 }
 
 TEST_P(ConversationTest, PrefetchReplayPackInstallsOnBoundaryWhenValid) {
@@ -2113,8 +2131,17 @@ TEST_P(ConversationTest, PrefetchReplayPackInstallsOnBoundaryWhenValid) {
   EXPECT_EQ(metrics.planned_count, 1);
   EXPECT_EQ(metrics.install_attempt_count, 1);
   EXPECT_EQ(metrics.install_hit_count, 1);
+  EXPECT_EQ(metrics.shadow_skip_count, 0);
+  EXPECT_EQ(metrics.install_failure_count, 0);
   EXPECT_EQ(metrics.fallback_count, 0);
   EXPECT_GE(metrics.install_latency_ms_total, 0.0);
+
+  const auto planner = conversation->GetPrefetchPlannerStateForTest();
+  EXPECT_EQ(planner.lifecycle_state,
+            Conversation::PrefetchLifecycleState::kInstalled);
+  EXPECT_EQ(planner.last_invalidation_reason,
+            Conversation::PrefetchInvalidationReason::kNone);
+  EXPECT_EQ(planner.last_successful_install_step, 5);
 }
 
 TEST_P(ConversationTest, PrefetchFallbackMetricsNotCountedWithoutInstallAttempt) {
@@ -2160,7 +2187,169 @@ TEST_P(ConversationTest, PrefetchFallbackMetricsNotCountedWithoutInstallAttempt)
   const auto metrics = conversation->GetPrefetchMetricsForTest();
   EXPECT_EQ(metrics.install_attempt_count, 0);
   EXPECT_EQ(metrics.install_hit_count, 0);
+  EXPECT_EQ(metrics.shadow_skip_count, 0);
+  EXPECT_EQ(metrics.install_failure_count, 0);
   EXPECT_EQ(metrics.fallback_count, 0);
+}
+
+TEST_P(ConversationTest, PrefetchPlannerReusesExistingUsefulPlan) {
+  auto mock_session = CreateMockSession();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.9f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(1)
+          .SetPrefetchEnabled(true)
+          .SetPrefetchShadowMode(true)
+          .SetPrefetchRatio(0.2f)
+          .Build(*mock_engine));
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+  }
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  conversation->MaybePlanPrefetchPackForTest(3);
+  const auto planned = conversation->GetPrefetchPlannerStateForTest();
+  ASSERT_GT(planned.active_plan_token, 0u);
+
+  conversation->MaybePlanPrefetchPackForTest(3);
+  const auto reused = conversation->GetPrefetchPlannerStateForTest();
+  EXPECT_EQ(reused.active_plan_token, planned.active_plan_token);
+  EXPECT_EQ(reused.lifecycle_state,
+            Conversation::PrefetchLifecycleState::kReady);
+  EXPECT_EQ(reused.last_invalidation_reason,
+            Conversation::PrefetchInvalidationReason::kExistingPlanStillUseful);
+
+  const auto metrics = conversation->GetPrefetchMetricsForTest();
+  EXPECT_EQ(metrics.planned_count, 1);
+}
+
+TEST_P(ConversationTest, PrefetchInstallDiscardedOnRetainedSliceDigestMismatch) {
+  auto mock_session = CreateMockSession();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  MockSession* mock_session_ptr = mock_session.get();
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.9f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(1)
+          .SetPrefetchEnabled(true)
+          .SetPrefetchShadowMode(false)
+          .SetPrefetchRatio(0.2f)
+          .Build(*mock_engine));
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+  }
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  conversation->MaybePlanPrefetchPackForTest(4);
+  ASSERT_OK(conversation->ReplaceHistoryMessageForTest(
+      1, JsonMessage{{"role", "assistant"}, {"content", "A1-mutated"}}, false));
+
+  ASSERT_OK_AND_ASSIGN(auto outcome,
+                       conversation->TryInstallPrefetchPackForTest(5));
+  EXPECT_EQ(outcome, Conversation::PrefetchInstallOutcome::kStaleDiscarded);
+
+  const auto metrics = conversation->GetPrefetchMetricsForTest();
+  EXPECT_EQ(metrics.install_attempt_count, 1);
+  EXPECT_EQ(metrics.stale_discard_count, 1);
+  EXPECT_EQ(metrics.install_hit_count, 0);
+
+  const auto planner = conversation->GetPrefetchPlannerStateForTest();
+  EXPECT_EQ(planner.lifecycle_state,
+            Conversation::PrefetchLifecycleState::kDiscarded);
+  EXPECT_EQ(planner.last_invalidation_reason,
+            Conversation::PrefetchInvalidationReason::kRetainedSliceChanged);
+}
+
+TEST_P(ConversationTest, PrefetchPlanDiscardedWhenRuntimePolicyChanges) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.9f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(1)
+          .SetPrefetchEnabled(true)
+          .SetPrefetchShadowMode(false)
+          .SetPrefetchRatio(0.2f)
+          .Build(*mock_engine));
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+  }
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  conversation->MaybePlanPrefetchPackForTest(4);
+  ConversationConfig::RuntimeMemoryPolicy updated_policy =
+      conversation->GetConfig().runtime_memory_policy();
+  updated_policy.context_shift_enabled = true;
+  updated_policy.context_shift_trigger_ratio = 0.8f;
+  updated_policy.context_shift_target_ratio = 0.4f;
+  updated_policy.context_shift_retain_recent_messages = 2;
+  updated_policy.safe_boundary = ConversationConfig::SafeBoundary::kTurnBoundary;
+  updated_policy.version = std::string("v1");
+  updated_policy.compatibility = std::string("v1");
+  ASSERT_OK(conversation->SetRuntimeMemoryPolicy(updated_policy));
+
+  ASSERT_OK_AND_ASSIGN(auto outcome,
+                       conversation->TryInstallPrefetchPackForTest(4));
+  EXPECT_EQ(outcome, Conversation::PrefetchInstallOutcome::kNoPendingPack);
+
+  const auto planner = conversation->GetPrefetchPlannerStateForTest();
+  EXPECT_EQ(planner.lifecycle_state,
+            Conversation::PrefetchLifecycleState::kDiscarded);
+  EXPECT_EQ(planner.last_invalidation_reason,
+            Conversation::PrefetchInvalidationReason::kPolicyChanged);
 }
 
 TEST_P(ConversationTest, SendMultipleMessagesWithHistory) {
