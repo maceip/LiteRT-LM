@@ -31,6 +31,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
+#include "absl/time/time.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "nlohmann/json_fwd.hpp"  // from @nlohmann_json
 #include "runtime/components/constrained_decoding/constraint.h"
@@ -43,6 +44,7 @@
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/framework/execution_queue.h"
 #include "runtime/util/status_macros.h"
 
 namespace litert::lm {
@@ -808,6 +810,7 @@ class Conversation {
     kTargetStepExceeded = 9,
     kShadowMode = 10,
     kInstallFailed = 11,
+    kSupersededPlan = 12,
   };
 
   struct PrefetchPlannerStateSnapshot {
@@ -1005,6 +1008,11 @@ class Conversation {
   // Returns planner state snapshot (testing helper).
   PrefetchPlannerStateSnapshot GetPrefetchPlannerStateForTest() const;
 
+  // Waits until planner reaches the given lifecycle state (testing helper).
+  bool WaitForPrefetchPlannerStateForTest(
+      PrefetchLifecycleState desired_state,
+      absl::Duration timeout = absl::Seconds(10)) const;
+
   // Triggers planning/install paths directly for focused unit tests.
   void MaybePlanPrefetchPackForTest(int current_step) {
     MaybePlanPrefetchPack(current_step);
@@ -1138,6 +1146,14 @@ class Conversation {
       absl::Span<const Message> new_messages,
       const OptionalArgs& optional_args = OptionalArgs());
 
+  // Same as above, but uses a caller-provided processor instance. This is used
+  // by background prefetch planning to avoid sharing mutable processor state
+  // across threads.
+  absl::StatusOr<std::vector<InputData>> GetInputDataVectorForMessagesWithProcessor(
+      const ModelDataProcessor& processor, absl::Span<const Message> old_messages,
+      absl::Span<const Message> new_messages,
+      const OptionalArgs& optional_args = OptionalArgs()) const;
+
   // Rewinds the session to the checkpoint after the most recent channel content
   // and return the input data vector for all messages from that point onward.
   absl::StatusOr<std::vector<InputData>> RewindAndGetInputDataVector();
@@ -1145,6 +1161,21 @@ class Conversation {
   // Triggers session-level context shift and replays recent messages when
   // context usage reaches the configured threshold.
   absl::Status MaybeApplyContextShift();
+
+  // Schedules background prefetch planning after a safe boundary.
+  void MaybeSchedulePrefetchPlanAfterBoundary();
+
+  // Cancels any queued prefetch planning task. Running tasks cannot be
+  // interrupted and must self-discard via plan-token guards.
+  void CancelQueuedPrefetchPlan(PrefetchInvalidationReason reason);
+
+  // Clones the processor state for background prefetch planning.
+  absl::StatusOr<std::unique_ptr<ModelDataProcessor>>
+  CloneModelDataProcessorForPrefetch() const;
+
+  // Background task entry point for building a replay pack.
+  void RunPrefetchPlanJob(int current_step, uint64_t plan_token,
+                          std::unique_ptr<ModelDataProcessor> processor);
 
   // Plans/installs prefetch replay packs and tracks telemetry.
   void MaybePlanPrefetchPack(int current_step);
@@ -1248,6 +1279,7 @@ class Conversation {
   // Prefetch replay pack + metrics.
   std::optional<PrefetchReplayPack> pending_prefetch_pack_
       ABSL_GUARDED_BY(policy_mutex_);
+  std::optional<int> queued_prefetch_task_id_ ABSL_GUARDED_BY(policy_mutex_);
   PrefetchPlannerState prefetch_planner_state_ ABSL_GUARDED_BY(policy_mutex_);
   PrefetchMetrics prefetch_metrics_ ABSL_GUARDED_BY(policy_mutex_);
 
@@ -1263,6 +1295,11 @@ class Conversation {
   // depends on so that the session is destroyed before them. This is to avoid
   // memory corruption and null-pointer deference issues.
   std::unique_ptr<Engine::Session> session_;
+
+  // Background planner queue. Declare after session_ so it is destroyed first,
+  // which ensures all queued work finishes before other runtime state tears
+  // down.
+  std::unique_ptr<ExecutionQueue> prefetch_execution_queue_;
 
   // Whether checkpointing and rewinding are supported by the session.
 

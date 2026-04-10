@@ -55,6 +55,7 @@
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/framework/execution_queue.h"
 #include "runtime/proto/llm_model_type.pb.h"
 #include "runtime/util/model_type_utils.h"
 #include "runtime/util/status_macros.h"
@@ -920,6 +921,9 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
       conversation->context_shift_supported_ = false;
     }
   }
+  if (config.prefetch_enabled()) {
+    conversation->prefetch_execution_queue_ = std::make_unique<ExecutionQueue>();
+  }
 
   if (engine.GetEngineSettings().IsBenchmarkEnabled()) {
     ASSIGN_OR_RETURN(BenchmarkInfo * benchmark_info,
@@ -1018,6 +1022,22 @@ Conversation::GetPrefetchPlannerStateForTest() const {
           prefetch_planner_state_.last_successful_install_step,
       .last_confidence_score = prefetch_planner_state_.last_confidence_score,
   };
+}
+
+bool Conversation::WaitForPrefetchPlannerStateForTest(
+    PrefetchLifecycleState desired_state, absl::Duration timeout) const {
+  const absl::Time deadline = absl::Now() + timeout;
+  while (absl::Now() < deadline) {
+    {
+      absl::MutexLock lock(&policy_mutex_);
+      if (prefetch_planner_state_.lifecycle_state == desired_state) {
+        return true;
+      }
+    }
+    absl::SleepFor(absl::Milliseconds(5));
+  }
+  absl::MutexLock lock(&policy_mutex_);
+  return prefetch_planner_state_.lifecycle_state == desired_state;
 }
 
 absl::Status Conversation::ReplaceHistoryMessageForTest(int history_index,
@@ -1436,6 +1456,7 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
       [this](PrefetchInvalidationReason reason,
              PrefetchLifecycleState lifecycle_state) {
         absl::MutexLock lock(&policy_mutex_);
+        queued_prefetch_task_id_.reset();
         pending_prefetch_pack_.reset();
         prefetch_planner_state_.active_plan_token = 0;
         prefetch_planner_state_.lifecycle_state = lifecycle_state;
@@ -1450,18 +1471,23 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
   };
 
   if (!config_.prefetch_enabled() || max_context_tokens_ <= 0) {
-    discard_pending_plan(PrefetchInvalidationReason::kPrefetchDisabled,
-                         PrefetchLifecycleState::kIdle);
+    CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kPrefetchDisabled);
+    {
+      absl::MutexLock lock(&policy_mutex_);
+      prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kIdle;
+    }
     return;
   }
   if (!policy_snapshot.context_shift_enabled) {
-    discard_pending_plan(PrefetchInvalidationReason::kContextShiftDisabled,
-                         PrefetchLifecycleState::kIdle);
+    CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kContextShiftDisabled);
+    {
+      absl::MutexLock lock(&policy_mutex_);
+      prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kIdle;
+    }
     return;
   }
   if (has_control_plane_policy_update || has_runtime_policy_update) {
-    discard_pending_plan(PrefetchInvalidationReason::kPolicyUpdateQueued,
-                         PrefetchLifecycleState::kDiscarded);
+    CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kPolicyUpdateQueued);
     return;
   }
 
@@ -1535,7 +1561,13 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
     } else if (existing_planned_target_step < current_step) {
       reason = PrefetchInvalidationReason::kTargetStepExceeded;
     }
-    discard_pending_plan(reason, PrefetchLifecycleState::kDiscarded);
+    CancelQueuedPrefetchPlan(reason);
+  }
+
+  if (planner_snapshot.lifecycle_state == PrefetchLifecycleState::kPlanned ||
+      planner_snapshot.lifecycle_state ==
+          PrefetchLifecycleState::kComputing) {
+    CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kSupersededPlan);
   }
 
   const int prefetch_trigger_step =
@@ -1551,10 +1583,37 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
   const int last_successful_install_step =
       planner_snapshot.last_successful_install_step;
 
+  std::unique_ptr<ModelDataProcessor> planning_processor;
+  ASSIGN_OR_RETURN(
+      planning_processor,
+      CreateModelDataProcessor(config_.GetProcessorConfig(), config_.GetPreface(),
+                               &engine_.GetTokenizer(),
+                               session_->GetSessionConfig().GetStopTokenIds(),
+                               config_.constrained_decoding_enabled(),
+                               config_.GetPromptTemplate().GetCapabilities()));
+  absl::Status clone_status =
+      planning_processor->CloneState(*model_data_processor_);
+  if (!clone_status.ok() && !absl::IsUnimplemented(clone_status)) {
+    discard_pending_plan(PrefetchInvalidationReason::kInstallFailed,
+                         PrefetchLifecycleState::kDiscarded);
+    return;
+  }
+
+  if (config_.filter_channel_content_from_kv_cache()) {
+    for (auto& message : candidate_messages) {
+      message = MaybeStripChannelContentFromMessage(
+          message, /*strip_channel_content=*/true);
+    }
+  }
+
+  if (prefetch_execution_queue_ == nullptr) {
+    prefetch_execution_queue_ = std::make_unique<ExecutionQueue>();
+  }
+
   uint64_t plan_token = 0;
   {
     absl::MutexLock lock(&policy_mutex_);
-    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kComputing;
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kPlanned;
     prefetch_planner_state_.last_invalidation_reason =
         PrefetchInvalidationReason::kNone;
     prefetch_planner_state_.last_plan_history_revision = history_revision;
@@ -1565,55 +1624,191 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
     plan_token = prefetch_planner_state_.active_plan_token;
   }
 
-  if (config_.filter_channel_content_from_kv_cache()) {
-    for (auto& message : candidate_messages) {
-      message = MaybeStripChannelContentFromMessage(
-          message, /*strip_channel_content=*/true);
-    }
+  auto queued_task_id_or = prefetch_execution_queue_->Enqueue(
+      [this, plan_token, current_step, history_size, history_revision,
+       retained_start_index, retained_end_index_exclusive,
+       retained_history_digest, policy_digest, validity_hash,
+       planned_target_step, policy_snapshot, step_delta,
+       last_successful_install_step,
+       planning_processor = std::move(planning_processor),
+       candidate_messages = std::move(candidate_messages)]() mutable {
+        auto mark_discarded = [this, plan_token](PrefetchInvalidationReason reason) {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          pending_prefetch_pack_.reset();
+          queued_prefetch_task_id_.reset();
+          prefetch_planner_state_.active_plan_token = 0;
+          prefetch_planner_state_.lifecycle_state =
+              PrefetchLifecycleState::kDiscarded;
+          prefetch_planner_state_.last_invalidation_reason = reason;
+        };
+
+        {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          queued_prefetch_task_id_.reset();
+          prefetch_planner_state_.lifecycle_state =
+              PrefetchLifecycleState::kComputing;
+        }
+
+        bool has_runtime_policy_update = false;
+        {
+          absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+          has_runtime_policy_update =
+              pending_runtime_memory_policy_update_.has_value();
+        }
+        bool has_control_plane_policy_update = false;
+        size_t current_policy_digest = 0;
+        {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          has_control_plane_policy_update = !pending_policy_updates_.empty();
+          current_policy_digest =
+              ComputePrefetchPolicyDigest(active_context_shift_policy_);
+        }
+        uint64_t current_history_revision = 0;
+        {
+          absl::MutexLock lock(&history_mutex_);
+          current_history_revision = history_revision_;
+        }
+        const size_t current_hash = ComputePrefetchValidityHash();
+        const bool has_retained_slice =
+            retained_start_index >= 0 &&
+            retained_end_index_exclusive >= retained_start_index;
+        const size_t current_retained_digest =
+            has_retained_slice
+                ? ComputeRetainedHistoryDigest(retained_start_index,
+                                               retained_end_index_exclusive,
+                                               policy_snapshot.context_shift_strategy)
+                : 0;
+        if (has_control_plane_policy_update || has_runtime_policy_update) {
+          mark_discarded(PrefetchInvalidationReason::kPolicyUpdateQueued);
+          return;
+        }
+        if (current_policy_digest != policy_digest) {
+          mark_discarded(PrefetchInvalidationReason::kPolicyChanged);
+          return;
+        }
+        if (current_history_revision != history_revision ||
+            current_hash != validity_hash) {
+          mark_discarded(PrefetchInvalidationReason::kHistoryRevisionChanged);
+          return;
+        }
+        if (has_retained_slice &&
+            current_retained_digest != retained_history_digest) {
+          mark_discarded(PrefetchInvalidationReason::kRetainedSliceChanged);
+          return;
+        }
+
+        std::vector<InputData> precomputed_replay_inputs;
+        if (!candidate_messages.empty()) {
+          auto replay_inputs_or = GetInputDataVectorForMessagesWithProcessor(
+              *planning_processor, /*old_messages=*/absl::Span<const Message>(),
+              absl::MakeConstSpan(candidate_messages), OptionalArgs());
+          if (!replay_inputs_or.ok()) {
+            mark_discarded(PrefetchInvalidationReason::kInstallFailed);
+            return;
+          }
+          precomputed_replay_inputs = std::move(*replay_inputs_or);
+        }
+
+        const float confidence_score = ComputePrefetchConfidenceScore(
+            current_step, step_delta, last_successful_install_step,
+            policy_snapshot);
+
+        PrefetchReplayPack pack;
+        pack.plan_token = plan_token;
+        pack.source_checkpoint_step = current_step;
+        pack.history_watermark = history_size;
+        pack.history_revision = history_revision;
+        pack.retained_start_index = retained_start_index;
+        pack.retained_end_index_exclusive = retained_end_index_exclusive;
+        pack.retained_history_digest = retained_history_digest;
+        pack.policy_digest = policy_digest;
+        pack.target_ratio = policy_snapshot.context_shift_target_ratio;
+        pack.confidence_score = confidence_score;
+        pack.planned_target_step = planned_target_step;
+        pack.strategy = policy_snapshot.context_shift_strategy;
+        pack.validity_hash = validity_hash;
+        pack.replay_inputs = std::move(precomputed_replay_inputs);
+
+        has_runtime_policy_update = false;
+        {
+          absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+          has_runtime_policy_update =
+              pending_runtime_memory_policy_update_.has_value();
+        }
+        {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          has_control_plane_policy_update = !pending_policy_updates_.empty();
+          current_policy_digest =
+              ComputePrefetchPolicyDigest(active_context_shift_policy_);
+        }
+        {
+          absl::MutexLock lock(&history_mutex_);
+          current_history_revision = history_revision_;
+        }
+        if (has_control_plane_policy_update || has_runtime_policy_update) {
+          mark_discarded(PrefetchInvalidationReason::kPolicyUpdateQueued);
+          return;
+        }
+        if (current_policy_digest != policy_digest) {
+          mark_discarded(PrefetchInvalidationReason::kPolicyChanged);
+          return;
+        }
+        if (current_history_revision != history_revision ||
+            ComputePrefetchValidityHash() != validity_hash) {
+          mark_discarded(PrefetchInvalidationReason::kHistoryRevisionChanged);
+          return;
+        }
+        if (has_retained_slice &&
+            ComputeRetainedHistoryDigest(retained_start_index,
+                                         retained_end_index_exclusive,
+                                         policy_snapshot.context_shift_strategy) !=
+                retained_history_digest) {
+          mark_discarded(PrefetchInvalidationReason::kRetainedSliceChanged);
+          return;
+        }
+
+        {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          pending_prefetch_pack_ = std::move(pack);
+          queued_prefetch_task_id_.reset();
+          prefetch_planner_state_.lifecycle_state =
+              PrefetchLifecycleState::kReady;
+          prefetch_planner_state_.last_plan_history_revision = history_revision;
+          prefetch_planner_state_.last_plan_policy_digest = policy_digest;
+          prefetch_planner_state_.last_plan_source_step = current_step;
+          prefetch_planner_state_.last_confidence_score = confidence_score;
+        }
+        RecordPrefetchMetric(
+            [](PrefetchMetrics& metrics) { metrics.planned_count++; });
+      });
+  if (!queued_task_id_or.ok()) {
+    discard_pending_plan(PrefetchInvalidationReason::kInstallFailed,
+                         PrefetchLifecycleState::kDiscarded);
+    return;
   }
-
-  std::vector<InputData> precomputed_replay_inputs;
-  if (!candidate_messages.empty()) {
-    auto replay_inputs_or = GetInputDataVectorForMessages(
-        /*old_messages=*/absl::Span<const Message>(),
-        absl::MakeConstSpan(candidate_messages), OptionalArgs());
-    if (replay_inputs_or.ok()) {
-      precomputed_replay_inputs = std::move(*replay_inputs_or);
-    }
-  }
-
-  const float confidence_score = ComputePrefetchConfidenceScore(
-      current_step, step_delta, last_successful_install_step, policy_snapshot);
-
-  PrefetchReplayPack pack;
-  pack.plan_token = plan_token;
-  pack.source_checkpoint_step = current_step;
-  pack.history_watermark = history_size;
-  pack.history_revision = history_revision;
-  pack.retained_start_index = retained_start_index;
-  pack.retained_end_index_exclusive = retained_end_index_exclusive;
-  pack.retained_history_digest = retained_history_digest;
-  pack.policy_digest = policy_digest;
-  pack.target_ratio = policy_snapshot.context_shift_target_ratio;
-  pack.confidence_score = confidence_score;
-  pack.planned_target_step = planned_target_step;
-  pack.strategy = policy_snapshot.context_shift_strategy;
-  pack.validity_hash = validity_hash;
-  pack.replay_inputs = std::move(precomputed_replay_inputs);
-
   {
     absl::MutexLock lock(&policy_mutex_);
-    if (prefetch_planner_state_.active_plan_token != plan_token) {
-      return;
+    if (prefetch_planner_state_.active_plan_token == plan_token &&
+        prefetch_planner_state_.lifecycle_state ==
+            PrefetchLifecycleState::kPlanned) {
+      queued_prefetch_task_id_ = *queued_task_id_or;
     }
-    pending_prefetch_pack_ = std::move(pack);
-    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kReady;
-    prefetch_planner_state_.last_plan_history_revision = history_revision;
-    prefetch_planner_state_.last_plan_policy_digest = policy_digest;
-    prefetch_planner_state_.last_plan_source_step = current_step;
-    prefetch_planner_state_.last_confidence_score = confidence_score;
   }
-  RecordPrefetchMetric([](PrefetchMetrics& metrics) { metrics.planned_count++; });
 }
 
 absl::StatusOr<Conversation::PrefetchInstallOutcome>
@@ -1995,6 +2190,7 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
     std::move(model_turn_cleanup).Cancel();
     RETURN_IF_ERROR(ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(
         ConversationConfig::SafeBoundary::kTurnBoundary));
+    MaybeSchedulePrefetchPlanAfterBoundary();
 
     return assistant_message;
   }
@@ -2091,6 +2287,7 @@ absl::Status Conversation::SendMessageAsync(
         ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(
             ConversationConfig::SafeBoundary::kTurnBoundary)
             .IgnoreError();
+        MaybeSchedulePrefetchPlanAfterBoundary();
       };
 
   absl::AnyInvocable<void()> cancel_callback = [this]() {
@@ -2262,12 +2459,7 @@ void Conversation::QueueRuntimeMemoryPolicyUpdate(
     pending_runtime_memory_policy_update_ = policy;
     policy_transition_blocked_ = true;
   }
-  absl::MutexLock lock(&policy_mutex_);
-  pending_prefetch_pack_.reset();
-  prefetch_planner_state_.active_plan_token = 0;
-  prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kDiscarded;
-  prefetch_planner_state_.last_invalidation_reason =
-      PrefetchInvalidationReason::kPolicyUpdateQueued;
+  CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kPolicyUpdateQueued);
 }
 
 absl::Status Conversation::ApplyRuntimeMemoryPolicyNow(
@@ -2307,12 +2499,8 @@ absl::Status Conversation::ApplyRuntimeMemoryPolicyNow(
         .context_shift_reset_on_exhaustion =
             resolved.context_shift_reset_on_exhaustion,
         .context_shift_strategy = resolved.context_shift_strategy};
-    pending_prefetch_pack_.reset();
-    prefetch_planner_state_.active_plan_token = 0;
-    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kDiscarded;
-    prefetch_planner_state_.last_invalidation_reason =
-        PrefetchInvalidationReason::kPolicyChanged;
   }
+  CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kPolicyChanged);
 
   return AnchorContextForPolicyTransition(resolved);
 }
@@ -2458,6 +2646,7 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
     new_conversation->pending_policy_updates_ = pending_policy_updates_;
     new_conversation->policy_transition_records_ = policy_transition_records_;
     new_conversation->transition_notes_ = transition_notes_;
+    new_conversation->queued_prefetch_task_id_.reset();
     new_conversation->pending_prefetch_pack_.reset();
     new_conversation->prefetch_metrics_ = prefetch_metrics_;
   }
@@ -2472,6 +2661,41 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
         runtime_memory_policy_override_;
   }
   return new_conversation;
+}
+
+void Conversation::MaybeSchedulePrefetchPlanAfterBoundary() {
+  if (!config_.prefetch_enabled() || max_context_tokens_ <= 0 ||
+      !context_shift_supported_) {
+    return;
+  }
+
+  auto current_step_or = session_->GetCurrentStep();
+  if (!current_step_or.ok()) {
+    if (absl::IsUnimplemented(current_step_or.status())) {
+      context_shift_supported_ = false;
+    }
+    return;
+  }
+
+  MaybePlanPrefetchPack(*current_step_or);
+}
+
+void Conversation::CancelQueuedPrefetchPlan(
+    PrefetchInvalidationReason reason) {
+  std::optional<int> queued_task_id;
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    queued_task_id = queued_prefetch_task_id_;
+    queued_prefetch_task_id_.reset();
+    pending_prefetch_pack_.reset();
+    prefetch_planner_state_.active_plan_token = 0;
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kDiscarded;
+    prefetch_planner_state_.last_invalidation_reason = reason;
+  }
+
+  if (queued_task_id.has_value() && prefetch_execution_queue_ != nullptr) {
+    prefetch_execution_queue_->Remove(*queued_task_id).IgnoreError();
+  }
 }
 
 absl::StatusOr<std::string> Conversation::GetPrefillTextForMessages(
@@ -2547,20 +2771,62 @@ absl::StatusOr<std::vector<InputData>>
 Conversation::GetInputDataVectorForMessages(
     absl::Span<const Message> old_messages,
     absl::Span<const Message> new_messages, const OptionalArgs& optional_args) {
-  ASSIGN_OR_RETURN(
-      std::string prefill_text,
-      GetPrefillTextForMessages(old_messages, new_messages, optional_args));
+  return GetInputDataVectorForMessagesWithProcessor(
+      *model_data_processor_, old_messages, new_messages, optional_args);
+}
 
+absl::StatusOr<std::vector<InputData>>
+Conversation::GetInputDataVectorForMessagesWithProcessor(
+    const ModelDataProcessor& processor, absl::Span<const Message> old_messages,
+    absl::Span<const Message> new_messages,
+    const OptionalArgs& optional_args) const {
+  PromptTemplateInput old_context;
+  old_context.add_generation_prompt = false;
+  RETURN_IF_ERROR(
+      FillPrefaceForPromptTemplateInput(preface_, &processor, old_context));
+  if (optional_args.extra_context.has_value()) {
+    for (const auto& [key, value] : optional_args.extra_context->items()) {
+      old_context.extra_context[key] = value;
+    }
+  }
+  for (const auto& message : old_messages) {
+    if (std::holds_alternative<nlohmann::ordered_json>(message)) {
+      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
+                       processor.MessageToTemplateInput(
+                           std::get<nlohmann::ordered_json>(message)));
+      old_context.messages.push_back(message_tmpl_input);
+    }
+  }
+  ASSIGN_OR_RETURN(const std::string old_string, prompt_template_.Apply(old_context));
+
+  PromptTemplateInput new_context = old_context;
   nlohmann::ordered_json prefill_messages = nlohmann::ordered_json::array();
   for (const auto& message : new_messages) {
     if (std::holds_alternative<nlohmann::ordered_json>(message)) {
       nlohmann::ordered_json json_msg =
           std::get<nlohmann::ordered_json>(message);
       prefill_messages.push_back(json_msg);
+      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
+                       processor.MessageToTemplateInput(json_msg));
+      new_context.messages.push_back(message_tmpl_input);
     }
   }
+  ASSIGN_OR_RETURN(const std::string new_string, prompt_template_.Apply(new_context));
+  if (old_string.length() > new_string.length()) {
+    return absl::InternalError(
+        absl::StrCat("The new rendered string is shorter than the previous "
+                     "rendered string. \nold_string: ",
+                     old_string, "\nnew_string: ", new_string));
+  }
+  if (new_string.substr(0, old_string.size()) != old_string) {
+    return absl::InternalError(
+        absl::StrCat("The new rendered string does not start with the previous "
+                     "rendered string. \nold_string: ",
+                     old_string, "\nnew_string: ", new_string));
+  }
+  const std::string prefill_text = new_string.substr(old_string.length());
 
-  return model_data_processor_->ToInputDataVector(
+  return processor.ToInputDataVector(
       prefill_text, prefill_messages,
       optional_args.args.value_or(std::monostate()));
 }
@@ -2605,8 +2871,6 @@ absl::Status Conversation::MaybeApplyContextShift() {
     }
     return current_step_or.status();
   }
-
-  MaybePlanPrefetchPack(*current_step_or);
 
   const int trigger_step =
       std::max(1, static_cast<int>(max_context_tokens_ *
