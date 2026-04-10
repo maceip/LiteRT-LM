@@ -37,13 +37,13 @@ based on primary sources available during this task. These are not all equal in
 labs and open/frontier hybrids:
 
 1. Anthropic Claude Mythos Preview (Apr 2026)
-2. Google Gemini 3.1 Pro (Feb 2026)
+2. Google Gemma 4 (Apr 2026)
 3. StepFun Step 3.5 Flash (Feb 2026)
 4. xAI Grok 4.1 (Nov 2025)
 5. DeepSeek V3.2 (Dec 2025)
 6. Z.ai GLM-4.5 (Jul 2025)
 7. Z.ai GLM-4.5-Air (Jul 2025)
-8. Meta Llama 4 Maverick / Scout (Apr 2025)
+8. Meta Muse Spark (Apr 2026)
 9. OpenAI GPT-4.1 (Apr 2025)
 10. Qwen3-235B-A22B (Apr 2025)
 
@@ -83,17 +83,22 @@ This means the contract below must be inferred from:
 The recent frontier releases suggest the following durable design pressures:
 
 1. **Long context is routine, not exceptional**
-   - Meta Llama 4 Scout advertises 10M context and interleaved attention.
    - OpenAI GPT-4.1 exposes 1M-token context.
-   - Gemini 3.1 Pro is framed around complex long-form synthesis.
    - Step 3.5 Flash uses a 256K hybrid SWA/full-attention layout.
+   - Gemma 4 exposes up to 256K context on larger models and 128K on edge
+     models.
    - Qwen3 and GLM-4.5 public docs emphasize long context and agentic use.
+   - Muse Spark is framed around multimodal reasoning and long-horizon agentic
+     systems even though its public launch materials do not expose a precise
+     context-window number.
 
 2. **Agentic/tool-use operation is first-class**
    - OpenAI emphasizes Responses API / agentic applications.
    - GLM-4.5 emphasizes native function calling and agentic coding.
    - Qwen3 emphasizes MCP and tool calling.
    - Step 3.5 Flash emphasizes massive tool orchestration and agent loops.
+   - Gemma 4 emphasizes native function-calling and structured JSON output.
+   - Muse Spark emphasizes tool-use and multi-agent orchestration.
 
 3. **Hybrid thinking / non-thinking modes are becoming common**
    - GLM-4.5 and Qwen3 explicitly expose thinking/non-thinking modes.
@@ -101,7 +106,8 @@ The recent frontier releases suggest the following durable design pressures:
 
 4. **Efficient long-context serving depends on constrained attention or cache pressure relief**
    - Step 3.5 Flash: 3:1 sliding-window/full-attention ratio.
-   - Llama 4 Scout: interleaved attention architecture.
+   - Gemma 4: deployability-focused long-context open models with explicit
+     hardware-aware sizing.
    - Qwen3 / GLM-4.5: GQA and MTP support.
 
 ### Strong observed gaps
