@@ -2592,6 +2592,262 @@ TEST_P(ConversationTest, SupersedingQueuedPlanRemovesOlderPendingTask) {
   EXPECT_EQ(metrics.planned_count, 2);
 }
 
+TEST_P(ConversationTest, PrefetchLongSessionInstallHitsAcrossMultipleTurns) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+
+  auto get_text = [](const InputText& it) -> std::string {
+    auto status_or_view = it.GetRawTextString();
+    if (!status_or_view.ok()) return "";
+    return std::string(*status_or_view);
+  };
+
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(2)
+          .SetPrefetchEnabled(true)
+          .SetPrefetchShadowMode(false)
+          .SetPrefetchRatio(0.2f)
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(3));
+
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(
+                    ResultOf(get_text, AllOf(HasSubstr("Q1"), HasSubstr("A1")))))))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(4));
+
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(ResultOf(
+                    get_text, AllOf(HasSubstr("Q2"), HasSubstr("A2"),
+                                    Not(HasSubstr("Q1")),
+                                    Not(HasSubstr("A1"))))))))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A3"})));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(4));
+
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(ResultOf(
+                    get_text, AllOf(HasSubstr("Q3"), HasSubstr("A3"),
+                                    Not(HasSubstr("Q2")),
+                                    Not(HasSubstr("A2"))))))))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A4"})));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(4));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  ASSERT_TRUE(conversation->WaitForPrefetchPlannerStateForTest(
+      Conversation::PrefetchLifecycleState::kReady));
+
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q2"}}));
+  ASSERT_TRUE(conversation->WaitForPrefetchPlannerStateForTest(
+      Conversation::PrefetchLifecycleState::kReady));
+
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q3"}}));
+  ASSERT_TRUE(conversation->WaitForPrefetchPlannerStateForTest(
+      Conversation::PrefetchLifecycleState::kReady));
+
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q4"}}));
+  ASSERT_TRUE(conversation->WaitForPrefetchPlannerStateForTest(
+      Conversation::PrefetchLifecycleState::kReady));
+
+  const auto metrics = conversation->GetPrefetchMetricsForTest();
+  EXPECT_EQ(metrics.planned_count, 4);
+  EXPECT_EQ(metrics.install_attempt_count, 3);
+  EXPECT_EQ(metrics.install_hit_count, 3);
+  EXPECT_EQ(metrics.fallback_count, 0);
+  EXPECT_GT(metrics.install_latency_ms_total, 0.0);
+}
+
+TEST_P(ConversationTest,
+       PrefetchInstallHitPathRecordsLowerLatencyThanBaselineRecompute) {
+  auto install_session = CreateMockSession();
+  MockSession* install_session_ptr = install_session.get();
+  auto install_engine = CreateMockEngine(std::move(install_session));
+
+  auto baseline_session = CreateMockSession();
+  MockSession* baseline_session_ptr = baseline_session.get();
+  auto baseline_engine = CreateMockEngine(std::move(baseline_session));
+
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+
+  auto get_text = [](const InputText& it) -> std::string {
+    auto status_or_view = it.GetRawTextString();
+    if (!status_or_view.ok()) return "";
+    return std::string(*status_or_view);
+  };
+
+  ASSERT_OK_AND_ASSIGN(
+      auto install_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(2)
+          .SetPrefetchEnabled(true)
+          .SetPrefetchShadowMode(false)
+          .SetPrefetchRatio(0.2f)
+          .Build(*install_engine));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto baseline_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(2)
+          .SetPrefetchEnabled(false)
+          .Build(*baseline_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*install_session_ptr,
+                SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*install_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*install_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*install_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+    EXPECT_CALL(*install_session_ptr, GetCurrentStep()).WillOnce(Return(3));
+
+    EXPECT_CALL(*install_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*install_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*install_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(
+                    ResultOf(get_text, AllOf(HasSubstr("Q1"), HasSubstr("A1")))))))
+        .WillOnce([](const std::vector<InputData>&) {
+          absl::SleepFor(absl::Milliseconds(5));
+          return absl::OkStatus();
+        });
+    EXPECT_CALL(*install_session_ptr,
+                SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*install_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*install_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
+    EXPECT_CALL(*install_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+  }
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*baseline_session_ptr,
+                SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*baseline_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*baseline_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*baseline_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+
+    EXPECT_CALL(*baseline_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*baseline_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*baseline_session_ptr,
+                RunPrefill(ElementsAre(VariantWith<InputText>(
+                    ResultOf(get_text, AllOf(HasSubstr("Q1"), HasSubstr("A1")))))))
+        .WillOnce([](const std::vector<InputData>&) {
+          absl::SleepFor(absl::Milliseconds(40));
+          return absl::OkStatus();
+        });
+    EXPECT_CALL(*baseline_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*baseline_session_ptr,
+                SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*baseline_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*baseline_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto install_conversation,
+                       Conversation::Create(*install_engine, install_config));
+  ASSERT_OK_AND_ASSIGN(auto baseline_conversation,
+                       Conversation::Create(*baseline_engine, baseline_config));
+
+  ASSERT_OK(install_conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  ASSERT_TRUE(install_conversation->WaitForPrefetchPlannerStateForTest(
+      Conversation::PrefetchLifecycleState::kReady));
+  ASSERT_OK(install_conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q2"}}));
+
+  ASSERT_OK(baseline_conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+  ASSERT_OK(baseline_conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q2"}}));
+
+  const auto install_metrics = install_conversation->GetPrefetchMetricsForTest();
+  const auto baseline_metrics =
+      baseline_conversation->GetPrefetchMetricsForTest();
+
+  EXPECT_GT(install_metrics.install_latency_ms_total, 0.0);
+  EXPECT_GT(baseline_metrics.baseline_recompute_latency_ms_total, 0.0);
+  EXPECT_GT(baseline_metrics.baseline_recompute_latency_ms_total,
+            install_metrics.install_latency_ms_total + 10.0);
+}
+
 TEST_P(ConversationTest, SendMultipleMessagesWithHistory) {
   // Set up mock Session.
   auto mock_session = CreateMockSession();
