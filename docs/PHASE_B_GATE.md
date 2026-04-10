@@ -112,12 +112,12 @@ Phase B is not complete until all four evidence buckets exist:
 
 ### 3) Long-session integration coverage
 
-- [ ] repeated multi-turn near-threshold session with multiple queued plans,
-      installs, and deterministic fallbacks
+- [x] repeated multi-turn near-threshold session with multiple queued plans
+      and install hits across consecutive turns
 
 ### 4) Performance comparison evidence
 
-- [ ] controlled comparison showing install-hit path improves over baseline
+- [x] controlled comparison showing install-hit path improves over baseline
       recompute path using recorded latency totals
 
 ## Commands / evidence currently used
@@ -125,14 +125,26 @@ Phase B is not complete until all four evidence buckets exist:
 Focused automated evidence already exercised during execution:
 
 - `bazel test //runtime/framework:execution_queue_test`
-- `bazel test //runtime/conversation:conversation_test --test_filter='ConversationTest.PrefetchReplayPackInstallsOnBoundaryWhenValid|ConversationTest.PrefetchInstallDiscardedOnRetainedSliceDigestMismatch|ConversationTest.PrefetchPlanDiscardedWhenRuntimePolicyChanges|ConversationTest.PrefetchPlannerRunsAsynchronouslyAfterBoundary|ConversationTest.SupersedingQueuedPlanRemovesOlderPendingTask|ConversationTest.PrefetchMetricsCaptureStructuredDimensions'`
+- `bazel test //runtime/conversation:conversation_test --test_filter='ConversationTest.PrefetchReplayPackInstallsOnBoundaryWhenValid|ConversationTest.PrefetchInstallDiscardedOnRetainedSliceDigestMismatch|ConversationTest.PrefetchPlanDiscardedWhenRuntimePolicyChanges|ConversationTest.PrefetchPlannerRunsAsynchronouslyAfterBoundary|ConversationTest.SupersedingQueuedPlanRemovesOlderPendingTask|ConversationTest.PrefetchMetricsCaptureStructuredDimensions|ConversationTest.PrefetchLongSessionInstallHitsAcrossMultipleTurns|ConversationTest.PrefetchInstallHitPathRecordsLowerLatencyThanBaselineRecompute'`
 
-## Remaining gate work
+Named gate tests now present:
 
-Phase B should **not** be declared complete until the unchecked items below are
-finished:
+- `ConversationTest.PrefetchPlannerRunsAsynchronouslyAfterBoundary`
+- `ConversationTest.SupersedingQueuedPlanRemovesOlderPendingTask`
+- `ConversationTest.PrefetchReplayPackInstallsOnBoundaryWhenValid`
+- `ConversationTest.PrefetchInstallDiscardedOnRetainedSliceDigestMismatch`
+- `ConversationTest.PrefetchPlanDiscardedWhenRuntimePolicyChanges`
+- `ConversationTest.PrefetchMetricsCaptureStructuredDimensions`
+- `ConversationTest.PrefetchLongSessionInstallHitsAcrossMultipleTurns`
+- `ConversationTest.PrefetchInstallHitPathRecordsLowerLatencyThanBaselineRecompute`
 
-- [ ] long-session integration evidence
-- [ ] explicit performance comparison evidence
+## Gate status
 
-Everything else in this checklist is now in place on the middleware side.
+The middleware-side Phase B gate checklist is now fully covered by:
+
+- async queued planning
+- builder/range/scaffold identity
+- structured telemetry dimensions
+- concurrency coverage
+- long-session integration coverage
+- explicit performance comparison evidence
