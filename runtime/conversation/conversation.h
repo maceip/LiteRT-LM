@@ -773,21 +773,6 @@ class Conversation {
     std::string reason;
   };
 
-  // Prefetch planner/install metrics.
-  struct PrefetchMetrics {
-    int planned_count = 0;
-    int install_attempt_count = 0;
-    int install_hit_count = 0;
-    int stale_discard_count = 0;
-    int shadow_skip_count = 0;
-    int install_failure_count = 0;
-    int fallback_count = 0;
-    int parity_check_count = 0;
-    int parity_mismatch_count = 0;
-    double install_latency_ms_total = 0.0;
-    double baseline_recompute_latency_ms_total = 0.0;
-  };
-
   enum class PrefetchBuilderId {
     kReplayRecent = 0,
     kDropAllButSystem = 1,
@@ -804,6 +789,79 @@ class Conversation {
   struct PrefetchHistoryRange {
     int start_message_index = -1;
     int end_message_index_exclusive = -1;
+  };
+
+  enum class PrefetchReasonCode {
+    kNone = 0,
+    kPlanned = 1,
+    kInstalled = 2,
+    kStaleDiscarded = 3,
+    kShadowSkipped = 4,
+    kInstallFailed = 5,
+    kFallback = 6,
+    kPolicyUpdateQueued = 7,
+    kPolicyChanged = 8,
+    kHistoryRevisionChanged = 9,
+    kRetainedSliceChanged = 10,
+    kTargetStepExceeded = 11,
+    kSupersededPlan = 12,
+  };
+
+  // Prefetch planner/install metrics.
+  struct PrefetchMetrics {
+    struct Dimensions {
+      std::string profile_id;
+      std::string strategy;
+      std::string builder_id;
+      std::string boundary;
+      std::string model_type;
+      std::string reason_code;
+    };
+
+    enum class Outcome {
+      kPlanned = 0,
+      kInstalled = 1,
+      kStaleDiscarded = 2,
+      kShadowSkipped = 3,
+      kInstallFailed = 4,
+      kFallback = 5,
+    };
+
+    struct Event {
+      Outcome outcome = Outcome::kPlanned;
+      Dimensions dimensions;
+      PrefetchParityMode parity_mode = PrefetchParityMode::kNotApplicable;
+      bool parity_mismatch = false;
+      bool scaffold_only = false;
+    };
+
+    int planned_count = 0;
+    int install_attempt_count = 0;
+    int install_hit_count = 0;
+    int stale_discard_count = 0;
+    int shadow_skip_count = 0;
+    int install_failure_count = 0;
+    int fallback_count = 0;
+    int parity_check_count = 0;
+    int parity_mismatch_count = 0;
+    double install_latency_ms_total = 0.0;
+    double baseline_recompute_latency_ms_total = 0.0;
+    Dimensions last_dimensions;
+    PrefetchParityMode last_parity_mode = PrefetchParityMode::kNotApplicable;
+    bool last_scaffold_only = false;
+    std::vector<Event> events;
+  };
+
+  struct PrefetchEvent {
+    std::optional<std::string> profile_id = std::nullopt;
+    ConversationConfig::MemoryStrategy strategy =
+        ConversationConfig::MemoryStrategy::kHardResetReplayWindow;
+    PrefetchBuilderId builder_id = PrefetchBuilderId::kReplayRecent;
+    std::optional<ConversationConfig::SafeBoundary> boundary = std::nullopt;
+    std::string model_type = "unknown";
+    PrefetchReasonCode reason_code = PrefetchReasonCode::kNone;
+    PrefetchParityMode parity_mode = PrefetchParityMode::kNotApplicable;
+    bool scaffold_only = false;
   };
 
   enum class PrefetchLifecycleState {
@@ -1216,7 +1274,16 @@ class Conversation {
   static absl::string_view PrefetchBuilderIdToString(PrefetchBuilderId builder_id);
   static absl::string_view PrefetchParityModeToString(
       PrefetchParityMode parity_mode);
+  static absl::string_view PrefetchReasonCodeToString(
+      PrefetchReasonCode reason_code);
   static bool IsValidHistoryRange(const PrefetchHistoryRange& range);
+  PrefetchMetrics::Dimensions BuildPrefetchMetricDimensions(
+      const PrefetchReplayPack* pack, PrefetchReasonCode reason_code,
+      std::optional<ConversationConfig::SafeBoundary> boundary) const;
+  void RecordPrefetchEvent(
+      const PrefetchReplayPack* pack, PrefetchReasonCode reason_code,
+      std::optional<ConversationConfig::SafeBoundary> boundary = std::nullopt,
+      std::optional<PrefetchInstallOutcome> install_outcome = std::nullopt);
 
   // Clones the processor state for background prefetch planning.
   absl::StatusOr<std::unique_ptr<ModelDataProcessor>>

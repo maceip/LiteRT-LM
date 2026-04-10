@@ -1066,6 +1066,140 @@ void Conversation::RecordPrefetchMetric(
   updater(prefetch_metrics_);
 }
 
+namespace {
+
+Conversation::PrefetchMetrics::Outcome OutcomeForReasonCode(
+    Conversation::PrefetchReasonCode reason_code) {
+  using Outcome = Conversation::PrefetchMetrics::Outcome;
+  using Reason = Conversation::PrefetchReasonCode;
+  switch (reason_code) {
+    case Reason::kPlanned:
+      return Outcome::kPlanned;
+    case Reason::kInstalled:
+      return Outcome::kInstalled;
+    case Reason::kStaleDiscarded:
+    case Reason::kPolicyUpdateQueued:
+    case Reason::kPolicyChanged:
+    case Reason::kHistoryRevisionChanged:
+    case Reason::kRetainedSliceChanged:
+    case Reason::kTargetStepExceeded:
+    case Reason::kSupersededPlan:
+      return Outcome::kStaleDiscarded;
+    case Reason::kShadowSkipped:
+      return Outcome::kShadowSkipped;
+    case Reason::kInstallFailed:
+      return Outcome::kInstallFailed;
+    case Reason::kFallback:
+      return Outcome::kFallback;
+    case Reason::kNone:
+      return Outcome::kPlanned;
+  }
+  return Outcome::kPlanned;
+}
+
+std::string DetectPrefetchModelType(
+    const std::optional<proto::LlmMetadata>& metadata) {
+  if (!metadata.has_value() || !metadata->has_llm_model_type()) {
+    return "unknown";
+  }
+  switch (metadata->llm_model_type().model_type_case()) {
+    case proto::LlmModelType::kGenericModel:
+      return "generic";
+    case proto::LlmModelType::kGemma3N:
+      return "gemma3n";
+    case proto::LlmModelType::kFunctionGemma:
+      return "function_gemma";
+    case proto::LlmModelType::kGemma3:
+      return "gemma3";
+    case proto::LlmModelType::kQwen3:
+      return "qwen3";
+    case proto::LlmModelType::kQwen2P5:
+      return "qwen2p5";
+    case proto::LlmModelType::kGemma4:
+      return "gemma4";
+    case proto::LlmModelType::MODEL_TYPE_NOT_SET:
+      return "unknown";
+  }
+  return "unknown";
+}
+
+}  // namespace
+
+Conversation::PrefetchMetrics::Dimensions
+Conversation::BuildPrefetchMetricDimensions(
+    const PrefetchReplayPack* pack, PrefetchReasonCode reason_code,
+    std::optional<ConversationConfig::SafeBoundary> boundary) const {
+  PrefetchMetrics::Dimensions dimensions;
+  const ConversationConfig::RuntimeMemoryPolicy active_policy =
+      GetActiveMemoryPolicy();
+  dimensions.profile_id = active_policy.profile_id.value_or("");
+  dimensions.strategy =
+      std::string(ConversationConfig::MemoryStrategyToString(active_policy.strategy));
+  dimensions.builder_id =
+      pack == nullptr ? ""
+                      : std::string(PrefetchBuilderIdToString(pack->builder_id));
+  dimensions.boundary =
+      !boundary.has_value()
+          ? ""
+          : std::string(ConversationConfig::SafeBoundaryToString(*boundary));
+  dimensions.model_type =
+      DetectPrefetchModelType(engine_.GetEngineSettings().GetLlmMetadata());
+  dimensions.reason_code = std::string(PrefetchReasonCodeToString(reason_code));
+  return dimensions;
+}
+
+absl::string_view Conversation::PrefetchReasonCodeToString(
+    PrefetchReasonCode reason_code) {
+  switch (reason_code) {
+    case PrefetchReasonCode::kNone:
+      return "none";
+    case PrefetchReasonCode::kPlanned:
+      return "planned";
+    case PrefetchReasonCode::kInstalled:
+      return "installed";
+    case PrefetchReasonCode::kStaleDiscarded:
+      return "stale_discarded";
+    case PrefetchReasonCode::kShadowSkipped:
+      return "shadow_skipped";
+    case PrefetchReasonCode::kInstallFailed:
+      return "install_failed";
+    case PrefetchReasonCode::kFallback:
+      return "fallback";
+    case PrefetchReasonCode::kPolicyUpdateQueued:
+      return "policy_update_queued";
+    case PrefetchReasonCode::kPolicyChanged:
+      return "policy_changed";
+    case PrefetchReasonCode::kHistoryRevisionChanged:
+      return "history_revision_changed";
+    case PrefetchReasonCode::kRetainedSliceChanged:
+      return "retained_slice_changed";
+    case PrefetchReasonCode::kTargetStepExceeded:
+      return "target_step_exceeded";
+    case PrefetchReasonCode::kSupersededPlan:
+      return "superseded_plan";
+  }
+  return "planned";
+}
+
+void Conversation::RecordPrefetchEvent(
+    const PrefetchReplayPack* pack, PrefetchReasonCode reason_code,
+    std::optional<ConversationConfig::SafeBoundary> boundary,
+    std::optional<PrefetchInstallOutcome> install_outcome) {
+  PrefetchMetrics::Event event;
+  event.outcome = OutcomeForReasonCode(reason_code);
+  event.dimensions = BuildPrefetchMetricDimensions(pack, reason_code, boundary);
+  event.parity_mode =
+      pack == nullptr ? PrefetchParityMode::kNotApplicable : pack->parity_mode;
+  event.parity_mismatch = false;
+  event.scaffold_only = pack != nullptr && pack->scaffold_only;
+
+  absl::MutexLock lock(&policy_mutex_);
+  prefetch_metrics_.last_dimensions = event.dimensions;
+  prefetch_metrics_.last_parity_mode = event.parity_mode;
+  prefetch_metrics_.last_scaffold_only = event.scaffold_only;
+  prefetch_metrics_.events.push_back(std::move(event));
+}
+
 Conversation::BoundaryEvent Conversation::DetectBoundaryEvent(
     const nlohmann::ordered_json& json_msg) const {
   auto detect_from_object = [](const nlohmann::ordered_json& obj)
