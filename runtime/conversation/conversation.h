@@ -788,6 +788,24 @@ class Conversation {
     double baseline_recompute_latency_ms_total = 0.0;
   };
 
+  enum class PrefetchBuilderId {
+    kReplayRecent = 0,
+    kDropAllButSystem = 1,
+    kSummarizeProtectedTail = 2,
+    kQuarantineMerge = 3,
+  };
+
+  enum class PrefetchParityMode {
+    kNotApplicable = 0,
+    kStrictTokenParity = 1,
+    kSemanticParity = 2,
+  };
+
+  struct PrefetchHistoryRange {
+    int start_message_index = -1;
+    int end_message_index_exclusive = -1;
+  };
+
   enum class PrefetchLifecycleState {
     kIdle = 0,
     kPlanned = 1,
@@ -1054,10 +1072,17 @@ class Conversation {
     int source_checkpoint_step = 0;
     size_t history_watermark = 0;
     uint64_t history_revision = 0;
+    PrefetchBuilderId builder_id = PrefetchBuilderId::kReplayRecent;
+    std::vector<PrefetchHistoryRange> retained_ranges;
+    std::vector<PrefetchHistoryRange> protected_ranges;
+    bool summary_anchor_present = false;
+    bool scaffold_only = false;
+    PrefetchParityMode parity_mode = PrefetchParityMode::kNotApplicable;
     int retained_start_index = -1;
     int retained_end_index_exclusive = -1;
     size_t retained_history_digest = 0;
     size_t policy_digest = 0;
+    size_t artifact_identity_digest = 0;
     float target_ratio = 0.0f;
     float confidence_score = 0.0f;
     int planned_target_step = 0;
@@ -1168,6 +1193,30 @@ class Conversation {
   // Cancels any queued prefetch planning task. Running tasks cannot be
   // interrupted and must self-discard via plan-token guards.
   void CancelQueuedPrefetchPlan(PrefetchInvalidationReason reason);
+
+  PrefetchBuilderId SelectPrefetchBuilderId(
+      const ConversationConfig::RuntimeMemoryPolicy& policy) const;
+  std::vector<PrefetchHistoryRange> BuildRetainedHistoryRanges(
+      PrefetchBuilderId builder_id,
+      const ContextShiftRuntimePolicy& policy_snapshot,
+      int* retained_start_index, int* retained_end_index_exclusive,
+      std::vector<Message>* candidate_messages) const;
+  std::vector<PrefetchHistoryRange> BuildProtectedHistoryRanges(
+      PrefetchBuilderId builder_id,
+      const std::vector<PrefetchHistoryRange>& retained_ranges) const;
+  PrefetchParityMode SelectPrefetchParityMode(
+      PrefetchBuilderId builder_id) const;
+  size_t ComputePrefetchArtifactIdentityDigest(
+      PrefetchBuilderId builder_id,
+      absl::Span<const PrefetchHistoryRange> retained_ranges,
+      absl::Span<const PrefetchHistoryRange> protected_ranges,
+      bool summary_anchor_present, bool scaffold_only,
+      PrefetchParityMode parity_mode,
+      const ContextShiftRuntimePolicy& policy) const;
+  static absl::string_view PrefetchBuilderIdToString(PrefetchBuilderId builder_id);
+  static absl::string_view PrefetchParityModeToString(
+      PrefetchParityMode parity_mode);
+  static bool IsValidHistoryRange(const PrefetchHistoryRange& range);
 
   // Clones the processor state for background prefetch planning.
   absl::StatusOr<std::unique_ptr<ModelDataProcessor>>

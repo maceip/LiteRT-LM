@@ -170,6 +170,11 @@ std::string NormalizeStrategyName(absl::string_view strategy_name) {
   return out;
 }
 
+template <typename T>
+void HashCombine(size_t& seed, const T& value) {
+  seed ^= std::hash<T>{}(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
 absl::Status ValidateRuntimeMemoryPolicy(
     const ConversationConfig::RuntimeMemoryPolicy& policy) {
   if (policy.context_shift_trigger_ratio <= 0.0f ||
@@ -1493,34 +1498,39 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
 
   size_t history_size = 0;
   uint64_t history_revision = 0;
+  std::vector<Message> history_snapshot;
+  {
+    absl::MutexLock lock(&history_mutex_);
+    history_size = history_.size();
+    history_revision = history_revision_;
+    history_snapshot = history_;
+  }
   int retained_start_index = -1;
   int retained_end_index_exclusive = -1;
-  int retain_count = 0;
   std::vector<Message> candidate_messages;
-  if (policy_snapshot.context_shift_strategy ==
-      ConversationConfig::ContextShiftStrategy::kReplayRecent) {
-    absl::MutexLock lock(&history_mutex_);
-    history_size = history_.size();
-    history_revision = history_revision_;
-    retain_count =
-        std::min(static_cast<int>(history_.size()),
-                 policy_snapshot.context_shift_retain_recent_messages);
-    if (retain_count > 0) {
-      retained_start_index = static_cast<int>(history_.size()) - retain_count;
-      retained_end_index_exclusive = static_cast<int>(history_.size());
-      candidate_messages.assign(history_.end() - retain_count, history_.end());
-    }
-  } else {
-    absl::MutexLock lock(&history_mutex_);
-    history_size = history_.size();
-    history_revision = history_revision_;
-  }
+  const ConversationConfig::RuntimeMemoryPolicy active_policy =
+      GetActiveMemoryPolicy();
+  const PrefetchBuilderId builder_id = SelectPrefetchBuilderId(active_policy);
+  std::vector<PrefetchHistoryRange> retained_ranges = BuildRetainedHistoryRanges(
+      builder_id, policy_snapshot, &retained_start_index,
+      &retained_end_index_exclusive, &candidate_messages);
+  std::vector<PrefetchHistoryRange> protected_ranges =
+      BuildProtectedHistoryRanges(builder_id, retained_ranges);
+  const bool summary_anchor_present =
+      builder_id == PrefetchBuilderId::kSummarizeProtectedTail;
+  const bool scaffold_only =
+      builder_id == PrefetchBuilderId::kSummarizeProtectedTail ||
+      builder_id == PrefetchBuilderId::kQuarantineMerge;
+  const PrefetchParityMode parity_mode = SelectPrefetchParityMode(builder_id);
 
   const size_t policy_digest = ComputePrefetchPolicyDigest(policy_snapshot);
   const size_t validity_hash = ComputePrefetchValidityHash();
   const size_t retained_history_digest = ComputeRetainedHistoryDigest(
       retained_start_index, retained_end_index_exclusive,
       policy_snapshot.context_shift_strategy);
+  const size_t range_digest = ComputePrefetchArtifactIdentityDigest(
+      builder_id, retained_ranges, protected_ranges, summary_anchor_present,
+      scaffold_only, parity_mode, policy_snapshot);
   const int planned_target_step =
       std::max(1, static_cast<int>(max_context_tokens_ *
                                    policy_snapshot.context_shift_target_ratio));
@@ -1534,6 +1544,7 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
         existing_policy_digest == policy_digest &&
         existing_validity_hash == validity_hash &&
         existing_history_revision == history_revision &&
+        pending_prefetch_pack_->artifact_identity_digest == range_digest &&
         !retained_slice_changed &&
         existing_planned_target_step >= current_step;
     if (existing_plan_still_useful) {
@@ -1628,7 +1639,9 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
       [this, plan_token, current_step, history_size, history_revision,
        retained_start_index, retained_end_index_exclusive,
        retained_history_digest, policy_digest, validity_hash,
-       planned_target_step, policy_snapshot, step_delta,
+       planned_target_step, policy_snapshot, builder_id, retained_ranges,
+       protected_ranges, summary_anchor_present, scaffold_only, parity_mode,
+       range_digest, step_delta,
        last_successful_install_step,
        planning_processor = std::move(planning_processor),
        candidate_messages = std::move(candidate_messages)]() mutable {
@@ -1727,9 +1740,16 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
         pack.source_checkpoint_step = current_step;
         pack.history_watermark = history_size;
         pack.history_revision = history_revision;
+        pack.builder_id = builder_id;
+        pack.retained_ranges = retained_ranges;
+        pack.protected_ranges = protected_ranges;
+        pack.summary_anchor_present = summary_anchor_present;
+        pack.scaffold_only = scaffold_only;
+        pack.parity_mode = parity_mode;
         pack.retained_start_index = retained_start_index;
         pack.retained_end_index_exclusive = retained_end_index_exclusive;
         pack.retained_history_digest = retained_history_digest;
+        pack.artifact_identity_digest = range_digest;
         pack.policy_digest = policy_digest;
         pack.target_ratio = policy_snapshot.context_shift_target_ratio;
         pack.confidence_score = confidence_score;
@@ -1994,6 +2014,217 @@ size_t Conversation::ComputePrefetchPolicyDigest(
   hash_combine(
       std::hash<int>{}(static_cast<int>(policy.context_shift_strategy)));
   return seed;
+}
+
+Conversation::PrefetchBuilderId Conversation::SelectPrefetchBuilderId(
+    const ConversationConfig::RuntimeMemoryPolicy& policy) const {
+  if (policy.context_shift_strategy ==
+      ConversationConfig::ContextShiftStrategy::kDropAllButSystem) {
+    return PrefetchBuilderId::kDropAllButSystem;
+  }
+  switch (policy.strategy) {
+    case ConversationConfig::MemoryStrategy::kSummarizeProtectedTail:
+      return PrefetchBuilderId::kSummarizeProtectedTail;
+    case ConversationConfig::MemoryStrategy::
+        kContextQuarantineIsolatedScratchpads:
+      return PrefetchBuilderId::kQuarantineMerge;
+    case ConversationConfig::MemoryStrategy::kHardResetReplayWindow:
+    case ConversationConfig::MemoryStrategy::kVirtualMemoryPaging:
+    case ConversationConfig::MemoryStrategy::kFactMemoryExtractionUpdate:
+    case ConversationConfig::MemoryStrategy::
+        kSemanticCompressionConsolidationAdaptiveRetrieval:
+    case ConversationConfig::MemoryStrategy::kLearnedCompressionPolicy:
+    case ConversationConfig::MemoryStrategy::
+        kIncrementalHierarchicalAggregation:
+    case ConversationConfig::MemoryStrategy::kActiveRecallSurpriseUpdate:
+    case ConversationConfig::MemoryStrategy::
+        kContextualForgettingInterferenceManagement:
+    case ConversationConfig::MemoryStrategy::kTokenEfficientKvCacheManagement:
+    case ConversationConfig::MemoryStrategy::kReflectionMetacognitiveBuffering:
+    case ConversationConfig::MemoryStrategy::kSelfCorrectingFactGraph:
+    case ConversationConfig::MemoryStrategy::kSlowFastMemoryArchitecture:
+    case ConversationConfig::MemoryStrategy::kHeatBasedTieredMigration:
+    case ConversationConfig::MemoryStrategy::kMcpActiveMetadata:
+      return PrefetchBuilderId::kReplayRecent;
+  }
+  return PrefetchBuilderId::kReplayRecent;
+}
+
+std::vector<Conversation::PrefetchHistoryRange>
+Conversation::BuildRetainedHistoryRanges(
+    PrefetchBuilderId builder_id,
+    const ContextShiftRuntimePolicy& policy_snapshot,
+    int* retained_start_index, int* retained_end_index_exclusive,
+    std::vector<Message>* candidate_messages) const {
+  std::vector<PrefetchHistoryRange> ranges;
+  size_t history_size = 0;
+  {
+    absl::MutexLock lock(&history_mutex_);
+    history_size = history_.size();
+  }
+  const int history_size_int = static_cast<int>(history_size);
+  if (retained_start_index != nullptr) {
+    *retained_start_index = -1;
+  }
+  if (retained_end_index_exclusive != nullptr) {
+    *retained_end_index_exclusive = -1;
+  }
+  if (candidate_messages != nullptr) {
+    candidate_messages->clear();
+  }
+  if (history_size_int <= 0) {
+    return ranges;
+  }
+  switch (builder_id) {
+    case PrefetchBuilderId::kReplayRecent: {
+      const int retain_count = std::min(
+          history_size_int, policy_snapshot.context_shift_retain_recent_messages);
+      if (retain_count > 0) {
+        ranges.push_back(PrefetchHistoryRange{
+            .start_message_index = history_size_int - retain_count,
+            .end_message_index_exclusive = history_size_int,
+        });
+      }
+      break;
+    }
+    case PrefetchBuilderId::kDropAllButSystem:
+      break;
+    case PrefetchBuilderId::kSummarizeProtectedTail: {
+      const int protected_tail_count =
+          std::min(history_size_int, std::max(1, std::min(2, history_size_int)));
+      ranges.push_back(PrefetchHistoryRange{
+          .start_message_index = history_size_int - protected_tail_count,
+          .end_message_index_exclusive = history_size_int,
+      });
+      break;
+    }
+    case PrefetchBuilderId::kQuarantineMerge: {
+      const int retain_count = std::min(
+          history_size_int,
+          std::max(
+              1,
+              std::min(policy_snapshot.context_shift_retain_recent_messages, 3)));
+      ranges.push_back(PrefetchHistoryRange{
+          .start_message_index = history_size_int - retain_count,
+          .end_message_index_exclusive = history_size_int,
+      });
+      break;
+    }
+  }
+  if (!ranges.empty()) {
+    if (retained_start_index != nullptr) {
+      *retained_start_index = ranges.front().start_message_index;
+    }
+    if (retained_end_index_exclusive != nullptr) {
+      *retained_end_index_exclusive =
+          ranges.back().end_message_index_exclusive;
+    }
+    if (candidate_messages != nullptr) {
+      absl::MutexLock lock(&history_mutex_);
+      for (const auto& range : ranges) {
+        if (!IsValidHistoryRange(range) ||
+            range.end_message_index_exclusive > history_.size()) {
+          continue;
+        }
+        candidate_messages->insert(candidate_messages->end(),
+                                   history_.begin() + range.start_message_index,
+                                   history_.begin() +
+                                       range.end_message_index_exclusive);
+      }
+    }
+  }
+  return ranges;
+}
+
+std::vector<Conversation::PrefetchHistoryRange>
+Conversation::BuildProtectedHistoryRanges(
+    PrefetchBuilderId builder_id,
+    const std::vector<PrefetchHistoryRange>& retained_ranges) const {
+  switch (builder_id) {
+    case PrefetchBuilderId::kSummarizeProtectedTail:
+    case PrefetchBuilderId::kQuarantineMerge:
+      return retained_ranges;
+    case PrefetchBuilderId::kReplayRecent:
+    case PrefetchBuilderId::kDropAllButSystem:
+      return {};
+  }
+  return {};
+}
+
+Conversation::PrefetchParityMode Conversation::SelectPrefetchParityMode(
+    PrefetchBuilderId builder_id) const {
+  switch (builder_id) {
+    case PrefetchBuilderId::kReplayRecent:
+    case PrefetchBuilderId::kDropAllButSystem:
+      return PrefetchParityMode::kStrictTokenParity;
+    case PrefetchBuilderId::kSummarizeProtectedTail:
+    case PrefetchBuilderId::kQuarantineMerge:
+      return PrefetchParityMode::kSemanticParity;
+  }
+  return PrefetchParityMode::kNotApplicable;
+}
+
+size_t Conversation::ComputePrefetchArtifactIdentityDigest(
+    PrefetchBuilderId builder_id,
+    absl::Span<const PrefetchHistoryRange> retained_ranges,
+    absl::Span<const PrefetchHistoryRange> protected_ranges,
+    bool summary_anchor_present, bool scaffold_only,
+    PrefetchParityMode parity_mode,
+    const ContextShiftRuntimePolicy& policy) const {
+  size_t seed = 0;
+  auto hash_combine = [&seed](size_t value) {
+    seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  };
+  hash_combine(std::hash<int>{}(static_cast<int>(builder_id)));
+  hash_combine(std::hash<int>{}(static_cast<int>(parity_mode)));
+  hash_combine(std::hash<bool>{}(summary_anchor_present));
+  hash_combine(std::hash<bool>{}(scaffold_only));
+  hash_combine(ComputePrefetchPolicyDigest(policy));
+  auto hash_range = [&hash_combine](const PrefetchHistoryRange& range) {
+    hash_combine(std::hash<int>{}(range.start_message_index));
+    hash_combine(std::hash<int>{}(range.end_message_index_exclusive));
+  };
+  for (const auto& range : retained_ranges) {
+    hash_range(range);
+  }
+  hash_combine(std::hash<int>{}(-1));
+  for (const auto& range : protected_ranges) {
+    hash_range(range);
+  }
+  return seed;
+}
+
+absl::string_view Conversation::PrefetchBuilderIdToString(
+    PrefetchBuilderId builder_id) {
+  switch (builder_id) {
+    case PrefetchBuilderId::kReplayRecent:
+      return "replay_recent";
+    case PrefetchBuilderId::kDropAllButSystem:
+      return "drop_all_but_system";
+    case PrefetchBuilderId::kSummarizeProtectedTail:
+      return "summarize_protected_tail";
+    case PrefetchBuilderId::kQuarantineMerge:
+      return "quarantine_merge";
+  }
+  return "replay_recent";
+}
+
+absl::string_view Conversation::PrefetchParityModeToString(
+    PrefetchParityMode parity_mode) {
+  switch (parity_mode) {
+    case PrefetchParityMode::kNotApplicable:
+      return "not_applicable";
+    case PrefetchParityMode::kStrictTokenParity:
+      return "strict_token_parity";
+    case PrefetchParityMode::kSemanticParity:
+      return "semantic_parity";
+  }
+  return "not_applicable";
+}
+
+bool Conversation::IsValidHistoryRange(const PrefetchHistoryRange& range) {
+  return range.start_message_index >= 0 &&
+         range.end_message_index_exclusive >= range.start_message_index;
 }
 
 size_t Conversation::ComputePrefetchValidityHash() const {
