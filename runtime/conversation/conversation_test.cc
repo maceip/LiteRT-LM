@@ -2053,7 +2053,7 @@ TEST_P(ConversationTest, PrefetchFallbackMetricsIncrementOnContextShift) {
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
         .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
-    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
   }
 
   ASSERT_OK_AND_ASSIGN(auto conversation,
@@ -2135,7 +2135,7 @@ TEST_P(ConversationTest, PrefetchReplayPackInstallsOnBoundaryWhenValid) {
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
         .WillOnce(Return(Responses(TaskState::kProcessing, {"A2"})));
-    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
   }
 
   ASSERT_OK_AND_ASSIGN(auto conversation,
