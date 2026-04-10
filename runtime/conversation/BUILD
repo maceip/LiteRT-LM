@@ -134,6 +134,7 @@ cc_library(
         "//runtime/engine:engine_interface",
         "//runtime/engine:engine_settings",
         "//runtime/engine:io_types",
+        "//runtime/framework:execution_queue",
         "//runtime/proto:llm_model_type_cc_proto",
         "//runtime/util:litert_status_util",
         "//runtime/util:model_type_utils",
@@ -192,6 +193,7 @@ cc_test(
         "//runtime/engine:io_types",
         "//runtime/engine:litert_lm_lib",  # buildcleaner: keep
         "//runtime/executor:executor_settings_base",
+        "//runtime/framework:execution_queue",
         "//runtime/util:test_utils",
     ],
 )

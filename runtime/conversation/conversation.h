@@ -31,6 +31,7 @@
 #include "absl/status/statusor.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
 #include "absl/synchronization/mutex.h"  // from @com_google_absl
+#include "absl/time/time.h"  // from @com_google_absl
 #include "absl/types/span.h"  // from @com_google_absl
 #include "nlohmann/json_fwd.hpp"  // from @nlohmann_json
 #include "runtime/components/constrained_decoding/constraint.h"
@@ -43,6 +44,7 @@
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/framework/execution_queue.h"
 #include "runtime/util/status_macros.h"
 
 namespace litert::lm {
@@ -771,17 +773,139 @@ class Conversation {
     std::string reason;
   };
 
+  enum class PrefetchBuilderId {
+    kReplayRecent = 0,
+    kDropAllButSystem = 1,
+    kSummarizeProtectedTail = 2,
+    kQuarantineMerge = 3,
+  };
+
+  enum class PrefetchParityMode {
+    kNotApplicable = 0,
+    kStrictTokenParity = 1,
+    kSemanticParity = 2,
+  };
+
+  struct PrefetchHistoryRange {
+    int start_message_index = -1;
+    int end_message_index_exclusive = -1;
+  };
+
+  enum class PrefetchReasonCode {
+    kNone = 0,
+    kPlanned = 1,
+    kInstalled = 2,
+    kStaleDiscarded = 3,
+    kShadowSkipped = 4,
+    kInstallFailed = 5,
+    kFallback = 6,
+    kPolicyUpdateQueued = 7,
+    kPolicyChanged = 8,
+    kHistoryRevisionChanged = 9,
+    kRetainedSliceChanged = 10,
+    kTargetStepExceeded = 11,
+    kSupersededPlan = 12,
+  };
+
   // Prefetch planner/install metrics.
   struct PrefetchMetrics {
+    struct Dimensions {
+      std::string profile_id;
+      std::string strategy;
+      std::string builder_id;
+      std::string boundary;
+      std::string model_type;
+      std::string reason_code;
+    };
+
+    enum class Outcome {
+      kPlanned = 0,
+      kInstalled = 1,
+      kStaleDiscarded = 2,
+      kShadowSkipped = 3,
+      kInstallFailed = 4,
+      kFallback = 5,
+    };
+
+    struct Event {
+      Outcome outcome = Outcome::kPlanned;
+      Dimensions dimensions;
+      PrefetchParityMode parity_mode = PrefetchParityMode::kNotApplicable;
+      bool parity_mismatch = false;
+      bool scaffold_only = false;
+    };
+
     int planned_count = 0;
     int install_attempt_count = 0;
     int install_hit_count = 0;
     int stale_discard_count = 0;
+    int shadow_skip_count = 0;
+    int install_failure_count = 0;
     int fallback_count = 0;
     int parity_check_count = 0;
     int parity_mismatch_count = 0;
     double install_latency_ms_total = 0.0;
     double baseline_recompute_latency_ms_total = 0.0;
+    Dimensions last_dimensions;
+    PrefetchParityMode last_parity_mode = PrefetchParityMode::kNotApplicable;
+    bool last_scaffold_only = false;
+    std::vector<Event> events;
+  };
+
+  struct PrefetchEvent {
+    std::optional<std::string> profile_id = std::nullopt;
+    ConversationConfig::MemoryStrategy strategy =
+        ConversationConfig::MemoryStrategy::kHardResetReplayWindow;
+    PrefetchBuilderId builder_id = PrefetchBuilderId::kReplayRecent;
+    std::optional<ConversationConfig::SafeBoundary> boundary = std::nullopt;
+    std::string model_type = "unknown";
+    PrefetchReasonCode reason_code = PrefetchReasonCode::kNone;
+    PrefetchParityMode parity_mode = PrefetchParityMode::kNotApplicable;
+    bool scaffold_only = false;
+  };
+
+  enum class PrefetchLifecycleState {
+    kIdle = 0,
+    kPlanned = 1,
+    kComputing = 2,
+    kReady = 3,
+    kInstalled = 4,
+    kDiscarded = 5,
+  };
+
+  enum class PrefetchInvalidationReason {
+    kNone = 0,
+    kPrefetchDisabled = 1,
+    kContextShiftDisabled = 2,
+    kBelowTrigger = 3,
+    kExistingPlanStillUseful = 4,
+    kPolicyUpdateQueued = 5,
+    kPolicyChanged = 6,
+    kHistoryRevisionChanged = 7,
+    kRetainedSliceChanged = 8,
+    kTargetStepExceeded = 9,
+    kShadowMode = 10,
+    kInstallFailed = 11,
+    kSupersededPlan = 12,
+  };
+
+  struct PrefetchPlannerStateSnapshot {
+    PrefetchLifecycleState lifecycle_state = PrefetchLifecycleState::kIdle;
+    PrefetchInvalidationReason last_invalidation_reason =
+        PrefetchInvalidationReason::kNone;
+    uint64_t last_plan_history_revision = 0;
+    size_t last_plan_policy_digest = 0;
+    uint64_t active_plan_token = 0;
+    int last_plan_source_step = 0;
+    int last_successful_install_step = -1;
+    float last_confidence_score = 0.0f;
+  };
+
+  enum class PrefetchInstallOutcome {
+    kNoPendingPack = 0,
+    kStaleDiscarded = 1,
+    kShadowSkipped = 2,
+    kInstalled = 3,
   };
 
   // Creates a Conversation instance from the the Engine and ConversationConfig.
@@ -957,6 +1081,28 @@ class Conversation {
   // Returns prefetch metrics snapshot (testing helper).
   PrefetchMetrics GetPrefetchMetricsForTest() const;
 
+  // Returns planner state snapshot (testing helper).
+  PrefetchPlannerStateSnapshot GetPrefetchPlannerStateForTest() const;
+
+  // Waits until planner reaches the given lifecycle state (testing helper).
+  bool WaitForPrefetchPlannerStateForTest(
+      PrefetchLifecycleState desired_state,
+      absl::Duration timeout = absl::Seconds(10)) const;
+
+  // Triggers planning/install paths directly for focused unit tests.
+  void MaybePlanPrefetchPackForTest(int current_step) {
+    MaybePlanPrefetchPack(current_step);
+  }
+  absl::StatusOr<PrefetchInstallOutcome> TryInstallPrefetchPackForTest(
+      int target_step) {
+    return TryInstallPrefetchPackIfValid(target_step);
+  }
+
+  // Mutates one history entry for testing staleness checks.
+  absl::Status ReplaceHistoryMessageForTest(int history_index,
+                                            const Message& replacement,
+                                            bool increment_revision);
+
  private:
   enum class BoundaryEvent {
     kToolResult = 0,
@@ -980,24 +1126,42 @@ class Conversation {
   };
 
   struct PrefetchReplayPack {
+    uint64_t plan_token = 0;
     int source_checkpoint_step = 0;
     size_t history_watermark = 0;
     uint64_t history_revision = 0;
+    PrefetchBuilderId builder_id = PrefetchBuilderId::kReplayRecent;
+    std::vector<PrefetchHistoryRange> retained_ranges;
+    std::vector<PrefetchHistoryRange> protected_ranges;
+    bool summary_anchor_present = false;
+    bool scaffold_only = false;
+    PrefetchParityMode parity_mode = PrefetchParityMode::kNotApplicable;
     int retained_start_index = -1;
     int retained_end_index_exclusive = -1;
     size_t retained_history_digest = 0;
+    size_t policy_digest = 0;
+    size_t artifact_identity_digest = 0;
     float target_ratio = 0.0f;
+    float confidence_score = 0.0f;
+    int planned_target_step = 0;
     ConversationConfig::ContextShiftStrategy strategy =
         ConversationConfig::ContextShiftStrategy::kReplayRecent;
     size_t validity_hash = 0;
     std::vector<InputData> replay_inputs;
   };
 
-  enum class PrefetchInstallOutcome {
-    kNoPendingPack = 0,
-    kStaleDiscarded = 1,
-    kShadowSkipped = 2,
-    kInstalled = 3,
+  struct PrefetchPlannerState {
+    PrefetchLifecycleState lifecycle_state = PrefetchLifecycleState::kIdle;
+    PrefetchInvalidationReason last_invalidation_reason =
+        PrefetchInvalidationReason::kNone;
+    uint64_t last_plan_history_revision = 0;
+    size_t last_plan_policy_digest = 0;
+    uint64_t active_plan_token = 0;
+    uint64_t next_plan_token = 0;
+    int last_plan_source_step = 0;
+    int last_observed_step = 0;
+    int last_successful_install_step = -1;
+    float last_confidence_score = 0.0f;
   };
 
   explicit Conversation(
@@ -1065,6 +1229,14 @@ class Conversation {
       absl::Span<const Message> new_messages,
       const OptionalArgs& optional_args = OptionalArgs());
 
+  // Same as above, but uses a caller-provided processor instance. This is used
+  // by background prefetch planning to avoid sharing mutable processor state
+  // across threads.
+  absl::StatusOr<std::vector<InputData>> GetInputDataVectorForMessagesWithProcessor(
+      const ModelDataProcessor& processor, absl::Span<const Message> old_messages,
+      absl::Span<const Message> new_messages,
+      const OptionalArgs& optional_args = OptionalArgs()) const;
+
   // Rewinds the session to the checkpoint after the most recent channel content
   // and return the input data vector for all messages from that point onward.
   absl::StatusOr<std::vector<InputData>> RewindAndGetInputDataVector();
@@ -1073,10 +1245,63 @@ class Conversation {
   // context usage reaches the configured threshold.
   absl::Status MaybeApplyContextShift();
 
+  // Schedules background prefetch planning after a safe boundary.
+  void MaybeSchedulePrefetchPlanAfterBoundary();
+
+  // Cancels any queued prefetch planning task. Running tasks cannot be
+  // interrupted and must self-discard via plan-token guards.
+  void CancelQueuedPrefetchPlan(PrefetchInvalidationReason reason);
+
+  PrefetchBuilderId SelectPrefetchBuilderId(
+      const ConversationConfig::RuntimeMemoryPolicy& policy) const;
+  std::vector<PrefetchHistoryRange> BuildRetainedHistoryRanges(
+      PrefetchBuilderId builder_id,
+      const ContextShiftRuntimePolicy& policy_snapshot,
+      int* retained_start_index, int* retained_end_index_exclusive,
+      std::vector<Message>* candidate_messages) const;
+  std::vector<PrefetchHistoryRange> BuildProtectedHistoryRanges(
+      PrefetchBuilderId builder_id,
+      const std::vector<PrefetchHistoryRange>& retained_ranges) const;
+  PrefetchParityMode SelectPrefetchParityMode(
+      PrefetchBuilderId builder_id) const;
+  size_t ComputePrefetchArtifactIdentityDigest(
+      PrefetchBuilderId builder_id,
+      absl::Span<const PrefetchHistoryRange> retained_ranges,
+      absl::Span<const PrefetchHistoryRange> protected_ranges,
+      bool summary_anchor_present, bool scaffold_only,
+      PrefetchParityMode parity_mode,
+      const ContextShiftRuntimePolicy& policy) const;
+  static absl::string_view PrefetchBuilderIdToString(PrefetchBuilderId builder_id);
+  static absl::string_view PrefetchParityModeToString(
+      PrefetchParityMode parity_mode);
+  static absl::string_view PrefetchReasonCodeToString(
+      PrefetchReasonCode reason_code);
+  static bool IsValidHistoryRange(const PrefetchHistoryRange& range);
+  PrefetchMetrics::Dimensions BuildPrefetchMetricDimensions(
+      const PrefetchReplayPack* pack, PrefetchReasonCode reason_code,
+      std::optional<ConversationConfig::SafeBoundary> boundary) const;
+  void RecordPrefetchEvent(
+      const PrefetchReplayPack* pack, PrefetchReasonCode reason_code,
+      std::optional<ConversationConfig::SafeBoundary> boundary = std::nullopt,
+      std::optional<PrefetchInstallOutcome> install_outcome = std::nullopt);
+
+  // Clones the processor state for background prefetch planning.
+  absl::StatusOr<std::unique_ptr<ModelDataProcessor>>
+  CloneModelDataProcessorForPrefetch() const;
+
+  // Background task entry point for building a replay pack.
+  void RunPrefetchPlanJob(int current_step, uint64_t plan_token,
+                          std::unique_ptr<ModelDataProcessor> processor);
+
   // Plans/installs prefetch replay packs and tracks telemetry.
   void MaybePlanPrefetchPack(int current_step);
   absl::StatusOr<PrefetchInstallOutcome> TryInstallPrefetchPackIfValid(
       int target_step);
+  float ComputePrefetchConfidenceScore(
+      int current_step, int step_delta, int last_successful_install_step,
+      const ContextShiftRuntimePolicy& policy) const;
+  size_t ComputePrefetchPolicyDigest(
+      const ContextShiftRuntimePolicy& policy) const;
   size_t ComputePrefetchValidityHash() const;
   void RecordPrefetchMetric(absl::FunctionRef<void(PrefetchMetrics&)> updater);
 
@@ -1170,6 +1395,8 @@ class Conversation {
   // Prefetch replay pack + metrics.
   std::optional<PrefetchReplayPack> pending_prefetch_pack_
       ABSL_GUARDED_BY(policy_mutex_);
+  std::optional<int> queued_prefetch_task_id_ ABSL_GUARDED_BY(policy_mutex_);
+  PrefetchPlannerState prefetch_planner_state_ ABSL_GUARDED_BY(policy_mutex_);
   PrefetchMetrics prefetch_metrics_ ABSL_GUARDED_BY(policy_mutex_);
 
   // Mutex for task_controllers_.
@@ -1184,6 +1411,11 @@ class Conversation {
   // depends on so that the session is destroyed before them. This is to avoid
   // memory corruption and null-pointer deference issues.
   std::unique_ptr<Engine::Session> session_;
+
+  // Background planner queue. Declare after session_ so it is destroyed first,
+  // which ensures all queued work finishes before other runtime state tears
+  // down.
+  std::unique_ptr<ExecutionQueue> prefetch_execution_queue_;
 
   // Whether checkpointing and rewinding are supported by the session.
 

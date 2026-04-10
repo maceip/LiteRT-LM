@@ -55,6 +55,7 @@
 #include "runtime/engine/engine.h"
 #include "runtime/engine/engine_settings.h"
 #include "runtime/engine/io_types.h"
+#include "runtime/framework/execution_queue.h"
 #include "runtime/proto/llm_model_type.pb.h"
 #include "runtime/util/model_type_utils.h"
 #include "runtime/util/status_macros.h"
@@ -169,6 +170,11 @@ std::string NormalizeStrategyName(absl::string_view strategy_name) {
   return out;
 }
 
+template <typename T>
+void HashCombine(size_t& seed, const T& value) {
+  seed ^= std::hash<T>{}(value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
 absl::Status ValidateRuntimeMemoryPolicy(
     const ConversationConfig::RuntimeMemoryPolicy& policy) {
   if (policy.context_shift_trigger_ratio <= 0.0f ||
@@ -274,7 +280,7 @@ absl::StatusOr<absl::flat_hash_map<std::string, std::string>>
 ParseConstrainedYaml(absl::string_view yaml_text) {
   absl::flat_hash_map<std::string, std::string> out;
   std::vector<std::pair<int, std::string>> key_stack;
-  std::stringstream ss(std::string(yaml_text));
+  std::stringstream ss{std::string(yaml_text)};
   std::string line;
   int line_number = 0;
   while (std::getline(ss, line)) {
@@ -333,7 +339,7 @@ absl::StatusOr<ConversationConfig> ConversationConfig::CreateDefault(
 absl::StatusOr<ConversationConfig::MemoryStrategy>
 ConversationConfig::MemoryStrategyFromString(absl::string_view strategy_name) {
   const std::string normalized = NormalizeStrategyName(strategy_name);
-  const auto& S = ConversationConfig::MemoryStrategy;
+  using S = ConversationConfig::MemoryStrategy;
   static const absl::flat_hash_map<std::string, MemoryStrategy> kMap = {
       {"hard_reset_replay_window", S::kHardResetReplayWindow},
       {"step_style_context_manager", S::kHardResetReplayWindow},
@@ -586,7 +592,7 @@ ConversationConfig::ParseMemoryPolicyYaml(absl::string_view yaml_text) {
 
 absl::StatusOr<ConversationConfig::RuntimeMemoryPolicy>
 ConversationConfig::LoadMemoryPolicyYamlFile(absl::string_view yaml_file_path) {
-  std::ifstream input(std::string(yaml_file_path));
+  std::ifstream input{std::string(yaml_file_path)};
   if (!input.is_open()) {
     return absl::NotFoundError(
         absl::StrCat("Failed to open yaml file: ", yaml_file_path));
@@ -920,6 +926,9 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
       conversation->context_shift_supported_ = false;
     }
   }
+  if (config.prefetch_enabled()) {
+    conversation->prefetch_execution_queue_ = std::make_unique<ExecutionQueue>();
+  }
 
   if (engine.GetEngineSettings().IsBenchmarkEnabled()) {
     ASSIGN_OR_RETURN(BenchmarkInfo * benchmark_info,
@@ -1002,10 +1011,193 @@ Conversation::PrefetchMetrics Conversation::GetPrefetchMetricsForTest() const {
   return prefetch_metrics_;
 }
 
+Conversation::PrefetchPlannerStateSnapshot
+Conversation::GetPrefetchPlannerStateForTest() const {
+  absl::MutexLock lock(&policy_mutex_);
+  return PrefetchPlannerStateSnapshot{
+      .lifecycle_state = prefetch_planner_state_.lifecycle_state,
+      .last_invalidation_reason =
+          prefetch_planner_state_.last_invalidation_reason,
+      .last_plan_history_revision =
+          prefetch_planner_state_.last_plan_history_revision,
+      .last_plan_policy_digest = prefetch_planner_state_.last_plan_policy_digest,
+      .active_plan_token = prefetch_planner_state_.active_plan_token,
+      .last_plan_source_step = prefetch_planner_state_.last_plan_source_step,
+      .last_successful_install_step =
+          prefetch_planner_state_.last_successful_install_step,
+      .last_confidence_score = prefetch_planner_state_.last_confidence_score,
+  };
+}
+
+bool Conversation::WaitForPrefetchPlannerStateForTest(
+    PrefetchLifecycleState desired_state, absl::Duration timeout) const {
+  const absl::Time deadline = absl::Now() + timeout;
+  while (absl::Now() < deadline) {
+    {
+      absl::MutexLock lock(&policy_mutex_);
+      if (prefetch_planner_state_.lifecycle_state == desired_state) {
+        return true;
+      }
+    }
+    absl::SleepFor(absl::Milliseconds(5));
+  }
+  absl::MutexLock lock(&policy_mutex_);
+  return prefetch_planner_state_.lifecycle_state == desired_state;
+}
+
+absl::Status Conversation::ReplaceHistoryMessageForTest(int history_index,
+                                                        const Message& replacement,
+                                                        bool increment_revision) {
+  absl::MutexLock lock(&history_mutex_);  // NOLINT
+  if (history_index < 0 ||
+      history_index >= static_cast<int>(history_.size())) {
+    return absl::OutOfRangeError("history_index out of range");
+  }
+  history_[history_index] = replacement;
+  if (increment_revision) {
+    ++history_revision_;
+  }
+  return absl::OkStatus();
+}
+
 void Conversation::RecordPrefetchMetric(
     absl::FunctionRef<void(PrefetchMetrics&)> updater) {
   absl::MutexLock lock(&policy_mutex_);
   updater(prefetch_metrics_);
+}
+
+namespace {
+
+Conversation::PrefetchMetrics::Outcome OutcomeForReasonCode(
+    Conversation::PrefetchReasonCode reason_code) {
+  using Outcome = Conversation::PrefetchMetrics::Outcome;
+  using Reason = Conversation::PrefetchReasonCode;
+  switch (reason_code) {
+    case Reason::kPlanned:
+      return Outcome::kPlanned;
+    case Reason::kInstalled:
+      return Outcome::kInstalled;
+    case Reason::kStaleDiscarded:
+    case Reason::kPolicyUpdateQueued:
+    case Reason::kPolicyChanged:
+    case Reason::kHistoryRevisionChanged:
+    case Reason::kRetainedSliceChanged:
+    case Reason::kTargetStepExceeded:
+    case Reason::kSupersededPlan:
+      return Outcome::kStaleDiscarded;
+    case Reason::kShadowSkipped:
+      return Outcome::kShadowSkipped;
+    case Reason::kInstallFailed:
+      return Outcome::kInstallFailed;
+    case Reason::kFallback:
+      return Outcome::kFallback;
+    case Reason::kNone:
+      return Outcome::kPlanned;
+  }
+  return Outcome::kPlanned;
+}
+
+std::string DetectPrefetchModelType(
+    const std::optional<proto::LlmMetadata>& metadata) {
+  if (!metadata.has_value() || !metadata->has_llm_model_type()) {
+    return "unknown";
+  }
+  switch (metadata->llm_model_type().model_type_case()) {
+    case proto::LlmModelType::kGenericModel:
+      return "generic";
+    case proto::LlmModelType::kGemma3N:
+      return "gemma3n";
+    case proto::LlmModelType::kFunctionGemma:
+      return "function_gemma";
+    case proto::LlmModelType::kGemma3:
+      return "gemma3";
+    case proto::LlmModelType::kQwen3:
+      return "qwen3";
+    case proto::LlmModelType::kQwen2P5:
+      return "qwen2p5";
+    case proto::LlmModelType::kGemma4:
+      return "gemma4";
+    case proto::LlmModelType::MODEL_TYPE_NOT_SET:
+      return "unknown";
+  }
+  return "unknown";
+}
+
+}  // namespace
+
+Conversation::PrefetchMetrics::Dimensions
+Conversation::BuildPrefetchMetricDimensions(
+    const PrefetchReplayPack* pack, PrefetchReasonCode reason_code,
+    std::optional<ConversationConfig::SafeBoundary> boundary) const {
+  PrefetchMetrics::Dimensions dimensions;
+  const ConversationConfig::RuntimeMemoryPolicy active_policy =
+      GetActiveMemoryPolicy();
+  dimensions.profile_id = active_policy.profile_id.value_or("");
+  dimensions.strategy =
+      std::string(ConversationConfig::MemoryStrategyToString(active_policy.strategy));
+  dimensions.builder_id =
+      pack == nullptr ? ""
+                      : std::string(PrefetchBuilderIdToString(pack->builder_id));
+  dimensions.boundary =
+      !boundary.has_value()
+          ? ""
+          : std::string(ConversationConfig::SafeBoundaryToString(*boundary));
+  dimensions.model_type =
+      DetectPrefetchModelType(engine_.GetEngineSettings().GetLlmMetadata());
+  dimensions.reason_code = std::string(PrefetchReasonCodeToString(reason_code));
+  return dimensions;
+}
+
+absl::string_view Conversation::PrefetchReasonCodeToString(
+    PrefetchReasonCode reason_code) {
+  switch (reason_code) {
+    case PrefetchReasonCode::kNone:
+      return "none";
+    case PrefetchReasonCode::kPlanned:
+      return "planned";
+    case PrefetchReasonCode::kInstalled:
+      return "installed";
+    case PrefetchReasonCode::kStaleDiscarded:
+      return "stale_discarded";
+    case PrefetchReasonCode::kShadowSkipped:
+      return "shadow_skipped";
+    case PrefetchReasonCode::kInstallFailed:
+      return "install_failed";
+    case PrefetchReasonCode::kFallback:
+      return "fallback";
+    case PrefetchReasonCode::kPolicyUpdateQueued:
+      return "policy_update_queued";
+    case PrefetchReasonCode::kPolicyChanged:
+      return "policy_changed";
+    case PrefetchReasonCode::kHistoryRevisionChanged:
+      return "history_revision_changed";
+    case PrefetchReasonCode::kRetainedSliceChanged:
+      return "retained_slice_changed";
+    case PrefetchReasonCode::kTargetStepExceeded:
+      return "target_step_exceeded";
+    case PrefetchReasonCode::kSupersededPlan:
+      return "superseded_plan";
+  }
+  return "planned";
+}
+
+void Conversation::RecordPrefetchEvent(
+    const PrefetchReplayPack* pack, PrefetchReasonCode reason_code,
+    std::optional<ConversationConfig::SafeBoundary> boundary,
+    std::optional<PrefetchInstallOutcome> install_outcome) {
+  PrefetchMetrics::Event event;
+  event.outcome = OutcomeForReasonCode(reason_code);
+  event.dimensions = BuildPrefetchMetricDimensions(pack, reason_code, boundary);
+  event.parity_mode =
+      pack == nullptr ? PrefetchParityMode::kNotApplicable : pack->parity_mode;
+  event.parity_mismatch = false;
+  event.scaffold_only = pack != nullptr && pack->scaffold_only;
+
+  absl::MutexLock lock(&policy_mutex_);
+  prefetch_metrics_.last_dimensions = event.dimensions;
+  prefetch_metrics_.last_parity_mode = event.parity_mode;
+  prefetch_metrics_.last_scaffold_only = event.scaffold_only;
+  prefetch_metrics_.events.push_back(std::move(event));
 }
 
 Conversation::BoundaryEvent Conversation::DetectBoundaryEvent(
@@ -1355,48 +1547,201 @@ void Conversation::MaybeEmitTransitionNote(
 }
 
 void Conversation::MaybePlanPrefetchPack(int current_step) {
-  if (!config_.prefetch_enabled() || max_context_tokens_ <= 0) {
-    return;
-  }
-  {
-    absl::MutexLock lock(&policy_mutex_);
-    if (pending_prefetch_pack_.has_value()) {
-      return;
-    }
-  }
-  const int prefetch_trigger_step =
-      std::max(1, static_cast<int>(max_context_tokens_ * config_.prefetch_ratio()));
-  if (current_step < prefetch_trigger_step) {
-    return;
-  }
-
   ContextShiftRuntimePolicy policy_snapshot;
+  PrefetchPlannerState planner_snapshot;
+  bool has_existing_pack = false;
+  uint64_t existing_plan_token = 0;
+  uint64_t existing_history_revision = 0;
+  size_t existing_policy_digest = 0;
+  size_t existing_validity_hash = 0;
+  int existing_retained_start_index = -1;
+  int existing_retained_end_index_exclusive = -1;
+  size_t existing_retained_history_digest = 0;
+  int existing_planned_target_step = 0;
+  int existing_source_checkpoint_step = 0;
+  float existing_confidence_score = 0.0f;
+  bool has_control_plane_policy_update = false;
   {
     absl::MutexLock lock(&policy_mutex_);
     policy_snapshot = active_context_shift_policy_;
+    planner_snapshot = prefetch_planner_state_;
+    prefetch_planner_state_.last_observed_step = current_step;
+    has_existing_pack = pending_prefetch_pack_.has_value();
+    if (has_existing_pack) {
+      existing_plan_token = pending_prefetch_pack_->plan_token;
+      existing_history_revision = pending_prefetch_pack_->history_revision;
+      existing_policy_digest = pending_prefetch_pack_->policy_digest;
+      existing_validity_hash = pending_prefetch_pack_->validity_hash;
+      existing_retained_start_index = pending_prefetch_pack_->retained_start_index;
+      existing_retained_end_index_exclusive =
+          pending_prefetch_pack_->retained_end_index_exclusive;
+      existing_retained_history_digest =
+          pending_prefetch_pack_->retained_history_digest;
+      existing_planned_target_step = pending_prefetch_pack_->planned_target_step;
+      existing_source_checkpoint_step =
+          pending_prefetch_pack_->source_checkpoint_step;
+      existing_confidence_score = pending_prefetch_pack_->confidence_score;
+    }
+    has_control_plane_policy_update = !pending_policy_updates_.empty();
   }
+
+  bool has_runtime_policy_update = false;
+  {
+    absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+    has_runtime_policy_update = pending_runtime_memory_policy_update_.has_value();
+  }
+
+  auto discard_pending_plan =
+      [this](PrefetchInvalidationReason reason,
+             PrefetchLifecycleState lifecycle_state) {
+        absl::MutexLock lock(&policy_mutex_);
+        queued_prefetch_task_id_.reset();
+        pending_prefetch_pack_.reset();
+        prefetch_planner_state_.active_plan_token = 0;
+        prefetch_planner_state_.lifecycle_state = lifecycle_state;
+        prefetch_planner_state_.last_invalidation_reason = reason;
+      };
+
+  auto set_idle_reason = [this](PrefetchInvalidationReason reason) {
+    absl::MutexLock lock(&policy_mutex_);
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kIdle;
+    prefetch_planner_state_.last_invalidation_reason = reason;
+    prefetch_planner_state_.active_plan_token = 0;
+  };
+
+  if (!config_.prefetch_enabled() || max_context_tokens_ <= 0) {
+    CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kPrefetchDisabled);
+    {
+      absl::MutexLock lock(&policy_mutex_);
+      prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kIdle;
+    }
+    return;
+  }
+  if (!policy_snapshot.context_shift_enabled) {
+    CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kContextShiftDisabled);
+    {
+      absl::MutexLock lock(&policy_mutex_);
+      prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kIdle;
+    }
+    return;
+  }
+  if (has_control_plane_policy_update || has_runtime_policy_update) {
+    CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kPolicyUpdateQueued);
+    return;
+  }
+
   size_t history_size = 0;
   uint64_t history_revision = 0;
+  std::vector<Message> history_snapshot;
+  {
+    absl::MutexLock lock(&history_mutex_);
+    history_size = history_.size();
+    history_revision = history_revision_;
+    history_snapshot = history_;
+  }
   int retained_start_index = -1;
   int retained_end_index_exclusive = -1;
   std::vector<Message> candidate_messages;
-  if (policy_snapshot.context_shift_strategy ==
-      ConversationConfig::ContextShiftStrategy::kReplayRecent) {
-    absl::MutexLock lock(&history_mutex_);
-    history_size = history_.size();
-    history_revision = history_revision_;
-    const int retain_count =
-        std::min(static_cast<int>(history_.size()),
-                 policy_snapshot.context_shift_retain_recent_messages);
-    if (retain_count > 0) {
-      retained_start_index = static_cast<int>(history_.size()) - retain_count;
-      retained_end_index_exclusive = static_cast<int>(history_.size());
-      candidate_messages.assign(history_.end() - retain_count, history_.end());
+  const ConversationConfig::RuntimeMemoryPolicy active_policy =
+      GetActiveMemoryPolicy();
+  const PrefetchBuilderId builder_id = SelectPrefetchBuilderId(active_policy);
+  std::vector<PrefetchHistoryRange> retained_ranges = BuildRetainedHistoryRanges(
+      builder_id, policy_snapshot, &retained_start_index,
+      &retained_end_index_exclusive, &candidate_messages);
+  std::vector<PrefetchHistoryRange> protected_ranges =
+      BuildProtectedHistoryRanges(builder_id, retained_ranges);
+  const bool summary_anchor_present =
+      builder_id == PrefetchBuilderId::kSummarizeProtectedTail;
+  const bool scaffold_only =
+      builder_id == PrefetchBuilderId::kSummarizeProtectedTail ||
+      builder_id == PrefetchBuilderId::kQuarantineMerge;
+  const PrefetchParityMode parity_mode = SelectPrefetchParityMode(builder_id);
+
+  const size_t policy_digest = ComputePrefetchPolicyDigest(policy_snapshot);
+  const size_t validity_hash = ComputePrefetchValidityHash();
+  const size_t retained_history_digest = ComputeRetainedHistoryDigest(
+      retained_start_index, retained_end_index_exclusive,
+      policy_snapshot.context_shift_strategy);
+  const size_t range_digest = ComputePrefetchArtifactIdentityDigest(
+      builder_id, retained_ranges, protected_ranges, summary_anchor_present,
+      scaffold_only, parity_mode, policy_snapshot);
+  const int planned_target_step =
+      std::max(1, static_cast<int>(max_context_tokens_ *
+                                   policy_snapshot.context_shift_target_ratio));
+
+  if (has_existing_pack) {
+    const bool retained_slice_changed =
+        existing_retained_start_index >= 0 &&
+        existing_retained_end_index_exclusive >= existing_retained_start_index &&
+        existing_retained_history_digest != retained_history_digest;
+    const bool existing_plan_still_useful =
+        existing_policy_digest == policy_digest &&
+        existing_validity_hash == validity_hash &&
+        existing_history_revision == history_revision &&
+        pending_prefetch_pack_->artifact_identity_digest == range_digest &&
+        !retained_slice_changed &&
+        existing_planned_target_step >= current_step;
+    if (existing_plan_still_useful) {
+      absl::MutexLock lock(&policy_mutex_);
+      prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kReady;
+      prefetch_planner_state_.last_invalidation_reason =
+          PrefetchInvalidationReason::kExistingPlanStillUseful;
+      prefetch_planner_state_.active_plan_token = existing_plan_token;
+      prefetch_planner_state_.last_plan_history_revision =
+          existing_history_revision;
+      prefetch_planner_state_.last_plan_policy_digest = existing_policy_digest;
+      prefetch_planner_state_.last_plan_source_step =
+          existing_source_checkpoint_step;
+      prefetch_planner_state_.last_confidence_score =
+          existing_confidence_score;
+      return;
     }
-  } else {
-    absl::MutexLock lock(&history_mutex_);
-    history_size = history_.size();
-    history_revision = history_revision_;
+
+    PrefetchInvalidationReason reason =
+        PrefetchInvalidationReason::kHistoryRevisionChanged;
+    if (existing_policy_digest != policy_digest) {
+      reason = PrefetchInvalidationReason::kPolicyChanged;
+    } else if (retained_slice_changed) {
+      reason = PrefetchInvalidationReason::kRetainedSliceChanged;
+    } else if (existing_planned_target_step < current_step) {
+      reason = PrefetchInvalidationReason::kTargetStepExceeded;
+    }
+    CancelQueuedPrefetchPlan(reason);
+  }
+
+  if (planner_snapshot.lifecycle_state == PrefetchLifecycleState::kPlanned ||
+      planner_snapshot.lifecycle_state ==
+          PrefetchLifecycleState::kComputing) {
+    CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kSupersededPlan);
+  }
+
+  const int prefetch_trigger_step =
+      std::max(1, static_cast<int>(max_context_tokens_ * config_.prefetch_ratio()));
+  if (current_step < prefetch_trigger_step) {
+    set_idle_reason(PrefetchInvalidationReason::kBelowTrigger);
+    return;
+  }
+
+  const int step_delta = planner_snapshot.last_observed_step > 0
+                             ? current_step - planner_snapshot.last_observed_step
+                             : current_step;
+  const int last_successful_install_step =
+      planner_snapshot.last_successful_install_step;
+
+  std::unique_ptr<ModelDataProcessor> planning_processor;
+  ASSIGN_OR_RETURN(
+      planning_processor,
+      CreateModelDataProcessor(config_.GetProcessorConfig(), config_.GetPreface(),
+                               &engine_.GetTokenizer(),
+                               session_->GetSessionConfig().GetStopTokenIds(),
+                               config_.constrained_decoding_enabled(),
+                               config_.GetPromptTemplate().GetCapabilities()));
+  absl::Status clone_status =
+      planning_processor->CloneState(*model_data_processor_);
+  if (!clone_status.ok() && !absl::IsUnimplemented(clone_status)) {
+    discard_pending_plan(PrefetchInvalidationReason::kInstallFailed,
+                         PrefetchLifecycleState::kDiscarded);
+    return;
   }
 
   if (config_.filter_channel_content_from_kv_cache()) {
@@ -1406,47 +1751,234 @@ void Conversation::MaybePlanPrefetchPack(int current_step) {
     }
   }
 
-  std::vector<InputData> precomputed_replay_inputs;
-  if (!candidate_messages.empty()) {
-    auto replay_inputs_or = GetInputDataVectorForMessages(
-        /*old_messages=*/absl::Span<const Message>(),
-        absl::MakeConstSpan(candidate_messages), OptionalArgs());
-    if (replay_inputs_or.ok()) {
-      precomputed_replay_inputs = std::move(*replay_inputs_or);
-    }
+  if (prefetch_execution_queue_ == nullptr) {
+    prefetch_execution_queue_ = std::make_unique<ExecutionQueue>();
   }
 
-  const size_t validity_hash = ComputePrefetchValidityHash();
-  const size_t retained_history_digest = ComputeRetainedHistoryDigest(
-      retained_start_index, retained_end_index_exclusive,
-      policy_snapshot.context_shift_strategy);
-
-  PrefetchReplayPack pack;
-  pack.source_checkpoint_step = current_step;
-  pack.history_watermark = history_size;
-  pack.history_revision = history_revision;
-  pack.retained_start_index = retained_start_index;
-  pack.retained_end_index_exclusive = retained_end_index_exclusive;
-  pack.retained_history_digest = retained_history_digest;
-  pack.target_ratio = policy_snapshot.context_shift_target_ratio;
-  pack.strategy = policy_snapshot.context_shift_strategy;
-  pack.validity_hash = validity_hash;
-  pack.replay_inputs = std::move(precomputed_replay_inputs);
-
+  uint64_t plan_token = 0;
   {
     absl::MutexLock lock(&policy_mutex_);
-    pending_prefetch_pack_ = std::move(pack);
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kPlanned;
+    prefetch_planner_state_.last_invalidation_reason =
+        PrefetchInvalidationReason::kNone;
+    prefetch_planner_state_.last_plan_history_revision = history_revision;
+    prefetch_planner_state_.last_plan_policy_digest = policy_digest;
+    prefetch_planner_state_.last_plan_source_step = current_step;
+    prefetch_planner_state_.active_plan_token =
+        ++prefetch_planner_state_.next_plan_token;
+    plan_token = prefetch_planner_state_.active_plan_token;
   }
-  RecordPrefetchMetric([](PrefetchMetrics& metrics) { metrics.planned_count++; });
+
+  auto queued_task_id_or = prefetch_execution_queue_->Enqueue(
+      [this, plan_token, current_step, history_size, history_revision,
+       retained_start_index, retained_end_index_exclusive,
+       retained_history_digest, policy_digest, validity_hash,
+       planned_target_step, policy_snapshot, builder_id, retained_ranges,
+       protected_ranges, summary_anchor_present, scaffold_only, parity_mode,
+       range_digest, step_delta,
+       last_successful_install_step,
+       planning_processor = std::move(planning_processor),
+       candidate_messages = std::move(candidate_messages)]() mutable {
+        auto mark_discarded = [this, plan_token](PrefetchInvalidationReason reason) {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          pending_prefetch_pack_.reset();
+          queued_prefetch_task_id_.reset();
+          prefetch_planner_state_.active_plan_token = 0;
+          prefetch_planner_state_.lifecycle_state =
+              PrefetchLifecycleState::kDiscarded;
+          prefetch_planner_state_.last_invalidation_reason = reason;
+        };
+
+        {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          queued_prefetch_task_id_.reset();
+          prefetch_planner_state_.lifecycle_state =
+              PrefetchLifecycleState::kComputing;
+        }
+
+        bool has_runtime_policy_update = false;
+        {
+          absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+          has_runtime_policy_update =
+              pending_runtime_memory_policy_update_.has_value();
+        }
+        bool has_control_plane_policy_update = false;
+        size_t current_policy_digest = 0;
+        {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          has_control_plane_policy_update = !pending_policy_updates_.empty();
+          current_policy_digest =
+              ComputePrefetchPolicyDigest(active_context_shift_policy_);
+        }
+        uint64_t current_history_revision = 0;
+        {
+          absl::MutexLock lock(&history_mutex_);
+          current_history_revision = history_revision_;
+        }
+        const size_t current_hash = ComputePrefetchValidityHash();
+        const bool has_retained_slice =
+            retained_start_index >= 0 &&
+            retained_end_index_exclusive >= retained_start_index;
+        const size_t current_retained_digest =
+            has_retained_slice
+                ? ComputeRetainedHistoryDigest(retained_start_index,
+                                               retained_end_index_exclusive,
+                                               policy_snapshot.context_shift_strategy)
+                : 0;
+        if (has_control_plane_policy_update || has_runtime_policy_update) {
+          mark_discarded(PrefetchInvalidationReason::kPolicyUpdateQueued);
+          return;
+        }
+        if (current_policy_digest != policy_digest) {
+          mark_discarded(PrefetchInvalidationReason::kPolicyChanged);
+          return;
+        }
+        if (current_history_revision != history_revision ||
+            current_hash != validity_hash) {
+          mark_discarded(PrefetchInvalidationReason::kHistoryRevisionChanged);
+          return;
+        }
+        if (has_retained_slice &&
+            current_retained_digest != retained_history_digest) {
+          mark_discarded(PrefetchInvalidationReason::kRetainedSliceChanged);
+          return;
+        }
+
+        std::vector<InputData> precomputed_replay_inputs;
+        if (!candidate_messages.empty()) {
+          auto replay_inputs_or = GetInputDataVectorForMessagesWithProcessor(
+              *planning_processor, /*old_messages=*/absl::Span<const Message>(),
+              absl::MakeConstSpan(candidate_messages), OptionalArgs());
+          if (!replay_inputs_or.ok()) {
+            mark_discarded(PrefetchInvalidationReason::kInstallFailed);
+            return;
+          }
+          precomputed_replay_inputs = std::move(*replay_inputs_or);
+        }
+
+        const float confidence_score = ComputePrefetchConfidenceScore(
+            current_step, step_delta, last_successful_install_step,
+            policy_snapshot);
+
+        PrefetchReplayPack pack;
+        pack.plan_token = plan_token;
+        pack.source_checkpoint_step = current_step;
+        pack.history_watermark = history_size;
+        pack.history_revision = history_revision;
+        pack.builder_id = builder_id;
+        pack.retained_ranges = retained_ranges;
+        pack.protected_ranges = protected_ranges;
+        pack.summary_anchor_present = summary_anchor_present;
+        pack.scaffold_only = scaffold_only;
+        pack.parity_mode = parity_mode;
+        pack.retained_start_index = retained_start_index;
+        pack.retained_end_index_exclusive = retained_end_index_exclusive;
+        pack.retained_history_digest = retained_history_digest;
+        pack.artifact_identity_digest = range_digest;
+        pack.policy_digest = policy_digest;
+        pack.target_ratio = policy_snapshot.context_shift_target_ratio;
+        pack.confidence_score = confidence_score;
+        pack.planned_target_step = planned_target_step;
+        pack.strategy = policy_snapshot.context_shift_strategy;
+        pack.validity_hash = validity_hash;
+        pack.replay_inputs = std::move(precomputed_replay_inputs);
+
+        has_runtime_policy_update = false;
+        {
+          absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+          has_runtime_policy_update =
+              pending_runtime_memory_policy_update_.has_value();
+        }
+        {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          has_control_plane_policy_update = !pending_policy_updates_.empty();
+          current_policy_digest =
+              ComputePrefetchPolicyDigest(active_context_shift_policy_);
+        }
+        {
+          absl::MutexLock lock(&history_mutex_);
+          current_history_revision = history_revision_;
+        }
+        if (has_control_plane_policy_update || has_runtime_policy_update) {
+          mark_discarded(PrefetchInvalidationReason::kPolicyUpdateQueued);
+          return;
+        }
+        if (current_policy_digest != policy_digest) {
+          mark_discarded(PrefetchInvalidationReason::kPolicyChanged);
+          return;
+        }
+        if (current_history_revision != history_revision ||
+            ComputePrefetchValidityHash() != validity_hash) {
+          mark_discarded(PrefetchInvalidationReason::kHistoryRevisionChanged);
+          return;
+        }
+        if (has_retained_slice &&
+            ComputeRetainedHistoryDigest(retained_start_index,
+                                         retained_end_index_exclusive,
+                                         policy_snapshot.context_shift_strategy) !=
+                retained_history_digest) {
+          mark_discarded(PrefetchInvalidationReason::kRetainedSliceChanged);
+          return;
+        }
+
+        {
+          absl::MutexLock lock(&policy_mutex_);
+          if (prefetch_planner_state_.active_plan_token != plan_token) {
+            return;
+          }
+          pending_prefetch_pack_ = std::move(pack);
+          queued_prefetch_task_id_.reset();
+          prefetch_planner_state_.lifecycle_state =
+              PrefetchLifecycleState::kReady;
+          prefetch_planner_state_.last_plan_history_revision = history_revision;
+          prefetch_planner_state_.last_plan_policy_digest = policy_digest;
+          prefetch_planner_state_.last_plan_source_step = current_step;
+          prefetch_planner_state_.last_confidence_score = confidence_score;
+        }
+        RecordPrefetchMetric(
+            [](PrefetchMetrics& metrics) { metrics.planned_count++; });
+      });
+  if (!queued_task_id_or.ok()) {
+    discard_pending_plan(PrefetchInvalidationReason::kInstallFailed,
+                         PrefetchLifecycleState::kDiscarded);
+    return;
+  }
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    if (prefetch_planner_state_.active_plan_token == plan_token &&
+        prefetch_planner_state_.lifecycle_state ==
+            PrefetchLifecycleState::kPlanned) {
+      queued_prefetch_task_id_ = *queued_task_id_or;
+    }
+  }
 }
 
 absl::StatusOr<Conversation::PrefetchInstallOutcome>
 Conversation::TryInstallPrefetchPackIfValid(int target_step) {
   if (!config_.prefetch_enabled()) {
+    absl::MutexLock lock(&policy_mutex_);
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kIdle;
+    prefetch_planner_state_.last_invalidation_reason =
+        PrefetchInvalidationReason::kPrefetchDisabled;
+    prefetch_planner_state_.active_plan_token = 0;
     return PrefetchInstallOutcome::kNoPendingPack;
   }
 
   std::optional<PrefetchReplayPack> pack;
+  ContextShiftRuntimePolicy policy_snapshot;
+  bool has_control_plane_policy_update = false;
   {
     absl::MutexLock lock(&policy_mutex_);
     if (!pending_prefetch_pack_.has_value()) {
@@ -1455,8 +1987,17 @@ Conversation::TryInstallPrefetchPackIfValid(int target_step) {
     prefetch_metrics_.install_attempt_count++;
     pack = std::move(pending_prefetch_pack_);
     pending_prefetch_pack_.reset();
+    policy_snapshot = active_context_shift_policy_;
+    has_control_plane_policy_update = !pending_policy_updates_.empty();
   }
 
+  bool has_runtime_policy_update = false;
+  {
+    absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+    has_runtime_policy_update = pending_runtime_memory_policy_update_.has_value();
+  }
+
+  const size_t current_policy_digest = ComputePrefetchPolicyDigest(policy_snapshot);
   const size_t current_hash = ComputePrefetchValidityHash();
   uint64_t current_history_revision = 0;
   {
@@ -1472,34 +2013,352 @@ Conversation::TryInstallPrefetchPackIfValid(int target_step) {
                                          pack->retained_end_index_exclusive,
                                          pack->strategy)
           : 0;
-  if (pack->validity_hash != current_hash ||
-      pack->history_revision != current_history_revision ||
-      (has_retained_slice &&
-       current_retained_digest != pack->retained_history_digest) ||
-      pack->source_checkpoint_step < target_step) {
+
+  PrefetchInvalidationReason invalidation_reason =
+      PrefetchInvalidationReason::kNone;
+  if (has_control_plane_policy_update || has_runtime_policy_update) {
+    invalidation_reason = PrefetchInvalidationReason::kPolicyUpdateQueued;
+  } else if (pack->policy_digest != current_policy_digest) {
+    invalidation_reason = PrefetchInvalidationReason::kPolicyChanged;
+  } else if (pack->planned_target_step < target_step ||
+             pack->source_checkpoint_step < target_step) {
+    invalidation_reason = PrefetchInvalidationReason::kTargetStepExceeded;
+  } else if (pack->history_revision != current_history_revision ||
+             pack->validity_hash != current_hash) {
+    invalidation_reason = PrefetchInvalidationReason::kHistoryRevisionChanged;
+  }
+  if (has_retained_slice &&
+      current_retained_digest != pack->retained_history_digest) {
+    invalidation_reason = PrefetchInvalidationReason::kRetainedSliceChanged;
+  }
+  if (invalidation_reason != PrefetchInvalidationReason::kNone) {
     RecordPrefetchMetric(
         [](PrefetchMetrics& metrics) { metrics.stale_discard_count++; });
+    absl::MutexLock lock(&policy_mutex_);
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kDiscarded;
+    prefetch_planner_state_.last_invalidation_reason = invalidation_reason;
+    prefetch_planner_state_.active_plan_token = 0;
     return PrefetchInstallOutcome::kStaleDiscarded;
   }
 
   if (config_.prefetch_shadow_mode() || pack->replay_inputs.empty()) {
+    RecordPrefetchMetric(
+        [](PrefetchMetrics& metrics) { metrics.shadow_skip_count++; });
+    absl::MutexLock lock(&policy_mutex_);
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kDiscarded;
+    prefetch_planner_state_.last_invalidation_reason =
+        PrefetchInvalidationReason::kShadowMode;
+    prefetch_planner_state_.active_plan_token = 0;
     return PrefetchInstallOutcome::kShadowSkipped;
   }
 
   const absl::Time install_timer_start = absl::Now();
   auto rewind_status = session_->RewindToCheckpoint(kContextShiftAnchorCheckpoint);
   if (!rewind_status.ok()) {
+    RecordPrefetchMetric(
+        [](PrefetchMetrics& metrics) { metrics.install_failure_count++; });
+    absl::MutexLock lock(&policy_mutex_);
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kDiscarded;
+    prefetch_planner_state_.last_invalidation_reason =
+        PrefetchInvalidationReason::kInstallFailed;
+    prefetch_planner_state_.active_plan_token = 0;
     return rewind_status;
   }
-  RETURN_IF_ERROR(IgnoreEmptyInputError(session_->RunPrefill(pack->replay_inputs)));
+  const absl::Status prefill_status =
+      IgnoreEmptyInputError(session_->RunPrefill(pack->replay_inputs));
+  if (!prefill_status.ok()) {
+    RecordPrefetchMetric(
+        [](PrefetchMetrics& metrics) { metrics.install_failure_count++; });
+    absl::MutexLock lock(&policy_mutex_);
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kDiscarded;
+    prefetch_planner_state_.last_invalidation_reason =
+        PrefetchInvalidationReason::kInstallFailed;
+    prefetch_planner_state_.active_plan_token = 0;
+    return prefill_status;
+  }
 
   const double install_latency_ms =
       absl::ToDoubleMilliseconds(absl::Now() - install_timer_start);
-  RecordPrefetchMetric([install_latency_ms](PrefetchMetrics& metrics) {
-    metrics.install_hit_count++;
-    metrics.install_latency_ms_total += install_latency_ms;
-  });
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    prefetch_metrics_.install_hit_count++;
+    prefetch_metrics_.install_latency_ms_total += install_latency_ms;
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kInstalled;
+    prefetch_planner_state_.last_invalidation_reason =
+        PrefetchInvalidationReason::kNone;
+    prefetch_planner_state_.active_plan_token = 0;
+    prefetch_planner_state_.last_plan_history_revision = pack->history_revision;
+    prefetch_planner_state_.last_plan_policy_digest = pack->policy_digest;
+    prefetch_planner_state_.last_plan_source_step = pack->source_checkpoint_step;
+    prefetch_planner_state_.last_successful_install_step = target_step;
+    prefetch_planner_state_.last_confidence_score = pack->confidence_score;
+  }
   return PrefetchInstallOutcome::kInstalled;
+}
+
+float Conversation::ComputePrefetchConfidenceScore(
+    int current_step, int step_delta, int last_successful_install_step,
+    const ContextShiftRuntimePolicy& policy) const {
+  if (!policy.context_shift_enabled || max_context_tokens_ <= 0) {
+    return 0.0f;
+  }
+  const float normalized_step = std::clamp(
+      static_cast<float>(current_step) / static_cast<float>(max_context_tokens_),
+      0.0f, 1.0f);
+  const float normalized_delta = std::clamp(
+      static_cast<float>(std::max(0, step_delta)) /
+          std::max(1.0f, static_cast<float>(max_context_tokens_) * 0.25f),
+      0.0f, 1.0f);
+  const float strategy_score =
+      policy.context_shift_strategy ==
+              ConversationConfig::ContextShiftStrategy::kReplayRecent
+          ? 1.0f
+          : 0.7f;
+  const float retain_window_score = std::clamp(
+      1.0f - static_cast<float>(
+                 std::min(policy.context_shift_retain_recent_messages, 12)) /
+                 12.0f,
+      0.0f, 1.0f);
+  const float install_recency_score =
+      last_successful_install_step < 0
+          ? 0.5f
+          : std::clamp(
+                1.0f - static_cast<float>(
+                           std::max(0, current_step -
+                                           last_successful_install_step)) /
+                           static_cast<float>(max_context_tokens_),
+                0.0f, 1.0f);
+  return std::clamp(0.35f * normalized_step + 0.25f * normalized_delta +
+                        0.15f * strategy_score + 0.15f * retain_window_score +
+                        0.10f * install_recency_score,
+                    0.0f, 1.0f);
+}
+
+size_t Conversation::ComputePrefetchPolicyDigest(
+    const ContextShiftRuntimePolicy& policy) const {
+  size_t seed = 0;
+  auto hash_combine = [&seed](size_t value) {
+    seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  };
+  hash_combine(std::hash<bool>{}(policy.context_shift_enabled));
+  hash_combine(std::hash<float>{}(policy.context_shift_trigger_ratio));
+  hash_combine(std::hash<int>{}(policy.context_shift_retain_recent_messages));
+  hash_combine(std::hash<float>{}(policy.context_shift_target_ratio));
+  hash_combine(std::hash<bool>{}(policy.context_shift_reset_on_exhaustion));
+  hash_combine(
+      std::hash<int>{}(static_cast<int>(policy.context_shift_strategy)));
+  return seed;
+}
+
+Conversation::PrefetchBuilderId Conversation::SelectPrefetchBuilderId(
+    const ConversationConfig::RuntimeMemoryPolicy& policy) const {
+  if (policy.context_shift_strategy ==
+      ConversationConfig::ContextShiftStrategy::kDropAllButSystem) {
+    return PrefetchBuilderId::kDropAllButSystem;
+  }
+  switch (policy.strategy) {
+    case ConversationConfig::MemoryStrategy::kSummarizeProtectedTail:
+      return PrefetchBuilderId::kSummarizeProtectedTail;
+    case ConversationConfig::MemoryStrategy::
+        kContextQuarantineIsolatedScratchpads:
+      return PrefetchBuilderId::kQuarantineMerge;
+    case ConversationConfig::MemoryStrategy::kHardResetReplayWindow:
+    case ConversationConfig::MemoryStrategy::kVirtualMemoryPaging:
+    case ConversationConfig::MemoryStrategy::kFactMemoryExtractionUpdate:
+    case ConversationConfig::MemoryStrategy::
+        kSemanticCompressionConsolidationAdaptiveRetrieval:
+    case ConversationConfig::MemoryStrategy::kLearnedCompressionPolicy:
+    case ConversationConfig::MemoryStrategy::
+        kIncrementalHierarchicalAggregation:
+    case ConversationConfig::MemoryStrategy::kActiveRecallSurpriseUpdate:
+    case ConversationConfig::MemoryStrategy::
+        kContextualForgettingInterferenceManagement:
+    case ConversationConfig::MemoryStrategy::kTokenEfficientKvCacheManagement:
+    case ConversationConfig::MemoryStrategy::kReflectionMetacognitiveBuffering:
+    case ConversationConfig::MemoryStrategy::kSelfCorrectingFactGraph:
+    case ConversationConfig::MemoryStrategy::kSlowFastMemoryArchitecture:
+    case ConversationConfig::MemoryStrategy::kHeatBasedTieredMigration:
+    case ConversationConfig::MemoryStrategy::kMcpActiveMetadata:
+      return PrefetchBuilderId::kReplayRecent;
+  }
+  return PrefetchBuilderId::kReplayRecent;
+}
+
+std::vector<Conversation::PrefetchHistoryRange>
+Conversation::BuildRetainedHistoryRanges(
+    PrefetchBuilderId builder_id,
+    const ContextShiftRuntimePolicy& policy_snapshot,
+    int* retained_start_index, int* retained_end_index_exclusive,
+    std::vector<Message>* candidate_messages) const {
+  std::vector<PrefetchHistoryRange> ranges;
+  size_t history_size = 0;
+  {
+    absl::MutexLock lock(&history_mutex_);
+    history_size = history_.size();
+  }
+  const int history_size_int = static_cast<int>(history_size);
+  if (retained_start_index != nullptr) {
+    *retained_start_index = -1;
+  }
+  if (retained_end_index_exclusive != nullptr) {
+    *retained_end_index_exclusive = -1;
+  }
+  if (candidate_messages != nullptr) {
+    candidate_messages->clear();
+  }
+  if (history_size_int <= 0) {
+    return ranges;
+  }
+  switch (builder_id) {
+    case PrefetchBuilderId::kReplayRecent: {
+      const int retain_count = std::min(
+          history_size_int, policy_snapshot.context_shift_retain_recent_messages);
+      if (retain_count > 0) {
+        ranges.push_back(PrefetchHistoryRange{
+            .start_message_index = history_size_int - retain_count,
+            .end_message_index_exclusive = history_size_int,
+        });
+      }
+      break;
+    }
+    case PrefetchBuilderId::kDropAllButSystem:
+      break;
+    case PrefetchBuilderId::kSummarizeProtectedTail: {
+      const int protected_tail_count =
+          std::min(history_size_int, std::max(1, std::min(2, history_size_int)));
+      ranges.push_back(PrefetchHistoryRange{
+          .start_message_index = history_size_int - protected_tail_count,
+          .end_message_index_exclusive = history_size_int,
+      });
+      break;
+    }
+    case PrefetchBuilderId::kQuarantineMerge: {
+      const int retain_count = std::min(
+          history_size_int,
+          std::max(
+              1,
+              std::min(policy_snapshot.context_shift_retain_recent_messages, 3)));
+      ranges.push_back(PrefetchHistoryRange{
+          .start_message_index = history_size_int - retain_count,
+          .end_message_index_exclusive = history_size_int,
+      });
+      break;
+    }
+  }
+  if (!ranges.empty()) {
+    if (retained_start_index != nullptr) {
+      *retained_start_index = ranges.front().start_message_index;
+    }
+    if (retained_end_index_exclusive != nullptr) {
+      *retained_end_index_exclusive =
+          ranges.back().end_message_index_exclusive;
+    }
+    if (candidate_messages != nullptr) {
+      absl::MutexLock lock(&history_mutex_);
+      for (const auto& range : ranges) {
+        if (!IsValidHistoryRange(range) ||
+            range.end_message_index_exclusive > history_.size()) {
+          continue;
+        }
+        candidate_messages->insert(candidate_messages->end(),
+                                   history_.begin() + range.start_message_index,
+                                   history_.begin() +
+                                       range.end_message_index_exclusive);
+      }
+    }
+  }
+  return ranges;
+}
+
+std::vector<Conversation::PrefetchHistoryRange>
+Conversation::BuildProtectedHistoryRanges(
+    PrefetchBuilderId builder_id,
+    const std::vector<PrefetchHistoryRange>& retained_ranges) const {
+  switch (builder_id) {
+    case PrefetchBuilderId::kSummarizeProtectedTail:
+    case PrefetchBuilderId::kQuarantineMerge:
+      return retained_ranges;
+    case PrefetchBuilderId::kReplayRecent:
+    case PrefetchBuilderId::kDropAllButSystem:
+      return {};
+  }
+  return {};
+}
+
+Conversation::PrefetchParityMode Conversation::SelectPrefetchParityMode(
+    PrefetchBuilderId builder_id) const {
+  switch (builder_id) {
+    case PrefetchBuilderId::kReplayRecent:
+    case PrefetchBuilderId::kDropAllButSystem:
+      return PrefetchParityMode::kStrictTokenParity;
+    case PrefetchBuilderId::kSummarizeProtectedTail:
+    case PrefetchBuilderId::kQuarantineMerge:
+      return PrefetchParityMode::kSemanticParity;
+  }
+  return PrefetchParityMode::kNotApplicable;
+}
+
+size_t Conversation::ComputePrefetchArtifactIdentityDigest(
+    PrefetchBuilderId builder_id,
+    absl::Span<const PrefetchHistoryRange> retained_ranges,
+    absl::Span<const PrefetchHistoryRange> protected_ranges,
+    bool summary_anchor_present, bool scaffold_only,
+    PrefetchParityMode parity_mode,
+    const ContextShiftRuntimePolicy& policy) const {
+  size_t seed = 0;
+  auto hash_combine = [&seed](size_t value) {
+    seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  };
+  hash_combine(std::hash<int>{}(static_cast<int>(builder_id)));
+  hash_combine(std::hash<int>{}(static_cast<int>(parity_mode)));
+  hash_combine(std::hash<bool>{}(summary_anchor_present));
+  hash_combine(std::hash<bool>{}(scaffold_only));
+  hash_combine(ComputePrefetchPolicyDigest(policy));
+  auto hash_range = [&hash_combine](const PrefetchHistoryRange& range) {
+    hash_combine(std::hash<int>{}(range.start_message_index));
+    hash_combine(std::hash<int>{}(range.end_message_index_exclusive));
+  };
+  for (const auto& range : retained_ranges) {
+    hash_range(range);
+  }
+  hash_combine(std::hash<int>{}(-1));
+  for (const auto& range : protected_ranges) {
+    hash_range(range);
+  }
+  return seed;
+}
+
+absl::string_view Conversation::PrefetchBuilderIdToString(
+    PrefetchBuilderId builder_id) {
+  switch (builder_id) {
+    case PrefetchBuilderId::kReplayRecent:
+      return "replay_recent";
+    case PrefetchBuilderId::kDropAllButSystem:
+      return "drop_all_but_system";
+    case PrefetchBuilderId::kSummarizeProtectedTail:
+      return "summarize_protected_tail";
+    case PrefetchBuilderId::kQuarantineMerge:
+      return "quarantine_merge";
+  }
+  return "replay_recent";
+}
+
+absl::string_view Conversation::PrefetchParityModeToString(
+    PrefetchParityMode parity_mode) {
+  switch (parity_mode) {
+    case PrefetchParityMode::kNotApplicable:
+      return "not_applicable";
+    case PrefetchParityMode::kStrictTokenParity:
+      return "strict_token_parity";
+    case PrefetchParityMode::kSemanticParity:
+      return "semantic_parity";
+  }
+  return "not_applicable";
+}
+
+bool Conversation::IsValidHistoryRange(const PrefetchHistoryRange& range) {
+  return range.start_message_index >= 0 &&
+         range.end_message_index_exclusive >= range.start_message_index;
 }
 
 size_t Conversation::ComputePrefetchValidityHash() const {
@@ -1524,7 +2383,7 @@ size_t Conversation::ComputePrefetchValidityHash() const {
     policy_snapshot = active_context_shift_policy_;
   }
 
-  size_t seed = 0;
+  size_t seed = ComputePrefetchPolicyDigest(policy_snapshot);
   auto hash_combine = [&seed](size_t value) {
     seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
   };
@@ -1532,15 +2391,6 @@ size_t Conversation::ComputePrefetchValidityHash() const {
   hash_combine(std::hash<size_t>{}(history_size));
   hash_combine(std::hash<uint64_t>{}(history_revision));
   hash_combine(history_tail_digest);
-  hash_combine(std::hash<bool>{}(policy_snapshot.context_shift_enabled));
-  hash_combine(std::hash<float>{}(policy_snapshot.context_shift_trigger_ratio));
-  hash_combine(
-      std::hash<int>{}(policy_snapshot.context_shift_retain_recent_messages));
-  hash_combine(std::hash<float>{}(policy_snapshot.context_shift_target_ratio));
-  hash_combine(
-      std::hash<bool>{}(policy_snapshot.context_shift_reset_on_exhaustion));
-  hash_combine(
-      std::hash<int>{}(static_cast<int>(policy_snapshot.context_shift_strategy)));
   return seed;
 }
 
@@ -1702,9 +2552,10 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
     RETURN_IF_ERROR(
         MaybeApplyQueuedPolicyAtBoundary(BoundaryEvent::kTurnBoundary));
 
-    model_turn_cleanup.Cancel();
+    std::move(model_turn_cleanup).Cancel();
     RETURN_IF_ERROR(ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(
         ConversationConfig::SafeBoundary::kTurnBoundary));
+    MaybeSchedulePrefetchPlanAfterBoundary();
 
     return assistant_message;
   }
@@ -1801,6 +2652,7 @@ absl::Status Conversation::SendMessageAsync(
         ApplyPendingRuntimeMemoryPolicyAtSafeBoundary(
             ConversationConfig::SafeBoundary::kTurnBoundary)
             .IgnoreError();
+        MaybeSchedulePrefetchPlanAfterBoundary();
       };
 
   absl::AnyInvocable<void()> cancel_callback = [this]() {
@@ -1844,7 +2696,7 @@ absl::Status Conversation::SendMessageAsync(
               }
             }));
     AddTaskController(optional_args.task_group_id, std::move(task_controller));
-    model_turn_cleanup.Cancel();
+    std::move(model_turn_cleanup).Cancel();
   } else {
     ASSIGN_OR_RETURN(
         auto prefill_task_controller,
@@ -1904,7 +2756,7 @@ absl::Status Conversation::SendMessageAsync(
             }));
     AddTaskController(optional_args.task_group_id,
                       std::move(prefill_task_controller));
-    model_turn_cleanup.Cancel();
+    std::move(model_turn_cleanup).Cancel();
   }
 
   return absl::OkStatus();
@@ -1967,9 +2819,12 @@ bool Conversation::IsModelTurnActive() const {
 
 void Conversation::QueueRuntimeMemoryPolicyUpdate(
     const ConversationConfig::RuntimeMemoryPolicy& policy) {
-  absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
-  pending_runtime_memory_policy_update_ = policy;
-  policy_transition_blocked_ = true;
+  {
+    absl::MutexLock lock(&memory_policy_mutex_);  // NOLINT
+    pending_runtime_memory_policy_update_ = policy;
+    policy_transition_blocked_ = true;
+  }
+  CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kPolicyUpdateQueued);
 }
 
 absl::Status Conversation::ApplyRuntimeMemoryPolicyNow(
@@ -2010,6 +2865,7 @@ absl::Status Conversation::ApplyRuntimeMemoryPolicyNow(
             resolved.context_shift_reset_on_exhaustion,
         .context_shift_strategy = resolved.context_shift_strategy};
   }
+  CancelQueuedPrefetchPlan(PrefetchInvalidationReason::kPolicyChanged);
 
   return AnchorContextForPolicyTransition(resolved);
 }
@@ -2155,6 +3011,7 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
     new_conversation->pending_policy_updates_ = pending_policy_updates_;
     new_conversation->policy_transition_records_ = policy_transition_records_;
     new_conversation->transition_notes_ = transition_notes_;
+    new_conversation->queued_prefetch_task_id_.reset();
     new_conversation->pending_prefetch_pack_.reset();
     new_conversation->prefetch_metrics_ = prefetch_metrics_;
   }
@@ -2169,6 +3026,41 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
         runtime_memory_policy_override_;
   }
   return new_conversation;
+}
+
+void Conversation::MaybeSchedulePrefetchPlanAfterBoundary() {
+  if (!config_.prefetch_enabled() || max_context_tokens_ <= 0 ||
+      !context_shift_supported_) {
+    return;
+  }
+
+  auto current_step_or = session_->GetCurrentStep();
+  if (!current_step_or.ok()) {
+    if (absl::IsUnimplemented(current_step_or.status())) {
+      context_shift_supported_ = false;
+    }
+    return;
+  }
+
+  MaybePlanPrefetchPack(*current_step_or);
+}
+
+void Conversation::CancelQueuedPrefetchPlan(
+    PrefetchInvalidationReason reason) {
+  std::optional<int> queued_task_id;
+  {
+    absl::MutexLock lock(&policy_mutex_);
+    queued_task_id = queued_prefetch_task_id_;
+    queued_prefetch_task_id_.reset();
+    pending_prefetch_pack_.reset();
+    prefetch_planner_state_.active_plan_token = 0;
+    prefetch_planner_state_.lifecycle_state = PrefetchLifecycleState::kDiscarded;
+    prefetch_planner_state_.last_invalidation_reason = reason;
+  }
+
+  if (queued_task_id.has_value() && prefetch_execution_queue_ != nullptr) {
+    prefetch_execution_queue_->Remove(*queued_task_id).IgnoreError();
+  }
 }
 
 absl::StatusOr<std::string> Conversation::GetPrefillTextForMessages(
@@ -2244,20 +3136,62 @@ absl::StatusOr<std::vector<InputData>>
 Conversation::GetInputDataVectorForMessages(
     absl::Span<const Message> old_messages,
     absl::Span<const Message> new_messages, const OptionalArgs& optional_args) {
-  ASSIGN_OR_RETURN(
-      std::string prefill_text,
-      GetPrefillTextForMessages(old_messages, new_messages, optional_args));
+  return GetInputDataVectorForMessagesWithProcessor(
+      *model_data_processor_, old_messages, new_messages, optional_args);
+}
 
+absl::StatusOr<std::vector<InputData>>
+Conversation::GetInputDataVectorForMessagesWithProcessor(
+    const ModelDataProcessor& processor, absl::Span<const Message> old_messages,
+    absl::Span<const Message> new_messages,
+    const OptionalArgs& optional_args) const {
+  PromptTemplateInput old_context;
+  old_context.add_generation_prompt = false;
+  RETURN_IF_ERROR(
+      FillPrefaceForPromptTemplateInput(preface_, &processor, old_context));
+  if (optional_args.extra_context.has_value()) {
+    for (const auto& [key, value] : optional_args.extra_context->items()) {
+      old_context.extra_context[key] = value;
+    }
+  }
+  for (const auto& message : old_messages) {
+    if (std::holds_alternative<nlohmann::ordered_json>(message)) {
+      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
+                       processor.MessageToTemplateInput(
+                           std::get<nlohmann::ordered_json>(message)));
+      old_context.messages.push_back(message_tmpl_input);
+    }
+  }
+  ASSIGN_OR_RETURN(const std::string old_string, prompt_template_.Apply(old_context));
+
+  PromptTemplateInput new_context = old_context;
   nlohmann::ordered_json prefill_messages = nlohmann::ordered_json::array();
   for (const auto& message : new_messages) {
     if (std::holds_alternative<nlohmann::ordered_json>(message)) {
       nlohmann::ordered_json json_msg =
           std::get<nlohmann::ordered_json>(message);
       prefill_messages.push_back(json_msg);
+      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
+                       processor.MessageToTemplateInput(json_msg));
+      new_context.messages.push_back(message_tmpl_input);
     }
   }
+  ASSIGN_OR_RETURN(const std::string new_string, prompt_template_.Apply(new_context));
+  if (old_string.length() > new_string.length()) {
+    return absl::InternalError(
+        absl::StrCat("The new rendered string is shorter than the previous "
+                     "rendered string. \nold_string: ",
+                     old_string, "\nnew_string: ", new_string));
+  }
+  if (new_string.substr(0, old_string.size()) != old_string) {
+    return absl::InternalError(
+        absl::StrCat("The new rendered string does not start with the previous "
+                     "rendered string. \nold_string: ",
+                     old_string, "\nnew_string: ", new_string));
+  }
+  const std::string prefill_text = new_string.substr(old_string.length());
 
-  return model_data_processor_->ToInputDataVector(
+  return processor.ToInputDataVector(
       prefill_text, prefill_messages,
       optional_args.args.value_or(std::monostate()));
 }
@@ -2302,8 +3236,6 @@ absl::Status Conversation::MaybeApplyContextShift() {
     }
     return current_step_or.status();
   }
-
-  MaybePlanPrefetchPack(*current_step_or);
 
   const int trigger_step =
       std::max(1, static_cast<int>(max_context_tokens_ *
