@@ -1,20 +1,175 @@
 # Phase C Cache Operations RFC Draft
 
-This document defines the middleware/engine contract for Phase C engine-native
-context management.
+This document defines a Phase C cache-operations contract grounded in:
 
-It is intentionally conservative and is designed to evolve from the current
-Phase B black-box session model, which today exposes checkpoint, rewind, clone,
-prefill, decode, and current-step operations.
+1. primary-source frontier model release materials from 2025-2026,
+2. primary-source 2025-2026 KV-cache research,
+3. the current `LiteRT-LM` engine/session abstraction inherited from upstream
+   `google-ai-edge/LiteRT-LM`.
 
-## Goals
+The goal is not to claim that frontier labs publicly disclose all KV internals.
+They generally do not. Instead, this document distinguishes:
 
-1. Make KV cache state addressable without requiring full replay/prefill.
-2. Provide a small, explicit vocabulary for cache surgery.
-3. Guarantee deterministic failure handling and fallback to Phase B recompute.
-4. Keep the contract implementable on top of the current engine/session model.
+- what primary sources explicitly say,
+- what recent literature suggests is becoming standard practice,
+- what contract best fits this repository's current architecture.
 
-## Commitments
+## Evidence basis
+
+### Current repo / upstream constraints
+
+Current `Engine::Session` in this repo is still a black-box interface centered on:
+
+- `RunPrefill` / `RunPrefillAsync`
+- `RunDecode` / `RunDecodeAsync`
+- `Clone` / `CloneAsync`
+- `SaveCheckpoint`
+- `RewindToCheckpoint`
+- `GetCurrentStep`
+
+There is no native KV-surgery capability surface in the current engine API.
+
+### Verified recent frontier release set
+
+The following list is the proposed verified set of ten recent frontier releases,
+based on primary sources available during this task. These are not all equal in
+"frontier" strength, but they form a defensible current set spanning the major
+labs and open/frontier hybrids:
+
+1. Anthropic Claude Mythos Preview (Apr 2026)
+2. Google Gemini 3.1 Pro (Feb 2026)
+3. StepFun Step 3.5 Flash (Feb 2026)
+4. xAI Grok 4.1 (Nov 2025)
+5. DeepSeek V3.2 (Dec 2025)
+6. Z.ai GLM-4.5 (Jul 2025)
+7. Z.ai GLM-4.5-Air (Jul 2025)
+8. Meta Llama 4 Maverick / Scout (Apr 2025)
+9. OpenAI GPT-4.1 (Apr 2025)
+10. Qwen3-235B-A22B (Apr 2025)
+
+Additional strong-but-not-in-top-10 candidate:
+
+- OpenAI GPT-4.5 (Feb 2025), which was superseded by GPT-4.1 for API use.
+
+### What primary release sources publicly reveal about cache operations
+
+Across those releases, public materials consistently reveal:
+
+- context length,
+- attention style (e.g. sliding window, interleaved attention),
+- grouped-query or multi-query style hints,
+- speculative decoding / MTP,
+- reasoning / tool-use modes,
+- API availability and deployment framework support.
+
+Across those same releases, public materials generally do **not** reveal:
+
+- explicit KV block model definitions,
+- native operation vocabulary like `Pin`, `Remap`, or `EvictRange`,
+- formal rollback guarantees,
+- explicit engine capability-discovery schemas.
+
+This means the contract below must be inferred from:
+
+- public architecture clues,
+- serving-framework norms,
+- recent KV-cache papers,
+- this repo's current black-box session model.
+
+## Synthesis from frontier releases
+
+### Strong observed trends
+
+The recent frontier releases suggest the following durable design pressures:
+
+1. **Long context is routine, not exceptional**
+   - Meta Llama 4 Scout advertises 10M context and interleaved attention.
+   - OpenAI GPT-4.1 exposes 1M-token context.
+   - Gemini 3.1 Pro is framed around complex long-form synthesis.
+   - Step 3.5 Flash uses a 256K hybrid SWA/full-attention layout.
+   - Qwen3 and GLM-4.5 public docs emphasize long context and agentic use.
+
+2. **Agentic/tool-use operation is first-class**
+   - OpenAI emphasizes Responses API / agentic applications.
+   - GLM-4.5 emphasizes native function calling and agentic coding.
+   - Qwen3 emphasizes MCP and tool calling.
+   - Step 3.5 Flash emphasizes massive tool orchestration and agent loops.
+
+3. **Hybrid thinking / non-thinking modes are becoming common**
+   - GLM-4.5 and Qwen3 explicitly expose thinking/non-thinking modes.
+   - Grok 4.1 distinguishes thinking / non-thinking serving modes.
+
+4. **Efficient long-context serving depends on constrained attention or cache pressure relief**
+   - Step 3.5 Flash: 3:1 sliding-window/full-attention ratio.
+   - Llama 4 Scout: interleaved attention architecture.
+   - Qwen3 / GLM-4.5: GQA and MTP support.
+
+### Strong observed gaps
+
+Frontier release notes almost never expose:
+
+- block-table internals,
+- native cache surgery APIs,
+- rollback semantics,
+- capability discovery flags.
+
+That means any Phase C contract here must be a **clean engineering abstraction**,
+not a reproduction of public vendor terminology.
+
+## Synthesis from 2025-2026 KV-cache literature
+
+The following primary-source papers were consulted:
+
+1. `Joint Encoding of KV-Cache Blocks for Scalable LLM Serving`
+   - arXiv 2601.03067 / OpenReview ICLR 2026
+   - explicitly uses the term **KV-cache blocks**
+   - focuses on block fusion/shared representations while preserving standard
+     cache structure
+
+2. `ARKV: Adaptive and Resource-Efficient KV Cache Management under Limited
+   Memory Budget for Long-Context Inference in LLMs`
+   - arXiv 2603.08727
+   - frames token states as:
+     - original/full precision
+     - quantized
+     - evicted
+   - emphasizes adaptive token-importance / per-layer control
+
+3. `KVSink: Understanding and Enhancing the Preservation of Attention Sinks in
+   KV Cache Quantization for LLMs`
+   - arXiv 2508.04257
+   - strongly suggests that sink preservation should be explicit and not just
+     "preserve first N tokens"
+
+### What these papers imply for this repo
+
+The literature pushes toward:
+
+- block-oriented cache thinking rather than opaque sequence blobs,
+- explicit token-span / block-span accounting,
+- adaptive state transitions (retain, quantize, evict),
+- explicit sink preservation,
+- non-destructive lineage-aware transformations.
+
+It does **not** prescribe a universal operation vocabulary. That part needs to be
+chosen here.
+
+## Google / upstream LiteRT-LM fit
+
+The current upstream-compatible shape of this repo strongly suggests Google is
+still evolving from a session/checkpoint/replay model, not yet a productionized
+native KV surgery interface. The most compatible Phase C contract therefore:
+
+- must degrade cleanly to Phase B replay/recompute,
+- must treat snapshots/checkpoints as first-class rollback anchors,
+- should add capability discovery explicitly rather than overloading existing
+  checkpoint semantics,
+- should preserve middleware ownership of memory policy.
+
+This RFC therefore favors a conservative, explicit contract over a highly clever
+but implementation-specific interface.
+
+## Proposed Commitments
 
 1. Middleware remains the policy owner.
 2. Engine remains the execution owner.
@@ -45,7 +200,7 @@ Commitment:
 ### Token span
 
 - `token_span`: logical half-open interval `[start_token, end_token)`.
-- Spans are expressed in the model's logical prompt timeline, not in allocator
+- Spans are expressed in the model's logical prompt timeline, not allocator
   page offsets.
 - A block may own:
   - one contiguous token span, or
@@ -339,7 +494,26 @@ Capability discovery is explicit and versioned.
   compaction strategy that would otherwise touch sink-adjacent blocks.
 - Capability values are immutable for the life of a session.
 
-## Phase B / Phase C bridge commitments
+## Comparison back to this repo
+
+### Current repo state
+
+Current middleware/runtime in `Conversation` already has:
+
+- replay-pack identity
+- retained slice metadata
+- validity hashes
+- policy digests
+- checkpoint-based fallback / replay
+
+But it does **not** yet have:
+
+- builder identity
+- native cache capability discovery
+- block-level metadata
+- native cache-op vocabulary
+
+### Required Phase B alignment changes implied by this RFC
 
 To keep Phase B compatible with this RFC:
 
@@ -356,4 +530,5 @@ To keep Phase B compatible with this RFC:
 
 - Defining allocator page size.
 - Mandating a vendor-specific cache table layout.
+- Claiming frontier labs publicly expose these exact native cache APIs.
 - Replacing Phase B fallback.
