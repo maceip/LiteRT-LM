@@ -260,3 +260,43 @@ Phase C bootstrap is complete only when:
 
 At that point, Phase C implementation can proceed incrementally without
 weakening the Phase A/Phase B guarantees already in place.
+
+## Bootstrap completion checkpoint (2026-04-11)
+
+The current bootstrap implementation satisfies the Phase C exit criteria:
+
+- [x] **Phase A look-back safety remains intact**
+  - safe-boundary and atomic-turn control-plane behavior remains middleware-owned
+  - native cache-op execution is only attempted from context-shift fallback path
+    and does not bypass policy gating
+- [x] **Capability discovery exists and is immutable per session**
+  - `Engine::Session::GetCacheOpCapabilities()` exposes capability fields
+  - `Conversation` captures capabilities at session creation and re-discovers
+    only when a brand-new session is created
+- [x] **Native execution envelope exists**
+  - `CacheOpGroup`, `CacheOpFailure`, and `CacheOpGroupResult` define atomic
+    execution + rollback availability reporting
+- [x] **Required failure vocabulary is wired to deterministic fallback**
+  - `unsupported_capability`, `rollback_unavailable`, and
+    `internal_cache_corruption_suspected` all force deterministic Phase B
+    recompute
+- [x] **First native path is explicitly capability-gated**
+  - native `EvictRange` only runs when both `supports_kv_surgery` and
+    `supports_range_evict` are true; otherwise middleware stays on Phase B path
+
+### Conformance evidence captured in `conversation_test`
+
+- [x] Capability-gating tests:
+  - `NativeCacheCapabilityGatingKeepsUnsupportedSessionsOnPhaseBPath`
+- [x] Atomicity/rollback tests:
+  - `NativeCacheRollbackUnavailableForcesFallback`
+- [x] Required fallback-code tests:
+  - `NativeCacheUnsupportedCapabilityTriggersDeterministicFallback`
+  - `NativeCacheCorruptionSignalForcesFallback`
+- [x] Vocabulary/metadata conformance tests:
+  - `NativeCacheVocabularyMatchesPhaseCRfcDraft`
+  - `NativeCacheCapabilitiesImmutableAndNativeCommitSkipsPhaseBFallback`
+
+### Validation command
+
+- `bazel test //runtime/conversation:conversation_test --test_arg=--gtest_filter='*NativeCache*'`
