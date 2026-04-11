@@ -904,6 +904,8 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Create(
       engine, std::move(session), std::move(model_data_processor),
       config.GetPreface(), config.GetPromptTemplate(), config,
       std::move(constraint_provider)));
+  conversation->native_cache_capabilities_ =
+      conversation->session_->GetCacheOpCapabilities();
   conversation->max_context_tokens_ =
       engine.GetEngineSettings().GetMainExecutorSettings().GetMaxNumTokens();
   {
@@ -1026,6 +1028,17 @@ Conversation::GetPrefetchPlannerStateForTest() const {
       .last_successful_install_step =
           prefetch_planner_state_.last_successful_install_step,
       .last_confidence_score = prefetch_planner_state_.last_confidence_score,
+  };
+}
+
+Conversation::NativeCacheStateSnapshot
+Conversation::GetNativeCacheStateForTest() const {
+  absl::MutexLock lock(&policy_mutex_);
+  return NativeCacheStateSnapshot{
+      .attempted = native_cache_state_.attempted,
+      .committed = native_cache_state_.committed,
+      .fallback_to_phase_b = native_cache_state_.fallback_to_phase_b,
+      .last_failure_code = native_cache_state_.last_failure_code,
   };
 }
 
@@ -1179,6 +1192,84 @@ absl::string_view Conversation::PrefetchReasonCodeToString(
       return "superseded_plan";
   }
   return "planned";
+}
+
+absl::string_view Conversation::NativeCacheOpVerbToString(
+    NativeCacheOpVerb op_verb) {
+  switch (op_verb) {
+    case NativeCacheOpVerb::kPin:
+      return "Pin";
+    case NativeCacheOpVerb::kEvictRange:
+      return "EvictRange";
+    case NativeCacheOpVerb::kRemap:
+      return "Remap";
+    case NativeCacheOpVerb::kCompact:
+      return "Compact";
+    case NativeCacheOpVerb::kSnapshotRestore:
+      return "SnapshotRestore";
+  }
+  return "Pin";
+}
+
+absl::string_view Conversation::NativeCachePinClassToString(
+    NativeCachePinClass pin_class) {
+  switch (pin_class) {
+    case NativeCachePinClass::kSystemAnchor:
+      return "system_anchor";
+    case NativeCachePinClass::kAttentionSink:
+      return "attention_sink";
+    case NativeCachePinClass::kProtectedTail:
+      return "protected_tail";
+    case NativeCachePinClass::kToolState:
+      return "tool_state";
+    case NativeCachePinClass::kEphemeral:
+      return "ephemeral";
+  }
+  return "ephemeral";
+}
+
+absl::string_view Conversation::NativeCacheLogicalRoleToString(
+    NativeCacheLogicalRole logical_role) {
+  switch (logical_role) {
+    case NativeCacheLogicalRole::kSystem:
+      return "system";
+    case NativeCacheLogicalRole::kUser:
+      return "user";
+    case NativeCacheLogicalRole::kAssistant:
+      return "assistant";
+    case NativeCacheLogicalRole::kTool:
+      return "tool";
+    case NativeCacheLogicalRole::kSummaryAnchor:
+      return "summary_anchor";
+    case NativeCacheLogicalRole::kScratchpad:
+      return "scratchpad";
+  }
+  return "scratchpad";
+}
+
+absl::string_view Conversation::NativeCacheFailureCodeToString(
+    NativeCacheFailureCode failure_code) {
+  switch (failure_code) {
+    case NativeCacheFailureCode::kUnsupportedCapability:
+      return "unsupported_capability";
+    case NativeCacheFailureCode::kInvalidSelector:
+      return "invalid_selector";
+    case NativeCacheFailureCode::kRangeConflict:
+      return "range_conflict";
+    case NativeCacheFailureCode::kPinnedBlockConflict:
+      return "pinned_block_conflict";
+    case NativeCacheFailureCode::kPositionSemanticsViolation:
+      return "position_semantics_violation";
+    case NativeCacheFailureCode::kSummaryArtifactMissing:
+      return "summary_artifact_missing";
+    case NativeCacheFailureCode::kSnapshotNotFound:
+      return "snapshot_not_found";
+    case NativeCacheFailureCode::kRollbackUnavailable:
+      return "rollback_unavailable";
+    case NativeCacheFailureCode::kInternalCacheCorruptionSuspected:
+      return "internal_cache_corruption_suspected";
+  }
+  return "unsupported_capability";
 }
 
 void Conversation::RecordPrefetchEvent(
@@ -3004,6 +3095,7 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
   new_conversation->is_appending_message_ = is_appending_message_;
   new_conversation->context_shift_supported_ = context_shift_supported_;
   new_conversation->max_context_tokens_ = max_context_tokens_;
+  new_conversation->native_cache_capabilities_ = native_cache_capabilities_;
   new_conversation->SetModelTurnActive(IsModelTurnActive());
   {
     absl::MutexLock lock(&policy_mutex_);
@@ -3014,6 +3106,7 @@ absl::StatusOr<std::unique_ptr<Conversation>> Conversation::Clone() {
     new_conversation->queued_prefetch_task_id_.reset();
     new_conversation->pending_prefetch_pack_.reset();
     new_conversation->prefetch_metrics_ = prefetch_metrics_;
+    new_conversation->native_cache_state_ = native_cache_state_;
   }
   {
     absl::MutexLock lock(history_mutex_);  // NOLINT
@@ -3221,6 +3314,87 @@ Conversation::RewindAndGetInputDataVector() {
   return input_data_vector;
 }
 
+void Conversation::RecordNativeCacheState(
+    bool attempted, bool committed, bool fallback_to_phase_b,
+    std::optional<NativeCacheFailureCode> last_failure_code) {
+  absl::MutexLock lock(&policy_mutex_);
+  native_cache_state_.attempted = attempted;
+  native_cache_state_.committed = committed;
+  native_cache_state_.fallback_to_phase_b = fallback_to_phase_b;
+  native_cache_state_.last_failure_code = last_failure_code;
+}
+
+bool Conversation::ShouldFallbackToPhaseB(NativeCacheFailureCode failure_code) {
+  switch (failure_code) {
+    case NativeCacheFailureCode::kUnsupportedCapability:
+    case NativeCacheFailureCode::kRollbackUnavailable:
+    case NativeCacheFailureCode::kInternalCacheCorruptionSuspected:
+      return true;
+    case NativeCacheFailureCode::kInvalidSelector:
+    case NativeCacheFailureCode::kRangeConflict:
+    case NativeCacheFailureCode::kPinnedBlockConflict:
+    case NativeCacheFailureCode::kPositionSemanticsViolation:
+    case NativeCacheFailureCode::kSummaryArtifactMissing:
+    case NativeCacheFailureCode::kSnapshotNotFound:
+      return false;
+  }
+  return true;
+}
+
+absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
+                                                              int target_step) {
+  const int tokens_to_evict = std::max(0, current_step - target_step);
+  if (tokens_to_evict <= 0) {
+    RecordNativeCacheState(/*attempted=*/false, /*committed=*/false,
+                           /*fallback_to_phase_b=*/false, std::nullopt);
+    return false;
+  }
+  if (!native_cache_capabilities_.supports_kv_surgery ||
+      !native_cache_capabilities_.supports_range_evict) {
+    RecordNativeCacheState(/*attempted=*/false, /*committed=*/false,
+                           /*fallback_to_phase_b=*/false, std::nullopt);
+    return false;
+  }
+
+  Engine::Session::CacheOpGroup op_group;
+  op_group.requires_rollback_guarantee = true;
+  op_group.ops.push_back(Engine::Session::CacheOp{
+      .verb = Engine::Session::CacheOpVerb::kEvictRange,
+      .token_span = {.start_token = 0, .end_token_exclusive = tokens_to_evict},
+      .pin_class = Engine::Session::CachePinClass::kEphemeral,
+      .logical_role = Engine::Session::CacheLogicalRole::kScratchpad,
+  });
+
+  auto cache_result_or = session_->ExecuteCacheOpGroup(op_group);
+  if (!cache_result_or.ok()) {
+    const NativeCacheFailureCode failure_code =
+        absl::IsUnimplemented(cache_result_or.status())
+            ? NativeCacheFailureCode::kUnsupportedCapability
+            : NativeCacheFailureCode::kInternalCacheCorruptionSuspected;
+    RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
+                           ShouldFallbackToPhaseB(failure_code), failure_code);
+    return false;
+  }
+
+  const Engine::Session::CacheOpGroupResult& cache_result = *cache_result_or;
+  if (cache_result.committed && !cache_result.failure.has_value()) {
+    RecordNativeCacheState(/*attempted=*/true, /*committed=*/true,
+                           /*fallback_to_phase_b=*/false, std::nullopt);
+    return true;
+  }
+
+  NativeCacheFailureCode failure_code =
+      cache_result.failure.has_value()
+          ? cache_result.failure->code
+          : NativeCacheFailureCode::kInternalCacheCorruptionSuspected;
+  if (!cache_result.rollback_available) {
+    failure_code = NativeCacheFailureCode::kRollbackUnavailable;
+  }
+  RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
+                         ShouldFallbackToPhaseB(failure_code), failure_code);
+  return false;
+}
+
 absl::Status Conversation::MaybeApplyContextShift() {
   const ConversationConfig::RuntimeMemoryPolicy policy = GetActiveMemoryPolicy();
   if (!policy.context_shift_enabled || !context_shift_supported_ ||
@@ -3288,6 +3462,15 @@ absl::Status Conversation::MaybeApplyContextShift() {
   }
 
   if (baseline_recompute_needed) {
+    ASSIGN_OR_RETURN(const bool native_shift_applied,
+                     TryApplyNativeContextShift(*current_step_or, target_step));
+    if (native_shift_applied) {
+      baseline_recompute_needed = false;
+      shifted_step = target_step;
+    }
+  }
+
+  if (baseline_recompute_needed) {
     const absl::Time baseline_timer_start = absl::Now();
     while (true) {
       auto rewind_status =
@@ -3338,6 +3521,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
     ASSIGN_OR_RETURN(std::unique_ptr<Engine::Session> new_session,
                      engine_.CreateSession(config_.GetSessionConfig()));
     session_ = std::move(new_session);
+    native_cache_capabilities_ = session_->GetCacheOpCapabilities();
     RETURN_IF_ERROR(PrefillPrefaceIfConfigured());
   }
 

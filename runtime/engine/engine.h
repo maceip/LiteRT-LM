@@ -15,7 +15,10 @@
 #ifndef THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_H_
 #define THIRD_PARTY_ODML_LITERT_LM_RUNTIME_ENGINE_ENGINE_H_
 
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 #include "absl/functional/any_invocable.h"  // from @com_google_absl
@@ -70,6 +73,95 @@ class Engine {
   // history) of each separate interaction with LLM.
   class Session {
    public:
+    struct CacheOpCapabilities {
+      bool supports_kv_surgery = false;
+      bool supports_attention_sink_pinning = false;
+      bool supports_range_evict = false;
+      bool supports_block_remap = false;
+      bool supports_compact = false;
+      bool supports_snapshot_restore = false;
+      bool supports_partial_block_split = false;
+      bool supports_summary_anchor_blocks = false;
+      bool supports_position_adjusted_remap = false;
+    };
+
+    enum class CacheOpVerb {
+      kPin = 0,
+      kEvictRange = 1,
+      kRemap = 2,
+      kCompact = 3,
+      kSnapshotRestore = 4,
+    };
+
+    enum class CachePinClass {
+      kSystemAnchor = 0,
+      kAttentionSink = 1,
+      kProtectedTail = 2,
+      kToolState = 3,
+      kEphemeral = 4,
+    };
+
+    enum class CacheLogicalRole {
+      kSystem = 0,
+      kUser = 1,
+      kAssistant = 2,
+      kTool = 3,
+      kSummaryAnchor = 4,
+      kScratchpad = 5,
+    };
+
+    struct CacheBlockId {
+      uint64_t session_epoch = 0;
+      uint64_t block_seqno = 0;
+    };
+
+    struct TokenSpan {
+      int start_token = 0;
+      int end_token_exclusive = 0;
+    };
+
+    struct CacheBlockMetadata {
+      CacheBlockId block_id;
+      TokenSpan token_span;
+      CachePinClass pin_class = CachePinClass::kEphemeral;
+      CacheLogicalRole logical_role = CacheLogicalRole::kScratchpad;
+    };
+
+    enum class CacheOpFailureCode {
+      kUnsupportedCapability = 0,
+      kInvalidSelector = 1,
+      kRangeConflict = 2,
+      kPinnedBlockConflict = 3,
+      kPositionSemanticsViolation = 4,
+      kSummaryArtifactMissing = 5,
+      kSnapshotNotFound = 6,
+      kRollbackUnavailable = 7,
+      kInternalCacheCorruptionSuspected = 8,
+    };
+
+    struct CacheOp {
+      CacheOpVerb verb = CacheOpVerb::kPin;
+      TokenSpan token_span;
+      CachePinClass pin_class = CachePinClass::kEphemeral;
+      CacheLogicalRole logical_role = CacheLogicalRole::kScratchpad;
+    };
+
+    struct CacheOpGroup {
+      std::vector<CacheOp> ops;
+      bool requires_rollback_guarantee = true;
+    };
+
+    struct CacheOpFailure {
+      CacheOpFailureCode code = CacheOpFailureCode::kUnsupportedCapability;
+      std::string detail;
+    };
+
+    struct CacheOpGroupResult {
+      bool committed = false;
+      bool rollback_available = false;
+      std::optional<CacheOpFailure> failure = std::nullopt;
+    };
+
     // The TaskController is responsible for controlling the async task
     // execution.
     class TaskController {
@@ -282,6 +374,15 @@ class Engine {
     // Get the current step of the session.
     virtual absl::StatusOr<int> GetCurrentStep() const {
       return absl::UnimplementedError("GetCurrentStep not implemented.");
+    }
+
+    // Returns immutable cache-op capability discovery for this session.
+    virtual CacheOpCapabilities GetCacheOpCapabilities() const { return {}; }
+
+    // Executes one atomic cache-op group against the current session.
+    virtual absl::StatusOr<CacheOpGroupResult> ExecuteCacheOpGroup(
+        const CacheOpGroup& cache_op_group) {
+      return absl::UnimplementedError("ExecuteCacheOpGroup not implemented.");
     }
 
     // Get the reference to the session config for the session.

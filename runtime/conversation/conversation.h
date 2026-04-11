@@ -908,6 +908,27 @@ class Conversation {
     kInstalled = 3,
   };
 
+  using NativeCacheCapabilities = Engine::Session::CacheOpCapabilities;
+  using NativeCacheOpVerb = Engine::Session::CacheOpVerb;
+  using NativeCachePinClass = Engine::Session::CachePinClass;
+  using NativeCacheLogicalRole = Engine::Session::CacheLogicalRole;
+  using NativeCacheFailureCode = Engine::Session::CacheOpFailureCode;
+
+  struct NativeCacheStateSnapshot {
+    bool attempted = false;
+    bool committed = false;
+    bool fallback_to_phase_b = false;
+    std::optional<NativeCacheFailureCode> last_failure_code = std::nullopt;
+  };
+
+  static absl::string_view NativeCacheOpVerbToString(NativeCacheOpVerb op_verb);
+  static absl::string_view NativeCachePinClassToString(
+      NativeCachePinClass pin_class);
+  static absl::string_view NativeCacheLogicalRoleToString(
+      NativeCacheLogicalRole logical_role);
+  static absl::string_view NativeCacheFailureCodeToString(
+      NativeCacheFailureCode failure_code);
+
   // Creates a Conversation instance from the the Engine and ConversationConfig.
   // Args:
   // - `engine`: The Engine instance to be used for creating the Conversation.
@@ -1084,6 +1105,14 @@ class Conversation {
   // Returns planner state snapshot (testing helper).
   PrefetchPlannerStateSnapshot GetPrefetchPlannerStateForTest() const;
 
+  // Returns immutable native-cache capabilities discovered at session start.
+  NativeCacheCapabilities GetNativeCacheCapabilitiesForTest() const {
+    return native_cache_capabilities_;
+  }
+
+  // Returns native cache-op state snapshot (testing helper).
+  NativeCacheStateSnapshot GetNativeCacheStateForTest() const;
+
   // Waits until planner reaches the given lifecycle state (testing helper).
   bool WaitForPrefetchPlannerStateForTest(
       PrefetchLifecycleState desired_state,
@@ -1162,6 +1191,13 @@ class Conversation {
     int last_observed_step = 0;
     int last_successful_install_step = -1;
     float last_confidence_score = 0.0f;
+  };
+
+  struct NativeCacheState {
+    bool attempted = false;
+    bool committed = false;
+    bool fallback_to_phase_b = false;
+    std::optional<NativeCacheFailureCode> last_failure_code = std::nullopt;
   };
 
   explicit Conversation(
@@ -1244,6 +1280,12 @@ class Conversation {
   // Triggers session-level context shift and replays recent messages when
   // context usage reaches the configured threshold.
   absl::Status MaybeApplyContextShift();
+  absl::StatusOr<bool> TryApplyNativeContextShift(int current_step,
+                                                  int target_step);
+  void RecordNativeCacheState(
+      bool attempted, bool committed, bool fallback_to_phase_b,
+      std::optional<NativeCacheFailureCode> last_failure_code);
+  static bool ShouldFallbackToPhaseB(NativeCacheFailureCode failure_code);
 
   // Schedules background prefetch planning after a safe boundary.
   void MaybeSchedulePrefetchPlanAfterBoundary();
@@ -1398,6 +1440,7 @@ class Conversation {
   std::optional<int> queued_prefetch_task_id_ ABSL_GUARDED_BY(policy_mutex_);
   PrefetchPlannerState prefetch_planner_state_ ABSL_GUARDED_BY(policy_mutex_);
   PrefetchMetrics prefetch_metrics_ ABSL_GUARDED_BY(policy_mutex_);
+  NativeCacheState native_cache_state_ ABSL_GUARDED_BY(policy_mutex_);
 
   // Mutex for task_controllers_.
   mutable absl::Mutex task_controllers_mutex_;
@@ -1411,6 +1454,7 @@ class Conversation {
   // depends on so that the session is destroyed before them. This is to avoid
   // memory corruption and null-pointer deference issues.
   std::unique_ptr<Engine::Session> session_;
+  NativeCacheCapabilities native_cache_capabilities_;
 
   // Background planner queue. Declare after session_ so it is destroyed first,
   // which ensures all queued work finishes before other runtime state tears
