@@ -14,7 +14,7 @@ and why it matters.*
 1. [Why This Document](#why-this-document)
 2. [Three Layers](#three-layers)
 3. [The Shift: Why It Is Necessary](#the-shift-why-it-is-necessary)
-4. [Frontier Model Harrison Matrix](#frontier-model-harrison-matrix)
+4. [Frontier Model Comparison](#frontier-model-comparison)
 5. [System Architecture Reference](#system-architecture-reference)
 6. [Safety Layer: Control-Plane Safety](#safety-layer-control-plane-safety)
 7. [Prefetch Layer: Predictive Prefetch Middleware](#prefetch-layer-predictive-prefetch-middleware)
@@ -263,7 +263,7 @@ safety-first performance stack.
 
 ---
 
-## Frontier Model Harrison Matrix
+## Frontier Model Comparison
 
 *How the April 2026 frontier class manages memory — and what it means for
 LiteRT-LM's layered architecture.*
@@ -298,7 +298,7 @@ Extended set (API-only, architecture not publicly detailed):
 | 12 | GPT-4.1 | OpenAI | Apr 2025 | 1M context, architecture undisclosed |
 | 13 | Grok 4.1 | xAI | Nov 2025 | ~3T params (MoE), architecture largely undisclosed |
 
-### Harrison Matrix: Attention Architecture
+### Attention architecture comparison
 
 ```
   FRONTIER ATTENTION ARCHITECTURES — APRIL 2026
@@ -326,7 +326,7 @@ Extended set (API-only, architecture not publicly detailed):
   **** iRoPE interleaves layers with and without positional encoding
 ```
 
-### Harrison Matrix: KV-Cache Strategy
+### KV-cache strategy comparison
 
 This is the core of the comparison — how each model family manages the memory
 that grows with every token of context.
@@ -403,7 +403,7 @@ that grows with every token of context.
   └──────────────────┴──────────────────────────────────────────────────────┘
 ```
 
-### Harrison Matrix: Full Comparison
+### Full comparison
 
 | Dimension | Gemma 4 | Step 3.5 Flash | GLM-4.5 | Qwen3-235B | Muse Spark | DeepSeek V3.2 | Llama 4 Scout | Llama 4 Maverick |
 |:---|:---|:---|:---|:---|:---|:---|:---|:---|
