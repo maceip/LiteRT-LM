@@ -19,7 +19,7 @@ and why it matters.*
 6. [Safety Layer: Control-Plane Safety](#safety-layer-control-plane-safety)
 7. [Prefetch Layer: Predictive Prefetch Middleware](#prefetch-layer-predictive-prefetch-middleware)
 8. [Native Cache Layer: Engine-Native Operations](#native-cache-layer-engine-native-operations)
-9. [The Golden Retriever: What Each Layer Delivers](#the-golden-retriever-what-each-layer-delivers)
+9. [Summary: What Each Layer Delivers](#summary-what-each-layer-delivers)
 10. [Aligned Evaluation: Gemma 4 and the Layered System](#aligned-evaluation-gemma-4-and-the-layered-system)
 11. [Where Do We Go from Here?](#where-do-we-go-from-here)
 
@@ -265,7 +265,7 @@ safety-first performance stack.
 
 ## Frontier Model Comparison
 
-*How the April 2026 frontier class manages memory — and what it means for
+*How recent frontier models manage memory — and what it means for
 LiteRT-LM's layered architecture.*
 
 This section compares ten recent frontier model releases across the dimensions
@@ -275,7 +275,7 @@ posture. The comparison is grounded in primary-source release materials and
 recent KV-cache research (see `docs/PHASE_C_CACHE_OPS_RFC_DRAFT.md` for the
 full evidence basis).
 
-### The verified frontier set
+### Models compared
 
 | # | Model | Lab | Date | Total Params | Active Params |
 |:--|:------|:----|:-----|:-------------|:--------------|
@@ -421,7 +421,7 @@ that grows with every token of context.
 
 ### Cache pressure: a taxonomy
 
-The matrix reveals four distinct strategies the frontier class uses to manage
+The comparison reveals four distinct strategies these models use to manage
 KV-cache pressure. Understanding these strategies is critical for LiteRT-LM
 because they determine what cache operations are meaningful at the edge.
 
@@ -463,9 +463,9 @@ because they determine what cache operations are meaningful at the edge.
 
 ### What this means for LiteRT-LM
 
-The frontier matrix maps directly onto the layered architecture:
+The comparison maps directly onto the layered architecture:
 
-**Safety layer relevance**: Every model in the matrix, regardless of cache
+**Safety layer relevance**: Every model in the comparison, regardless of cache
 strategy, needs safe policy transitions. A Gemma 4 model running on a Pixel
 Watch with 128K context and a Qwen3 model running with 262K context both need
 atomic-turn enforcement and boundary-safe policy changes. The Safety layer is
@@ -521,9 +521,9 @@ accommodate all four cache-pressure strategies:
                                    fewer triggers
 ```
 
-### Frontier convergence signals
+### Patterns across models
 
-Three patterns emerge from the matrix that should inform the layered
+Three patterns emerge from the comparison that should inform the layered
 architecture's roadmap:
 
 1. **MoE dominance**: 8 of 10 open-weight models are MoE. Active parameter
@@ -539,7 +539,7 @@ architecture's roadmap:
    layer's per-block metadata are both designed to handle this heterogeneous
    behavior.
 
-3. **Agentic use is universal**: Every model in the matrix emphasizes tool
+3. **Agentic use is universal**: Every model in the comparison emphasizes tool
    calling, function calling, or multi-agent orchestration. Agentic use means
    long-lived sessions with many tool-result boundaries — exactly the pattern
    that the Safety layer's boundary-safe policy transitions and the Prefetch
@@ -949,75 +949,13 @@ native operation.
 
 ---
 
-## The Golden Retriever: What Each Layer Delivers
+## Summary: What Each Layer Delivers
 
-*Like a golden retriever returning with exactly what you threw — here is what
-each layer fetches for the system.*
-
-### Safety layer delivers: Trust
-
-```
-  ┌──────────────────────────────────────────────────────────┐
-  │  SAFETY LAYER — TRUST                                    │
-  │                                                          │
-  │  Throws:   "Make policy changes safe"                    │
-  │  Returns:  Deterministic, auditable, atomic transitions  │
-  │                                                          │
-  │  Key artifacts:                                          │
-  │  - Safe-boundary queue (tool_result, turn_boundary)      │
-  │  - Atomic-turn enforcement (no mid-inference changes)    │
-  │  - Priority arbiter (profile > runtime > limits)         │
-  │  - Transition notes (observable policy shifts)           │
-  │  - Version gating (reject before mutate)                 │
-  │                                                          │
-  │  Without this:  Nothing else can be trusted.             │
-  └──────────────────────────────────────────────────────────┘
-```
-
-### Prefetch layer delivers: Speed
-
-```
-  ┌──────────────────────────────────────────────────────────┐
-  │  PREFETCH LAYER — SPEED                                  │
-  │                                                          │
-  │  Throws:   "Make context shifts fast"                    │
-  │  Returns:  Background planning, instant boundary install │
-  │                                                          │
-  │  Key artifacts:                                          │
-  │  - Prefetch planner (async, bounded resources)           │
-  │  - Replay packs (prebuilt, validated, identity-tagged)   │
-  │  - Builder identity (replay_recent, drop_all_but_system, │
-  │    summarize_protected_tail, quarantine_merge)            │
-  │  - Structured telemetry (6 dimensions, 6 outcomes)       │
-  │  - Scaffold honesty (explicit about what's real)         │
-  │                                                          │
-  │  Without this:  Every context shift blocks the user.     │
-  └──────────────────────────────────────────────────────────┘
-```
-
-### Native Cache layer delivers: Intelligence
-
-```
-  ┌──────────────────────────────────────────────────────────┐
-  │  NATIVE CACHE LAYER — INTELLIGENCE                       │
-  │                                                          │
-  │  Throws:   "Make the engine understand its own cache"    │
-  │  Returns:  Block-level awareness, native KV surgery      │
-  │                                                          │
-  │  Key artifacts:                                          │
-  │  - KV block model (identity, span, lineage, pin, heat)  │
-  │  - Native ops (Pin, EvictRange, Remap, Compact,          │
-  │    SnapshotRestore)                                      │
-  │  - Capability discovery (explicit, versioned, immutable) │
-  │  - CacheOpGroup atomicity (all-or-nothing commits)       │
-  │  - Failure vocabulary (9 codes, 3 trigger fallback)      │
-  │  - Rollback envelope (pre-state, touched set, viability) │
-  │                                                          │
-  │  Without this:  The engine is blind to what it holds.    │
-  └──────────────────────────────────────────────────────────┘
-```
-
-### The full delivery chain
+| Layer | Delivers | Key components | Without it |
+|:------|:---------|:---------------|:-----------|
+| **Safety** | Trust | Safe-boundary queue, atomic-turn enforcement, priority arbiter, transition notes, version gating | Nothing else can be trusted |
+| **Prefetch** | Speed | Async planner, replay packs, builder identity (`replay_recent`, `drop_all_but_system`, `summarize_protected_tail`, `quarantine_merge`), structured telemetry | Every context shift blocks the user |
+| **Native Cache** | Intelligence | KV block model, native ops (Pin, EvictRange, Remap, Compact, SnapshotRestore), capability discovery, CacheOpGroup atomicity, rollback envelope | The engine is blind to what it holds |
 
 ```
   ┌────────┐      ┌──────────┐      ┌──────────────┐
@@ -1025,9 +963,7 @@ each layer fetches for the system.*
   │(Safety)│      │(Prefetch)│      │(Native Cache)│
   └────────┘      └──────────┘      └──────────────┘
        │               │                  │
-       │               │                  │
        ▼               ▼                  ▼
-  Safety first.   Then fast.        Then smart.
   Always on.      Falls back        Falls back
                   to sync replay.   to Prefetch.
 ```
