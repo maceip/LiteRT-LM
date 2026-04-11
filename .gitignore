@@ -1,2 +1,5 @@
 /MODULE.bazel.lock
 /bazel-*
+eval/__pycache__/
+eval/prompts/__pycache__/
+models/
