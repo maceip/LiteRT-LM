@@ -199,11 +199,10 @@ absl::AnyInvocable<void(absl::StatusOr<Message>)> CreateTestMessageCallback(
       FAIL() << "Message user_callback failed: " << message.status();
       return;
     }
+    const JsonMessage& json_message = message.value();
     // If the message is null, the last callback is received.
-    if (auto json_message = std::get_if<JsonMessage>(&message.value());
-        json_message->is_null()) {
-      JsonMessage& expected_json_message =
-          std::get<JsonMessage>(expected_message);
+    if (json_message.is_null()) {
+      JsonMessage& expected_json_message = expected_message;
       ASSERT_TRUE(expected_json_message["content"][0]["text"].is_string());
       std::string expected_string = expected_json_message["content"][0]["text"];
       // The expected string should be empty after the last callback.
@@ -212,26 +211,22 @@ absl::AnyInvocable<void(absl::StatusOr<Message>)> CreateTestMessageCallback(
       return;
     }
     // Otherwise, this is a partial response.
-    if (auto json_message = std::get_if<JsonMessage>(&message.value())) {
-      JsonMessage& expected_json_message =
-          std::get<JsonMessage>(expected_message);
-      // Compare the message text content by prefix, and update the expected
-      // message to the remaining text for the next user_callback.
-      ASSERT_TRUE(expected_json_message["content"][0]["text"].is_string());
-      ASSERT_TRUE((*json_message)["content"][0]["text"].is_string());
-      std::string expected_string = expected_json_message["content"][0]["text"];
-      std::string actual_string = (*json_message)["content"][0]["text"];
-      EXPECT_TRUE(absl::StartsWith(expected_string, actual_string))
-          << "Expected: " << expected_string << "\nActual: " << actual_string;
-      expected_json_message["content"][0]["text"] =
-          expected_string.substr(actual_string.size());
-    }
+    JsonMessage& expected_json_message = expected_message;
+    // Compare the message text content by prefix, and update the expected
+    // message to the remaining text for the next user_callback.
+    ASSERT_TRUE(expected_json_message["content"][0]["text"].is_string());
+    ASSERT_TRUE(json_message["content"][0]["text"].is_string());
+    std::string expected_string = expected_json_message["content"][0]["text"];
+    std::string actual_string = json_message["content"][0]["text"];
+    EXPECT_TRUE(absl::StartsWith(expected_string, actual_string))
+        << "Expected: " << expected_string << "\nActual: " << actual_string;
+    expected_json_message["content"][0]["text"] =
+        expected_string.substr(actual_string.size());
   };
 }
 
 void ExpectAssistantMessageWithNonEmptyText(const Message& message) {
-  ASSERT_TRUE(std::holds_alternative<JsonMessage>(message));
-  const JsonMessage& json_message = std::get<JsonMessage>(message);
+  const JsonMessage& json_message = message;
   ASSERT_TRUE(json_message.is_object());
   ASSERT_TRUE(json_message.contains("role"));
   ASSERT_TRUE(json_message["role"].is_string());
@@ -258,8 +253,7 @@ absl::AnyInvocable<void(absl::StatusOr<Message>)> CreateStreamingObserverCallbac
       done.Notify();
       return;
     }
-    if (auto json_message = std::get_if<JsonMessage>(&message.value());
-        json_message->is_null()) {
+    if (message->is_null()) {
       done.Notify();
       return;
     }
@@ -273,8 +267,7 @@ CreateTestMultiMessageCallback(const std::vector<Message>& expected_messages,
   return [&expected_messages, &done,
           current_index = 0](absl::StatusOr<Message> message) mutable {
     ASSERT_OK(message);
-    ASSERT_TRUE(std::holds_alternative<JsonMessage>(message.value()));
-    auto json_message = std::get<JsonMessage>(message.value());
+    const JsonMessage& json_message = message.value();
 
     // If the message is null, the message stream is complete.
     if (json_message.is_null()) {
@@ -288,7 +281,7 @@ CreateTestMultiMessageCallback(const std::vector<Message>& expected_messages,
     ASSERT_LT(current_index, expected_messages.size())
         << "Received more messages than expected. Expected size: "
         << expected_messages.size();
-    EXPECT_THAT(*message, testing::Eq(expected_messages[current_index]));
+    EXPECT_THAT(json_message, testing::Eq(expected_messages[current_index]));
     ++current_index;
   };
 }
@@ -722,7 +715,7 @@ TEST_P(ConversationTest, SendSingleMessage) {
       }
     ]
   })");
-  EXPECT_EQ(std::get<JsonMessage>(response), assistant_message);
+  EXPECT_EQ(response, assistant_message);
   EXPECT_THAT(conversation->GetHistory(),
               testing::ElementsAre(user_message, assistant_message));
 }
@@ -794,7 +787,7 @@ Thinking disabled.<end_of_turn>
       }
     ]
   })");
-  EXPECT_EQ(std::get<JsonMessage>(response), assistant_message);
+  EXPECT_EQ(response, assistant_message);
   EXPECT_THAT(conversation->GetHistory(),
               testing::ElementsAre(user_message, assistant_message));
 }
@@ -880,7 +873,7 @@ Key3: {{ key3 + "\n"}}
       }
     ]
   })");
-  EXPECT_EQ(std::get<JsonMessage>(response), assistant_message);
+  EXPECT_EQ(response, assistant_message);
 }
 
 TEST_P(ConversationTest, SendMultipleMessages) {
@@ -941,7 +934,7 @@ TEST_P(ConversationTest, SendMultipleMessages) {
       }
     ]
   })");
-  EXPECT_EQ(std::get<JsonMessage>(response), assistant_message);
+  EXPECT_EQ(response, assistant_message);
   EXPECT_THAT(conversation->GetHistory(),
               testing::ElementsAre(user_messages[0], user_messages[1],
                                    assistant_message));
@@ -1003,7 +996,7 @@ TEST_P(ConversationTest, SendSingleMessageWithChannel) {
       "thought": "hmm"
     }
   })");
-  EXPECT_THAT(std::get<JsonMessage>(response), testing::Eq(assistant_message));
+  EXPECT_THAT(response, testing::Eq(assistant_message));
   EXPECT_THAT(conversation->GetHistory(),
               testing::ElementsAre(user_message, assistant_message));
 }
@@ -1063,7 +1056,7 @@ TEST_P(ConversationTest, SendSingleMessageWithChannelQwenThink) {
       "thought": "hmm"
     }
   })");
-  EXPECT_THAT(std::get<JsonMessage>(response), testing::Eq(assistant_message));
+  EXPECT_THAT(response, testing::Eq(assistant_message));
   EXPECT_THAT(conversation->GetHistory(),
               testing::ElementsAre(user_message, assistant_message));
 }
@@ -1575,8 +1568,7 @@ TEST_P(ConversationTest,
 
   const auto history = conversation->GetHistory();
   ASSERT_THAT(history.size(), testing::Eq(1));
-  ASSERT_TRUE(std::holds_alternative<JsonMessage>(history[0]));
-  const JsonMessage& note = std::get<JsonMessage>(history[0]);
+  const JsonMessage& note = history[0];
   ASSERT_TRUE(note.is_object());
   EXPECT_EQ(note["role"], "system");
   ASSERT_TRUE(note["content"].is_string());
@@ -4049,10 +4041,8 @@ TEST_P(ConversationTest, SendMessageAsyncWithChannelContentFiltering) {
       done_1.Notify();
       return;
     }
-    if (auto* json_msg = std::get_if<JsonMessage>(&message.value())) {
-      if (json_msg->is_null()) {
-        done_1.Notify();
-      }
+    if (message->is_null()) {
+      done_1.Notify();
     }
   };
 
@@ -4079,10 +4069,8 @@ TEST_P(ConversationTest, SendMessageAsyncWithChannelContentFiltering) {
       done_2.Notify();
       return;
     }
-    if (auto* json_msg = std::get_if<JsonMessage>(&message.value())) {
-      if (json_msg->is_null()) {
-        done_2.Notify();
-      }
+    if (message->is_null()) {
+      done_2.Notify();
     }
   };
 
@@ -4297,7 +4285,7 @@ TEST_P(ConversationTest, SendMessageWithPreface) {
          {{{"type", "text"},
            {"text", " noses</caption> গ্রাহ<unused5296> omp"}}}}};
   }
-  const JsonMessage& json_message = std::get<JsonMessage>(message);
+  const JsonMessage& json_message = message;
   EXPECT_EQ(json_message, expected_message);
 }
 
@@ -4476,8 +4464,7 @@ CreateCancelledMessageCallback(absl::Status& status, absl::Notification& done) {
       done.Notify();
       return;
     }
-    if (auto json_message = std::get_if<JsonMessage>(&message.value());
-        json_message->is_null()) {
+    if (message->is_null()) {
       status = absl::OkStatus();
       done.Notify();
       return;
@@ -4589,9 +4576,7 @@ TEST_P(ConversationCancellationTest, CancelProcessWithBenchmarkInfo) {
   // assistant message content depends on at which step the cancellation is
   // triggered, and that is non-deterministic. Here we only check the role is
   // assistant.
-  EXPECT_THAT(std::holds_alternative<JsonMessage>(history[1]),
-              testing::IsTrue());
-  EXPECT_EQ(std::get<JsonMessage>(history[1])["role"], "assistant");
+  EXPECT_EQ(history[1]["role"], "assistant");
 
   conversation->CancelProcess();
   // No op after cancellation again.
@@ -4703,7 +4688,7 @@ TEST_P(ConversationTest, Clone) {
   // Verify the history in the cloned conversation.
   auto history = cloned_conversation->GetHistory();
   EXPECT_EQ(history.size(), 2);
-  EXPECT_EQ(std::get<JsonMessage>(history[0]), user_message);
+  EXPECT_EQ(history[0], user_message);
 
   // Verify that sending a message in the cloned conversation works and uses the
   // cloned session.
