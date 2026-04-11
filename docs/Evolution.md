@@ -14,12 +14,13 @@ and why it matters.*
 1. [Why "Hurtle"](#why-hurtle)
 2. [The Framework as A, B, and C](#the-framework-as-a-b-and-c)
 3. [The Shift: Why It Is Necessary](#the-shift-why-it-is-necessary)
-4. [System Architecture Reference](#system-architecture-reference)
-5. [Phase A: Control-Plane Safety](#phase-a-control-plane-safety)
-6. [Phase B: Predictive Prefetch Middleware](#phase-b-predictive-prefetch-middleware)
-7. [Phase C: Native Cache Operations](#phase-c-native-cache-operations)
-8. [The Golden Retriever: What Each Phase Brings Back](#the-golden-retriever-what-each-phase-brings-back)
-9. [Where Do We Go from Here?](#where-do-we-go-from-here)
+4. [Frontier Model Harrison Matrix](#frontier-model-harrison-matrix)
+5. [System Architecture Reference](#system-architecture-reference)
+6. [Phase A: Control-Plane Safety](#phase-a-control-plane-safety)
+7. [Phase B: Predictive Prefetch Middleware](#phase-b-predictive-prefetch-middleware)
+8. [Phase C: Native Cache Operations](#phase-c-native-cache-operations)
+9. [The Golden Retriever: What Each Phase Brings Back](#the-golden-retriever-what-each-phase-brings-back)
+10. [Where Do We Go from Here?](#where-do-we-go-from-here)
 
 ---
 
@@ -254,6 +255,288 @@ are not independent optimizations — they are a safety-first performance stack.
                       (background)  (atomic)     │
                                                  │
 ```
+
+---
+
+## Frontier Model Harrison Matrix
+
+*How the April 2026 frontier class manages memory — and what it means for
+LiteRT-LM's phased architecture.*
+
+This section compares ten recent frontier model releases across the dimensions
+that matter most for runtime memory policy: attention architecture, KV-cache
+strategy, context length, cache-pressure relief mechanisms, and agentic/tool-use
+posture. The comparison is grounded in primary-source release materials and
+recent KV-cache research (see `docs/PHASE_C_CACHE_OPS_RFC_DRAFT.md` for the
+full evidence basis).
+
+### The verified frontier set
+
+| # | Model | Lab | Date | Total Params | Active Params |
+|:--|:------|:----|:-----|:-------------|:--------------|
+| 1 | Gemma 4 (26B-A4B) | Google DeepMind | Apr 2026 | 26.1B | ~4B |
+| 2 | Gemma 4 (31B dense) | Google DeepMind | Apr 2026 | 31B | 31B |
+| 3 | Step 3.5 Flash | StepFun | Feb 2026 | 196B | ~11B |
+| 4 | GLM-4.5 | Z.ai (Zhipu) | Jul 2025 | 355B | ~32B |
+| 5 | GLM-4.5-Air | Z.ai (Zhipu) | Jul 2025 | 106B | ~12B |
+| 6 | Qwen3-235B-A22B | Alibaba (Qwen) | Apr 2025 | 235B | ~22B |
+| 7 | Muse Spark | Meta (MSL) | Apr 2026 | undisclosed | undisclosed |
+| 8 | DeepSeek V3.2 | DeepSeek | Dec 2025 | 685B | ~37B |
+| 9 | Llama 4 Scout | Meta | Jan 2026 | 109B | ~17B |
+| 10 | Llama 4 Maverick | Meta | Jan 2026 | 400B | ~17B |
+
+Extended set (API-only, architecture not publicly detailed):
+
+| # | Model | Lab | Date | Notes |
+|:--|:------|:----|:-----|:------|
+| 11 | Claude Mythos Preview | Anthropic | Apr 2026 | Restricted to ~50 orgs via Project Glasswing |
+| 12 | GPT-4.1 | OpenAI | Apr 2025 | 1M context, architecture undisclosed |
+| 13 | Grok 4.1 | xAI | Nov 2025 | ~3T params (MoE), architecture largely undisclosed |
+
+### Harrison Matrix: Attention Architecture
+
+```
+  FRONTIER ATTENTION ARCHITECTURES — APRIL 2026
+  ================================================
+
+  Model              Attention Type          KV Heads   Q Heads   Layers  Window
+  ─────              ──────────────          ────────   ───────   ──────  ──────
+  Gemma 4 26B-A4B    Hybrid SWA/Full         varies*    varies*   ~60     512-1K
+                     (alternating layers)
+  Gemma 4 31B        Hybrid SWA/Full         16 (GQA)   32        60      1,024
+                     (alternating layers)
+  Step 3.5 Flash     Hybrid SWA/Full         -**        -**       45      512
+                     (3:1 SWA/Full ratio)
+  GLM-4.5            MoE + undisclosed       n/a        n/a       n/a     n/a
+  GLM-4.5-Air        MoE + undisclosed       n/a        n/a       n/a     n/a
+  Qwen3-235B-A22B    GQA                     4          64        94      full
+  Muse Spark         Undisclosed             n/a        n/a       n/a     n/a
+  DeepSeek V3.2      MLA (latent compress)   n/a***     n/a***    n/a     full
+  Llama 4 Scout      iRoPE (interleaved)     -**        -**       n/a     full****
+  Llama 4 Maverick   iRoPE (interleaved)     -**        -**       n/a     full****
+
+  *   Gemma 4 uses different head dims per layer type: local=256, global=512
+  **  Specific head counts not publicly documented
+  *** MLA replaces traditional Q/KV head model with latent compression
+  **** iRoPE interleaves layers with and without positional encoding
+```
+
+### Harrison Matrix: KV-Cache Strategy
+
+This is the core of the comparison — how each model family manages the memory
+that grows with every token of context.
+
+```
+  FRONTIER KV-CACHE STRATEGIES — APRIL 2026
+  ============================================
+
+  ┌──────────────────┬──────────────────────────────────────────────────────┐
+  │  STRATEGY        │  MODELS USING IT                                    │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │                  │                                                      │
+  │  Hybrid SWA      │  Gemma 4 (all variants), Step 3.5 Flash             │
+  │  (sliding +      │                                                      │
+  │   full layers)   │  Local layers cache only last w tokens.             │
+  │                  │  Global layers cache full sequence.                  │
+  │                  │  Net effect: sublinear KV growth with ratio.        │
+  │                  │                                                      │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │                  │                                                      │
+  │  GQA             │  Qwen3-235B-A22B, Gemma 4 (within layers)           │
+  │  (grouped-query  │                                                      │
+  │   attention)     │  4-16 KV heads share across 32-64 Q heads.          │
+  │                  │  Direct multiplicative KV-cache size reduction.     │
+  │                  │  Qwen3: 4 KV heads / 64 Q heads = 93.75% savings.  │
+  │                  │                                                      │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │                  │                                                      │
+  │  MLA             │  DeepSeek V3.2                                       │
+  │  (multi-latent   │                                                      │
+  │   attention)     │  KV jointly compressed into low-rank latent.        │
+  │                  │  ~98% per-token cache reduction vs standard MHA.    │
+  │                  │  Decoupled RoPE: positional dims separate from      │
+  │                  │  compressed dims to preserve weight absorption.     │
+  │                  │  Only latent vector c_t^KV is cached, not full K/V. │
+  │                  │                                                      │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │                  │                                                      │
+  │  iRoPE           │  Llama 4 Scout, Llama 4 Maverick                    │
+  │  (interleaved    │                                                      │
+  │   RoPE)          │  Alternates layers WITH and WITHOUT positional      │
+  │                  │  encoding. NoPE layers attend on content only.      │
+  │                  │  Temperature scaling prevents attention degradation │
+  │                  │  at extreme lengths (10M tokens for Scout).         │
+  │                  │  KV cache still grows linearly — iRoPE improves    │
+  │                  │  quality at length, not cache size.                 │
+  │                  │                                                      │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │                  │                                                      │
+  │  Context Cache   │  GLM-4.5, GLM-4.5-Air                               │
+  │  (API-level      │                                                      │
+  │   caching)       │  Serving-layer prefix caching for repeated prompts. │
+  │                  │  Internal architecture not publicly documented.     │
+  │                  │  128K context, 96K max output.                       │
+  │                  │                                                      │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │                  │                                                      │
+  │  Thought         │  Muse Spark                                          │
+  │  Compression     │                                                      │
+  │                  │  Compresses reasoning chains to use fewer tokens.   │
+  │                  │  58M tokens/task vs Claude Opus 4.6's 157M.         │
+  │                  │  Indirect cache pressure relief via reduced          │
+  │                  │  reasoning length. Architecture not disclosed.      │
+  │                  │                                                      │
+  ├──────────────────┼──────────────────────────────────────────────────────┤
+  │                  │                                                      │
+  │  Prompt Cache    │  GPT-4.1 (API-level)                                 │
+  │  (prefix reuse)  │                                                      │
+  │                  │  Exact prefix match reuses KV tensors.              │
+  │                  │  1024+ token minimum, 128-token granularity.        │
+  │                  │  Up to 90% input cost reduction, 80% TTFT reduction.│
+  │                  │  1M context window. Architecture not disclosed.     │
+  │                  │                                                      │
+  └──────────────────┴──────────────────────────────────────────────────────┘
+```
+
+### Harrison Matrix: Full Comparison
+
+| Dimension | Gemma 4 | Step 3.5 Flash | GLM-4.5 | Qwen3-235B | Muse Spark | DeepSeek V3.2 | Llama 4 Scout | Llama 4 Maverick |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+| **Architecture** | Dense + MoE variants | Sparse MoE | Sparse MoE | Sparse MoE | Undisclosed | Sparse MoE | Sparse MoE | Sparse MoE |
+| **Total / Active** | 26-31B / 4-31B | 196B / 11B | 355B / 32B | 235B / 22B | n/a | 685B / 37B | 109B / 17B | 400B / 17B |
+| **Context** | 128-256K | 256K | 128K | 262K-1M | n/a | 128K | 10M | 1M |
+| **Attention** | Hybrid SWA/Full + GQA | Hybrid SWA/Full (3:1) | Undisclosed | GQA (4 KV / 64 Q) | Undisclosed | MLA (latent) | iRoPE | iRoPE |
+| **KV reduction** | SWA local eviction + GQA head sharing | SWA local eviction (w=512) | API-level context cache | GQA 93.75% head reduction | Thought compression | MLA ~98% latent compression | None (linear growth) | None (linear growth) |
+| **Positional** | RoPE (local θ=10K) + partial RoPE (global θ=1M) | Standard RoPE | Undisclosed | Standard RoPE | Undisclosed | Decoupled RoPE | iRoPE (interleaved NoPE) | iRoPE (interleaved NoPE) |
+| **MTP** | No | MTP-3 (3-way) | No | Yes | No | Yes | No | No |
+| **Tool/Function** | Native function calling | Massive tool orchestration | Native function calling | MCP + tool calling | Multi-agent orchestration | Function calling | Function calling | Function calling |
+| **Thinking modes** | No | No | Yes (think/non-think) | Yes (think/non-think) | Visual chain-of-thought | No | No | No |
+| **Edge target** | Yes (E2B/E4B) | No (cloud) | No (cloud/API) | No (cloud) | No (cloud) | No (cloud) | Yes (single H100) | No (4x A100) |
+| **Open weights** | Yes | Yes | Yes | Yes | No | Yes | Yes | Yes |
+
+### Cache pressure: a taxonomy
+
+The matrix reveals four distinct strategies the frontier class uses to manage
+KV-cache pressure. Understanding these strategies is critical for LiteRT-LM
+because they determine what cache operations are meaningful at the edge.
+
+```
+  CACHE PRESSURE TAXONOMY — FOUR STRATEGIES
+  ============================================
+
+  1. ARCHITECTURAL COMPRESSION (build-time)
+     ├── GQA: fewer KV heads, direct size reduction
+     │   └── Qwen3: 4 KV / 64 Q = 16:1 sharing ratio
+     │   └── Gemma 4: variable per layer type
+     ├── MLA: low-rank latent projection, ~98% reduction
+     │   └── DeepSeek V3.2: only latent c_t^KV cached
+     └── Hybrid SWA: local layers discard old tokens
+         └── Gemma 4: 50/60 layers are local (w=1024)
+         └── Step 3.5 Flash: 3:1 SWA/Full (w=512)
+
+  2. POSITIONAL INNOVATION (train-time)
+     ├── iRoPE: NoPE layers + temperature scaling
+     │   └── Llama 4: enables 10M context WITHOUT cache reduction
+     ├── Decoupled RoPE: positional dims separated from latent
+     │   └── DeepSeek V3.2: preserves weight absorption in MLA
+     └── Partial RoPE: fractional positional encoding
+         └── Gemma 4 global layers: partial=0.25, theta=1M
+
+  3. INFERENCE-TIME OPTIMIZATION (serve-time)
+     ├── Prefix caching: reuse KV for shared prompt prefixes
+     │   └── GPT-4.1: exact prefix match, 1024+ tokens
+     │   └── GLM-4.5: API-level context caching
+     ├── PagedAttention: virtual memory for KV blocks
+     │   └── Qwen3 + vLLM: 40% VRAM reduction
+     └── Ring-buffer allocation: fixed-size cache rotation
+         └── Gemma 4 SWA layers: ring-buffer for decode
+
+  4. REASONING COMPRESSION (model-time)
+     └── Thought compression: fewer tokens per reasoning step
+         └── Muse Spark: 2.7x fewer tokens than Claude Opus 4.6
+```
+
+### What this means for LiteRT-LM
+
+The frontier matrix maps directly onto the phased architecture:
+
+**Phase A relevance**: Every model in the matrix, regardless of cache strategy,
+needs safe policy transitions. A Gemma 4 model running on a Pixel Watch with
+128K context and a Qwen3 model running with 262K context both need atomic-turn
+enforcement and boundary-safe policy changes. Phase A is universal.
+
+**Phase B relevance**: Models with hybrid SWA (Gemma 4, Step 3.5 Flash) benefit
+most from Phase B prefetch planning because their context-shift behavior is
+predictable — local layers evict at a fixed window, so the prefetch planner can
+anticipate exactly when shifts will occur. Models with MLA (DeepSeek V3.2) have
+lower cache pressure, so Phase B triggers less frequently but remains the
+fallback.
+
+**Phase C relevance**: The Phase C block model (`block_id`, `token_span`,
+`pin_class`, `heat_score`) is designed to accommodate all four cache-pressure
+strategies:
+
+- **GQA models** (Qwen3, Gemma 4): Blocks correspond to shared KV head groups.
+  Pin/evict/remap operate on the reduced KV representation.
+- **MLA models** (DeepSeek V3.2): Blocks correspond to latent vectors. The
+  block model's `token_span` maps to the logical tokens that the latent
+  represents, even though the physical storage is compressed.
+- **Hybrid SWA models** (Gemma 4, Step 3.5 Flash): Blocks in local layers have
+  bounded lifetime. The `heat_score` and eviction policies align with the
+  sliding-window semantics — old blocks in local layers naturally have zero heat.
+- **iRoPE models** (Llama 4): KV cache grows linearly, so Phase C eviction
+  and compaction are most valuable. The `pin_class` system protects attention
+  sinks that iRoPE's NoPE layers rely on for content-based attention.
+
+```
+  PHASE RELEVANCE BY CACHE STRATEGY
+  ====================================
+
+  Strategy              Phase A    Phase B         Phase C
+  ────────              ───────    ───────         ───────
+  GQA                   Always     Prefetch at     Pin/Evict on reduced KV
+                                   threshold       groups
+
+  MLA                   Always     Rare trigger,   Latent-aware block ops
+                                   still fallback  (compressed spans)
+
+  Hybrid SWA            Always     Predictable     Window-aligned eviction,
+                                   trigger point   bounded local blocks
+
+  iRoPE (linear KV)     Always     Critical at     Highest value: evict +
+                                   long context    compact relieve linear
+                                                   growth
+
+  Prompt/Context Cache   Always     Prefix-aware    Snapshot/Restore for
+  (GPT-4.1, GLM-4.5)              planning         cached prefix boundaries
+
+  Thought Compression    Always     Reduced cache   Standard block ops,
+  (Muse Spark)                     pressure =       less frequent trigger
+                                   fewer triggers
+```
+
+### Frontier convergence signals
+
+Three patterns emerge from the matrix that should inform the phased
+architecture's roadmap:
+
+1. **MoE dominance**: 8 of 10 open-weight models are MoE. Active parameter
+   counts range from 4B to 37B. This means edge deployment is viable for models
+   with hundreds of billions of total parameters — but only if the runtime can
+   manage KV cache for the active parameter set efficiently. Phase C's
+   block-level accounting is designed for this.
+
+2. **Hybrid attention is the norm**: Gemma 4 and Step 3.5 Flash both use
+   hybrid SWA/full-attention layouts. This creates two-tier cache behavior
+   within a single model — local layers with bounded cache and global layers
+   with unbounded cache. Phase B's prefetch planner and Phase C's
+   per-block metadata are both designed to handle this heterogeneous behavior.
+
+3. **Agentic use is universal**: Every model in the matrix emphasizes tool
+   calling, function calling, or multi-agent orchestration. Agentic use means
+   long-lived sessions with many tool-result boundaries — exactly the pattern
+   that Phase A's boundary-safe policy transitions and Phase B's
+   prefetch-at-boundary install are designed for.
 
 ---
 
