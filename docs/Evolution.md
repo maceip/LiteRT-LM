@@ -1,8 +1,8 @@
 # Evolution
 
 **A framework narrative for how LiteRT-LM's runtime memory policy evolves
-across Phase A, Phase B, and Phase C — and why the shift is necessary for
-privacy, user control, and ultimately performance.**
+across three layers — Safety, Prefetch, and Native Cache — and why the shift
+is necessary for privacy, user control, and ultimately performance.**
 
 *A practical guide for engineers who just want to know what's happening
 and why it matters.*
@@ -12,21 +12,21 @@ and why it matters.*
 ## Table of Contents
 
 1. [Why This Document](#why-this-document)
-2. [The Framework as A, B, and C](#the-framework-as-a-b-and-c)
+2. [Three Layers](#three-layers)
 3. [The Shift: Why It Is Necessary](#the-shift-why-it-is-necessary)
 4. [Frontier Model Harrison Matrix](#frontier-model-harrison-matrix)
 5. [System Architecture Reference](#system-architecture-reference)
-6. [Phase A: Control-Plane Safety](#phase-a-control-plane-safety)
-7. [Phase B: Predictive Prefetch Middleware](#phase-b-predictive-prefetch-middleware)
-8. [Phase C: Native Cache Operations](#phase-c-native-cache-operations)
-9. [The Golden Retriever: What Each Phase Brings Back](#the-golden-retriever-what-each-phase-brings-back)
+6. [Safety Layer: Control-Plane Safety](#safety-layer-control-plane-safety)
+7. [Prefetch Layer: Predictive Prefetch Middleware](#prefetch-layer-predictive-prefetch-middleware)
+8. [Native Cache Layer: Engine-Native Operations](#native-cache-layer-engine-native-operations)
+9. [The Golden Retriever: What Each Layer Delivers](#the-golden-retriever-what-each-layer-delivers)
 10. [Where Do We Go from Here?](#where-do-we-go-from-here)
 
 ---
 
 ## Why This Document
 
-Every phase of this architecture exists because there was a concrete problem
+Every layer of this architecture exists because there was a concrete problem
 to solve.
 
 This project did not arrive at its current architecture through careful
@@ -35,10 +35,10 @@ Chromebook Plus, Pixel Watch, the AI Edge Gallery — needed on-device LLM
 inference that actually works under real constraints: memory budgets, thermal
 limits, user privacy requirements, and hardware that ships in the millions.
 
-Phase A solved the safety problem — making policy transitions deterministic.
-Phase B solved the latency problem — making context shifts non-blocking.
-Phase C solves the intelligence problem — giving the engine native awareness
-of its own cache.
+The Safety layer solved the safety problem — making policy transitions
+deterministic. The Prefetch layer solved the latency problem — making context
+shifts non-blocking. The Native Cache layer solves the intelligence problem —
+giving the engine native awareness of its own cache.
 
 If you are reading this document, you are somewhere on that trajectory. This
 document tells you where the framework has been, where it is, and where it
@@ -46,27 +46,27 @@ is going.
 
 ---
 
-## The Framework as A, B, and C
+## Three Layers
 
-The full framework decomposes into three phases. Each phase builds on the
-guarantees of the one before it. None of them replaces the earlier phase — they
+The full framework decomposes into three layers. Each layer builds on the
+guarantees of the one below it. None of them replaces an earlier layer — they
 stack.
 
 ```
-  THE THREE PHASES — LAYERED, NOT REPLACED
-  ==========================================
+  THREE LAYERS — STACKED, NOT REPLACED
+  =======================================
 
-  Phase C ── Native Cache Operations ────────────────────────────┐
+  Native Cache ── Engine-Native Operations ──────────────────────┐
   │  Engine-native KV surgery: Pin, EvictRange, Remap,           │
   │  Compact, SnapshotRestore. Capability-gated.                 │
-  │  Falls back to Phase B on any failure.                       │
+  │  Falls back to the Prefetch layer on any failure.            │
   ├──────────────────────────────────────────────────────────────-┤
-  Phase B ── Predictive Prefetch Middleware ──────────────────────┤
+  Prefetch ── Predictive Prefetch Middleware ─────────────────────┤
   │  Background planning, precomputed replay packs,              │
   │  boundary-safe install, structured telemetry.                │
   │  Falls back to synchronous replay on any mismatch.           │
   ├──────────────────────────────────────────────────────────────-┤
-  Phase A ── Control-Plane Safety ───────────────────────────────┤
+  Safety ── Control-Plane Safety ────────────────────────────────┤
   │  Safe-boundary queueing, atomic-turn enforcement,            │
   │  priority arbitration, transition notes,                     │
   │  version/compatibility gating.                               │
@@ -74,28 +74,28 @@ stack.
   └──────────────────────────────────────────────────────────────-┘
 ```
 
-**Phase A** is the safety contract. It guarantees that runtime policy changes
-never apply mid-turn, never corrupt active inference, and always respect
-profile constraints.
+**The Safety layer** is the safety contract. It guarantees that runtime policy
+changes never apply mid-turn, never corrupt active inference, and always
+respect profile constraints.
 
-**Phase B** is the performance layer. It adds background prefetch planning and
-precomputed replay packs so that context-shift transitions — the expensive
-moments where the runtime has to decide what to keep and what to discard — can
-be computed ahead of time instead of blocking the user.
+**The Prefetch layer** is the performance layer. It adds background prefetch
+planning and precomputed replay packs so that context-shift transitions — the
+expensive moments where the runtime has to decide what to keep and what to
+discard — can be computed ahead of time instead of blocking the user.
 
-**Phase C** is the intelligence layer. It introduces engine-native cache
-operations — real KV surgery — so the runtime can pin attention sinks, evict
-ranges, remap blocks, and compact memory without full recompute. But it only
-does this when the engine explicitly advertises capability support, and it falls
-back to Phase B deterministic recompute on any failure.
+**The Native Cache layer** is the intelligence layer. It introduces engine-
+native cache operations — real KV surgery — so the runtime can pin attention
+sinks, evict ranges, remap blocks, and compact memory without full recompute.
+But it only does this when the engine explicitly advertises capability support,
+and it falls back to Prefetch-layer deterministic recompute on any failure.
 
 ### The fallback chain
 
 ```
   ┌────────────┐     capability     ┌────────────┐     always     ┌────────────┐
-  │  Phase C   │ ──── missing? ───> │  Phase B   │ ── present ──> │  Phase A   │
-  │  Native    │     or failure     │  Prefetch  │   and enforced │  Safety    │
-  │  Cache Ops │                    │  Replay    │                │  Contract  │
+  │  Native    │ ──── missing? ───> │  Prefetch  │ ── present ──> │  Safety    │
+  │  Cache     │     or failure     │  Replay    │   and enforced │  Contract  │
+  │  Layer     │                    │  Layer     │                │  Layer     │
   └────────────┘                    └────────────┘                └────────────┘
        │                                  │                             │
        │   On failure:                    │   On mismatch:              │
@@ -103,12 +103,13 @@ back to Phase B deterministic recompute on any failure.
        │   internal_corruption            │   policy change             │
        │   unsupported_capability         │   history revision          │
        │                                  │                             │
-       └──────── fall back to B ──────────┘──── always enforced ────────┘
+       └──── fall back to Prefetch ───────┘──── always enforced ────────┘
 ```
 
-This chain is not aspirational. It is the actual contract. Phase C never
-strands a conversation in a partially shifted state. Phase B never blocks a
-user turn on a planner thread. Phase A never allows a policy change mid-turn.
+This chain is not aspirational. It is the actual contract. The Native Cache
+layer never strands a conversation in a partially shifted state. The Prefetch
+layer never blocks a user turn on a planner thread. The Safety layer never
+allows a policy change mid-turn.
 
 ---
 
@@ -129,18 +130,19 @@ every context shift leaks temporal patterns through timing side channels,
 creates unnecessary copies of sensitive context in memory, and makes it harder
 to enforce data-lifecycle policies.
 
-The phased architecture addresses this:
+The layered architecture addresses this:
 
-- **Phase A** ensures policy transitions are atomic and observable, so privacy
-  auditing can attach to well-defined boundaries instead of racing against
-  mid-turn state mutations.
-- **Phase B** introduces replay packs with explicit retained-range metadata, so
-  the runtime knows exactly which conversation segments are preserved and which
-  are discarded — not by accident, but by policy.
-- **Phase C** adds pin classes (`system_anchor`, `attention_sink`,
-  `protected_tail`, `tool_state`, `ephemeral`) that make data-lifecycle
-  semantics explicit at the cache-block level, enabling fine-grained retention
-  and eviction policies that can align with user privacy preferences.
+- **The Safety layer** ensures policy transitions are atomic and observable, so
+  privacy auditing can attach to well-defined boundaries instead of racing
+  against mid-turn state mutations.
+- **The Prefetch layer** introduces replay packs with explicit retained-range
+  metadata, so the runtime knows exactly which conversation segments are
+  preserved and which are discarded — not by accident, but by policy.
+- **The Native Cache layer** adds pin classes (`system_anchor`,
+  `attention_sink`, `protected_tail`, `tool_state`, `ephemeral`) that make
+  data-lifecycle semantics explicit at the cache-block level, enabling
+  fine-grained retention and eviction policies that can align with user privacy
+  preferences.
 
 ```
   PRIVACY: FROM OPAQUE TO EXPLICIT
@@ -156,7 +158,7 @@ The phased architecture addresses this:
   │  On overflow: full recompute or truncate     │
   └──────────────────────────────────────────────┘
 
-  After (Phased architecture):
+  After (Layered architecture):
   ┌──────────────────────────────────────────────┐
   │  Block-aware cache with explicit metadata    │
   │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐       │
@@ -170,7 +172,7 @@ The phased architecture addresses this:
 
 ### 2. User Control
 
-Edge inference should serve the user, not the runtime. The phased architecture
+Edge inference should serve the user, not the runtime. The layered architecture
 gives users (and the applications built on top of LiteRT-LM) meaningful control
 over how memory is managed:
 
@@ -178,14 +180,14 @@ over how memory is managed:
   `shadow_strategy`) let applications define policies that the runtime must
   respect. A medical application can require that system prompts are never
   evicted. A creative writing app can allow aggressive compaction. The runtime
-  honors these constraints through the Phase A priority arbiter.
+  honors these constraints through the Safety layer's priority arbiter.
 
-- **Strategy selection** is middleware-owned across all three phases. The engine
-  never unilaterally decides what to keep and what to discard. Even in Phase C,
-  where the engine has native cache-surgery capabilities, the middleware chooses
-  the strategy and the engine executes it.
+- **Strategy selection** is middleware-owned across all three layers. The engine
+  never unilaterally decides what to keep and what to discard. Even at the
+  Native Cache layer, where the engine has native cache-surgery capabilities,
+  the middleware chooses the strategy and the engine executes it.
 
-- **Observability** is built in from Phase A forward. Transition notes,
+- **Observability** is built in from the Safety layer forward. Transition notes,
   structured telemetry dimensions, builder identity, and reason codes make
   runtime behavior transparent to developers and auditable by platform owners.
 
@@ -204,8 +206,8 @@ over how memory is managed:
   │                    MIDDLEWARE LAYER                      │
   │  Owns: policy selection, fallback decisions,            │
   │        prefetch planning, builder identity               │
-  │  Enforces: Phase A safety, Phase B freshness,           │
-  │            Phase C capability gating                     │
+  │  Enforces: Safety rules, Prefetch freshness,             │
+  │            Native Cache capability gating                │
   └────────────────────────┬────────────────────────────────┘
                            │
                            ▼
@@ -223,36 +225,37 @@ over how memory is managed:
 This is the one that makes the headlines, but it only works if privacy and
 control are already solid.
 
-The performance story across phases:
+The performance story across layers:
 
-| Concern | Before Phases | Phase A | Phase B | Phase C |
+| Concern | Before Layers | Safety | Prefetch | Native Cache |
 |:---|:---|:---|:---|:---|
 | Context shift | Full recompute | Safe transitions | Prefetch + install | Native KV surgery |
 | Latency | Unbounded spike at threshold | Deterministic boundary | Background planning | Sub-linear evict/remap |
 | Memory | Opaque blob management | Policy-constrained | Replay-pack metadata | Block-level accounting |
 | Overhead | None (but also no intelligence) | Minimal policy checks | Planner thread cost | Capability discovery cost |
 
-The key insight: **performance gains from Phase B and Phase C are only safe
-because Phase A guarantees are in place.** Without atomic-turn enforcement, a
-prefetch install could corrupt mid-turn inference. Without safe-boundary
-queueing, a native cache operation could apply during active decode. The phases
-are not independent optimizations — they are a safety-first performance stack.
+The key insight: **performance gains from the Prefetch and Native Cache layers
+are only safe because the Safety layer guarantees are in place.** Without
+atomic-turn enforcement, a prefetch install could corrupt mid-turn inference.
+Without safe-boundary queueing, a native cache operation could apply during
+active decode. The layers are not independent optimizations — they are a
+safety-first performance stack.
 
 ```
-  PERFORMANCE: LATENCY PROFILE ACROSS PHASES
+  PERFORMANCE: LATENCY PROFILE ACROSS LAYERS
   ============================================
 
   Context usage ──────────────────────────────────────>  100%
                                                  │
-  No Phases:     ─────────────────────────────── SPIKE ──
+  No layers:     ─────────────────────────────── SPIKE ──
                                                  │
-  Phase A only:  ─────────────────────────────── spike ──
+  Safety only:   ─────────────────────────────── spike ──
                                           (safe, same cost)
                                                  │
-  Phase B:       ───────── plan ──── install ─── smooth ─
+  + Prefetch:    ───────── plan ──── install ─── smooth ─
                       (background)  (boundary)   │
                                                  │
-  Phase C:       ───────── plan ── native-op ─── minimal ─
+  + Native Cache:───────── plan ── native-op ─── minimal ─
                       (background)  (atomic)     │
                                                  │
 ```
@@ -262,7 +265,7 @@ are not independent optimizations — they are a safety-first performance stack.
 ## Frontier Model Harrison Matrix
 
 *How the April 2026 frontier class manages memory — and what it means for
-LiteRT-LM's phased architecture.*
+LiteRT-LM's layered architecture.*
 
 This section compares ten recent frontier model releases across the dimensions
 that matter most for runtime memory policy: attention architecture, KV-cache
@@ -459,23 +462,24 @@ because they determine what cache operations are meaningful at the edge.
 
 ### What this means for LiteRT-LM
 
-The frontier matrix maps directly onto the phased architecture:
+The frontier matrix maps directly onto the layered architecture:
 
-**Phase A relevance**: Every model in the matrix, regardless of cache strategy,
-needs safe policy transitions. A Gemma 4 model running on a Pixel Watch with
-128K context and a Qwen3 model running with 262K context both need atomic-turn
-enforcement and boundary-safe policy changes. Phase A is universal.
+**Safety layer relevance**: Every model in the matrix, regardless of cache
+strategy, needs safe policy transitions. A Gemma 4 model running on a Pixel
+Watch with 128K context and a Qwen3 model running with 262K context both need
+atomic-turn enforcement and boundary-safe policy changes. The Safety layer is
+universal.
 
-**Phase B relevance**: Models with hybrid SWA (Gemma 4, Step 3.5 Flash) benefit
-most from Phase B prefetch planning because their context-shift behavior is
-predictable — local layers evict at a fixed window, so the prefetch planner can
-anticipate exactly when shifts will occur. Models with MLA (DeepSeek V3.2) have
-lower cache pressure, so Phase B triggers less frequently but remains the
-fallback.
+**Prefetch layer relevance**: Models with hybrid SWA (Gemma 4, Step 3.5 Flash)
+benefit most from Prefetch-layer planning because their context-shift behavior
+is predictable — local layers evict at a fixed window, so the prefetch planner
+can anticipate exactly when shifts will occur. Models with MLA (DeepSeek V3.2)
+have lower cache pressure, so the Prefetch layer triggers less frequently but
+remains the fallback.
 
-**Phase C relevance**: The Phase C block model (`block_id`, `token_span`,
-`pin_class`, `heat_score`) is designed to accommodate all four cache-pressure
-strategies:
+**Native Cache layer relevance**: The Native Cache layer's block model
+(`block_id`, `token_span`, `pin_class`, `heat_score`) is designed to
+accommodate all four cache-pressure strategies:
 
 - **GQA models** (Qwen3, Gemma 4): Blocks correspond to shared KV head groups.
   Pin/evict/remap operate on the reduced KV representation.
@@ -485,16 +489,16 @@ strategies:
 - **Hybrid SWA models** (Gemma 4, Step 3.5 Flash): Blocks in local layers have
   bounded lifetime. The `heat_score` and eviction policies align with the
   sliding-window semantics — old blocks in local layers naturally have zero heat.
-- **iRoPE models** (Llama 4): KV cache grows linearly, so Phase C eviction
-  and compaction are most valuable. The `pin_class` system protects attention
-  sinks that iRoPE's NoPE layers rely on for content-based attention.
+- **iRoPE models** (Llama 4): KV cache grows linearly, so Native Cache layer
+  eviction and compaction are most valuable. The `pin_class` system protects
+  attention sinks that iRoPE's NoPE layers rely on for content-based attention.
 
 ```
-  PHASE RELEVANCE BY CACHE STRATEGY
+  LAYER RELEVANCE BY CACHE STRATEGY
   ====================================
 
-  Strategy              Phase A    Phase B         Phase C
-  ────────              ───────    ───────         ───────
+  Strategy              Safety     Prefetch        Native Cache
+  ────────              ──────     ────────        ────────────
   GQA                   Always     Prefetch at     Pin/Evict on reduced KV
                                    threshold       groups
 
@@ -518,34 +522,35 @@ strategies:
 
 ### Frontier convergence signals
 
-Three patterns emerge from the matrix that should inform the phased
+Three patterns emerge from the matrix that should inform the layered
 architecture's roadmap:
 
 1. **MoE dominance**: 8 of 10 open-weight models are MoE. Active parameter
    counts range from 4B to 37B. This means edge deployment is viable for models
    with hundreds of billions of total parameters — but only if the runtime can
-   manage KV cache for the active parameter set efficiently. Phase C's
-   block-level accounting is designed for this.
+   manage KV cache for the active parameter set efficiently. The Native Cache
+   layer's block-level accounting is designed for this.
 
 2. **Hybrid attention is the norm**: Gemma 4 and Step 3.5 Flash both use
    hybrid SWA/full-attention layouts. This creates two-tier cache behavior
    within a single model — local layers with bounded cache and global layers
-   with unbounded cache. Phase B's prefetch planner and Phase C's
-   per-block metadata are both designed to handle this heterogeneous behavior.
+   with unbounded cache. The Prefetch layer's planner and the Native Cache
+   layer's per-block metadata are both designed to handle this heterogeneous
+   behavior.
 
 3. **Agentic use is universal**: Every model in the matrix emphasizes tool
    calling, function calling, or multi-agent orchestration. Agentic use means
    long-lived sessions with many tool-result boundaries — exactly the pattern
-   that Phase A's boundary-safe policy transitions and Phase B's
-   prefetch-at-boundary install are designed for.
+   that the Safety layer's boundary-safe policy transitions and the Prefetch
+   layer's prefetch-at-boundary install are designed for.
 
 ---
 
 ## System Architecture Reference
 
-The following diagram shows how the phased memory-policy system fits into the
+The following diagram shows how the layered memory-policy system fits into the
 broader LiteRT-LM runtime architecture. This is not the full runtime — it
-focuses on the components relevant to context management and the phase
+focuses on the components relevant to context management and the layered
 evolution.
 
 ```
@@ -570,16 +575,16 @@ evolution.
   │  │                    MEMORY POLICY SUBSYSTEM                        │  │
   │  │                                                                   │  │
   │  │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐  │  │
-  │  │  │  Phase A      │  │  Phase B      │  │  Phase C               │  │  │
-  │  │  │  Safety       │  │  Prefetch     │  │  Native Ops            │  │  │
+  │  │  │  Safety      │  │  Prefetch    │  │  Native Cache          │  │  │
+  │  │  │  Layer       │  │  Layer       │  │  Layer                 │  │  │
   │  │  │              │  │              │  │                        │  │  │
   │  │  │ - boundary   │  │ - planner    │  │ - capability discovery │  │  │
   │  │  │   queueing   │  │ - replay     │  │ - CacheOpGroup exec   │  │  │
   │  │  │ - atomic     │  │   packs      │  │ - Pin / Evict / Remap │  │  │
   │  │  │   turn rule  │  │ - installer  │  │ - Compact / Snapshot  │  │  │
   │  │  │ - priority   │  │ - telemetry  │  │ - rollback envelope   │  │  │
-  │  │  │   arbiter    │  │ - fallback   │  │ - fallback to B       │  │  │
-  │  │  │ - transition │  │   to sync    │  │                        │  │  │
+  │  │  │   arbiter    │  │ - fallback   │  │ - fallback to         │  │  │
+  │  │  │ - transition │  │   to sync    │  │   Prefetch            │  │  │
   │  │  │   notes      │  │   replay     │  │                        │  │  │
   │  │  └──────┬───────┘  └──────┬───────┘  └──────────┬─────────────┘  │  │
   │  │         │                 │                     │                │  │
@@ -606,7 +611,7 @@ evolution.
   │  │  RunPrefill   │  │  RunDecode   │  │    Clone     │                 │
   │  └──────────────┘  └──────────────┘  └──────────────┘                 │
   │  ┌──────────────┐  ┌──────────────────────────────────┐               │
-  │  │  Checkpoint   │  │  KV Cache (block model, Phase C) │               │
+  │  │  Checkpoint   │  │  KV Cache (block model,           │               │
   │  │  Save/Rewind  │  │  - block_id, token_span          │               │
   │  └──────────────┘  │  - lineage, pin_class             │               │
   │                     │  - heat_score, logical_role       │               │
@@ -629,27 +634,27 @@ evolution.
   1. Context usage exceeds threshold
      │
      ▼
-  2. Phase A: Is a turn active?
+  2. Safety layer: Is a turn active?
      ├── YES ──> Queue policy change, wait for boundary
      └── NO ───> Proceed
                   │
                   ▼
-  3. Phase A: Priority arbitration
+  3. Safety layer: Priority arbitration
      │  Profile constraints > Runtime overrides > Hard limits
      │
      ▼
-  4. Phase B: Is there a valid prefetch pack?
+  4. Prefetch layer: Is there a valid prefetch pack?
      ├── YES ──> Validate freshness
      │           ├── Fresh ──> Install at boundary (fast path)
      │           └── Stale ──> Discard, fall to sync replay
      └── NO ───> Synchronous replay (baseline path)
                   │
                   ▼
-  5. Phase C: Does engine advertise native capability?
+  5. Native Cache layer: Does engine advertise native capability?
      ├── YES ──> Build CacheOpGroup
      │           ├── Success ──> Atomic commit (fastest path)
-     │           └── Failure ──> Rollback, fall to Phase B recompute
-     └── NO ───> Phase B handles it
+     │           └── Failure ──> Rollback, fall to Prefetch recompute
+     └── NO ───> Prefetch layer handles it
                   │
                   ▼
   6. Emit structured telemetry
@@ -670,7 +675,7 @@ evolution.
   │              MIDDLEWARE OWNS                                │
   │                                                            │
   │  - Which strategy to use                                   │
-  │  - When to plan (Phase B trigger ratio)                    │
+  │  - When to plan (Prefetch trigger ratio)                   │
   │  - Whether to attempt native ops (capability check)        │
   │  - Fallback decisions                                      │
   │  - Telemetry dimensions and reason codes                   │
@@ -682,7 +687,7 @@ evolution.
   │                                                            │
   │  - KV allocation and block storage                         │
   │  - Prefill / Decode execution                              │
-  │  - CacheOpGroup atomic execution (Phase C)                 │
+  │  - CacheOpGroup atomic execution (Native Cache)            │
   │  - Capability advertisement                                │
   │  - Rollback mechanics                                      │
   │  - Block metadata (id, span, lineage, heat, pin)           │
@@ -700,18 +705,18 @@ evolution.
 
 ---
 
-## Phase A: Control-Plane Safety
+## Safety Layer: Control-Plane Safety
 
 *Reference: `docs/PHASE_A_GATE.md`*
 
-Phase A is the foundation. Every guarantee made in Phase B and Phase C depends
-on Phase A being intact.
+The Safety layer is the foundation. Every guarantee made in the Prefetch and
+Native Cache layers depends on the Safety layer being intact.
 
-### What Phase A does
+### What the Safety layer does
 
-Phase A ensures that runtime memory-policy changes are **safe, deterministic,
-and observable**. It does not optimize performance. It does not touch the KV
-cache. It establishes the rules that everything else must follow.
+The Safety layer ensures that runtime memory-policy changes are **safe,
+deterministic, and observable**. It does not optimize performance. It does not
+touch the KV cache. It establishes the rules that everything else must follow.
 
 ### The five guarantees
 
@@ -741,34 +746,35 @@ cache. It establishes the rules that everything else must follow.
   └─────────┘                         └─────────┘       └─────────┘
 ```
 
-### Why Phase A matters for privacy and control
+### Why the Safety layer matters for privacy and control
 
-Without Phase A, there is no way to guarantee that a privacy-sensitive
+Without the Safety layer, there is no way to guarantee that a privacy-sensitive
 policy (e.g., "never evict the system prompt containing patient data
 handling instructions") is respected during inference. A mid-turn policy
 change could silently replace the active strategy with one that discards
-protected content. Phase A makes this impossible.
+protected content. The Safety layer makes this impossible.
 
 ---
 
-## Phase B: Predictive Prefetch Middleware
+## Prefetch Layer: Predictive Prefetch Middleware
 
 *Reference: `docs/PHASE_B_BOOTSTRAP.md`, `docs/PHASE_B_GATE.md`*
 
-Phase B is where performance improvements begin — without touching the engine's
-internal KV representation.
+The Prefetch layer is where performance improvements begin — without touching
+the engine's internal KV representation.
 
-### What Phase B does
+### What the Prefetch layer does
 
-When context usage approaches the shift threshold, Phase B starts background
-planning: selecting what to retain, preparing replay data, and packaging it
-into a precomputed replay pack. At the next safe boundary, if the pack is still
-fresh, it installs instantly instead of performing a full synchronous replay.
+When context usage approaches the shift threshold, the Prefetch layer starts
+background planning: selecting what to retain, preparing replay data, and
+packaging it into a precomputed replay pack. At the next safe boundary, if the
+pack is still fresh, it installs instantly instead of performing a full
+synchronous replay.
 
 ### The prefetch lifecycle
 
 ```
-  PHASE B — PREFETCH LIFECYCLE
+  PREFETCH LAYER — LIFECYCLE
   ==============================
 
   ┌──────────┐                                    Time ──────>
@@ -791,8 +797,8 @@ fresh, it installs instantly instead of performing a full synchronous replay.
 
 ### Builder identity
 
-Phase B introduces explicit builder identity for replay packs, which is
-critical for telemetry, debugging, and Phase C compatibility:
+The Prefetch layer introduces explicit builder identity for replay packs, which
+is critical for telemetry, debugging, and Native Cache layer compatibility:
 
 | Builder ID | Behavior | Scaffold? |
 |:-----------|:---------|:----------|
@@ -807,33 +813,34 @@ create real summaries or quarantine stores.
 
 ### Telemetry dimensions
 
-Phase B emits structured telemetry across six dimensions: `profile_id`,
-`strategy`, `builder_id`, `boundary`, `model_type`, and `reason_code`. These
-dimensions are designed to align with Phase C native-path telemetry so that
-performance comparisons across middleware and native paths are possible without
-dimension translation.
+The Prefetch layer emits structured telemetry across six dimensions:
+`profile_id`, `strategy`, `builder_id`, `boundary`, `model_type`, and
+`reason_code`. These dimensions are designed to align with Native Cache layer
+telemetry so that performance comparisons across middleware and native paths are
+possible without dimension translation.
 
 ---
 
-## Phase C: Native Cache Operations
+## Native Cache Layer: Engine-Native Operations
 
 *Reference: `docs/PHASE_C_BOOTSTRAP.md`, `docs/PHASE_C_CACHE_OPS_RFC_DRAFT.md`*
 
-Phase C is the frontier. It introduces engine-native KV surgery — real block-
-level cache manipulation — behind explicit capability discovery.
+The Native Cache layer is the frontier. It introduces engine-native KV
+surgery — real block-level cache manipulation — behind explicit capability
+discovery.
 
-### What Phase C does
+### What the Native Cache layer does
 
-Phase C gives the engine the ability to pin blocks, evict ranges, remap logical
-spans, compact memory, and snapshot/restore cache state. These operations are
-atomic at the operation-group level. They are only used when the engine
-explicitly advertises support. On any failure, the system falls back to Phase B
-deterministic recompute.
+The Native Cache layer gives the engine the ability to pin blocks, evict
+ranges, remap logical spans, compact memory, and snapshot/restore cache state.
+These operations are atomic at the operation-group level. They are only used
+when the engine explicitly advertises support. On any failure, the system falls
+back to Prefetch-layer deterministic recompute.
 
 ### The KV block model
 
 ```
-  PHASE C — KV BLOCK MODEL
+  NATIVE CACHE LAYER — KV BLOCK MODEL
   ==========================
 
   Block identity:  (session_epoch, block_seqno)
@@ -877,15 +884,16 @@ deterministic recompute.
 
 ### Capability discovery
 
-Phase C operations are gated by explicit capability flags. The engine declares
-what it supports; the middleware checks before attempting any native operation.
+Native Cache layer operations are gated by explicit capability flags. The
+engine declares what it supports; the middleware checks before attempting any
+native operation.
 
 ```
   CAPABILITY GATING — DECISION TREE
   ====================================
 
   supports_kv_surgery?
-  ├── false ──> Stay on Phase B. Do not attempt native ops.
+  ├── false ──> Stay on Prefetch layer. Do not attempt native ops.
   │
   └── true ───> Check specific capabilities:
                 │
@@ -928,28 +936,28 @@ what it supports; the middleware checks before attempting any native operation.
 
   unsupported_capability ────────────┐
   rollback_unavailable ──────────────┤──> Abandon native path.
-  internal_cache_corruption ─────────┘    Run Phase B deterministic recompute.
+  internal_cache_corruption ─────────┘    Run Prefetch deterministic recompute.
 
   invalid_selector ──────────────────┐
   range_conflict ────────────────────┤──> Report to middleware.
   pinned_block_conflict ─────────────┤    Middleware may retry with
   position_semantics_violation ──────┤    adjusted parameters or
-  summary_artifact_missing ──────────┤    fall back to Phase B.
+  summary_artifact_missing ──────────┤    fall back to Prefetch.
   snapshot_not_found ────────────────┘
 ```
 
 ---
 
-## The Golden Retriever: What Each Phase Brings Back
+## The Golden Retriever: What Each Layer Delivers
 
 *Like a golden retriever returning with exactly what you threw — here is what
-each phase fetches for the system.*
+each layer fetches for the system.*
 
-### Phase A fetches: Trust
+### Safety layer delivers: Trust
 
 ```
   ┌──────────────────────────────────────────────────────────┐
-  │  PHASE A — THE TRUST RETRIEVAL                           │
+  │  SAFETY LAYER — TRUST                                    │
   │                                                          │
   │  Throws:   "Make policy changes safe"                    │
   │  Returns:  Deterministic, auditable, atomic transitions  │
@@ -965,11 +973,11 @@ each phase fetches for the system.*
   └──────────────────────────────────────────────────────────┘
 ```
 
-### Phase B fetches: Speed
+### Prefetch layer delivers: Speed
 
 ```
   ┌──────────────────────────────────────────────────────────┐
-  │  PHASE B — THE SPEED RETRIEVAL                           │
+  │  PREFETCH LAYER — SPEED                                  │
   │                                                          │
   │  Throws:   "Make context shifts fast"                    │
   │  Returns:  Background planning, instant boundary install │
@@ -986,11 +994,11 @@ each phase fetches for the system.*
   └──────────────────────────────────────────────────────────┘
 ```
 
-### Phase C fetches: Intelligence
+### Native Cache layer delivers: Intelligence
 
 ```
   ┌──────────────────────────────────────────────────────────┐
-  │  PHASE C — THE INTELLIGENCE RETRIEVAL                    │
+  │  NATIVE CACHE LAYER — INTELLIGENCE                       │
   │                                                          │
   │  Throws:   "Make the engine understand its own cache"    │
   │  Returns:  Block-level awareness, native KV surgery      │
@@ -1008,31 +1016,31 @@ each phase fetches for the system.*
   └──────────────────────────────────────────────────────────┘
 ```
 
-### The full retrieval chain
+### The full delivery chain
 
 ```
-  ┌────────┐      ┌────────┐      ┌──────────────┐
-  │ Trust  │ ───> │ Speed  │ ───> │ Intelligence │
-  │  (A)   │      │  (B)   │      │     (C)      │
-  └────────┘      └────────┘      └──────────────┘
+  ┌────────┐      ┌──────────┐      ┌──────────────┐
+  │ Trust  │ ───> │  Speed   │ ───> │ Intelligence │
+  │(Safety)│      │(Prefetch)│      │(Native Cache)│
+  └────────┘      └──────────┘      └──────────────┘
        │               │                  │
        │               │                  │
        ▼               ▼                  ▼
   Safety first.   Then fast.        Then smart.
   Always on.      Falls back        Falls back
-                  to sync replay.   to Phase B.
+                  to sync replay.   to Prefetch.
 ```
 
 ---
 
 ## Where Do We Go from Here?
 
-The three phases define the current trajectory. But a trajectory is not a
+The three layers define the current trajectory. But a trajectory is not a
 destination. Here is where the work continues.
 
 ### Tuning
 
-The phased architecture exposes knobs that matter:
+The layered architecture exposes knobs that matter:
 
 - **`prefetch_min_ratio`** — When does background planning start? Set it too
   low and you waste compute on plans that are never needed. Set it too high and
@@ -1046,8 +1054,8 @@ The phased architecture exposes knobs that matter:
   These parameters should become explicit, profile-configurable, and
   observable via telemetry.
 
-- **Heat score calibration** — Phase C's block metadata includes `heat_score`
-  and `last_access_step`. The eviction and compaction policies that consume
+- **Heat score calibration** — The Native Cache layer's block metadata includes
+  `heat_score` and `last_access_step`. The eviction and compaction policies that consume
   these scores need calibration against real workloads. A coding assistant has
   different access patterns than a medical triage bot. The heat model should be
   tunable per-profile.
@@ -1066,23 +1074,24 @@ is moving fast.
 
 - **New models** — Every new model release (Gemma 4, Step 3.5 Flash, Qwen3,
   etc.) brings different attention patterns, context lengths, and cache
-  pressure profiles. The phase system is designed to absorb these differences
+  pressure profiles. The layered system is designed to absorb these differences
   through per-model strategy profiles, but the profiles themselves need to be
   created and validated for each new model.
 
 - **New hardware** — NPU acceleration, GPU memory hierarchies, and edge-
   specific constraints (Pixel Watch vs. desktop GPU) all affect what cache
-  operations are practical. Phase C's capability discovery is designed to
-  handle this, but the capability definitions themselves will need to expand as
-  new hardware surfaces become available.
+  operations are practical. The Native Cache layer's capability discovery is
+  designed to handle this, but the capability definitions themselves will need
+  to expand as new hardware surfaces become available.
 
 - **Literature integration** — Papers like ARKV (adaptive token-state
   transitions), KVSink (explicit sink preservation), and joint block encoding
-  describe techniques that map directly onto the Phase C block model. As these
+  describe techniques that map directly onto the Native Cache layer's block
+  model. As these
   techniques mature, they should be integrated as new native operations or
   compaction strategies, not bolted on as special cases.
 
-- **Scaffold graduation** — The Phase B scaffold builders
+- **Scaffold graduation** — The Prefetch layer's scaffold builders
   (`summarize_protected_tail`, `quarantine_merge`) are explicitly identified as
   scaffolds. They are deterministic placeholders for future real semantic
   transforms. Graduating these scaffolds to full implementations — with actual
@@ -1091,19 +1100,21 @@ is moving fast.
 
 ### Sharing
 
-This is an open-source project. The phased architecture is designed to be
+This is an open-source project. The layered architecture is designed to be
 understandable, testable, and contributable.
 
-- **Documentation as contract** — The phase gate documents (`PHASE_A_GATE.md`,
-  `PHASE_B_GATE.md`, `PHASE_C_BOOTSTRAP.md`, `PHASE_C_CACHE_OPS_RFC_DRAFT.md`)
-  are not aspirational design documents. They are contracts. Each one defines
-  what must be true before the next phase begins. This document (`Evolution.md`)
-  explains why those contracts exist and how they fit together.
+- **Documentation as contract** — The layer gate documents
+  (`PHASE_A_GATE.md`, `PHASE_B_GATE.md`, `PHASE_C_BOOTSTRAP.md`,
+  `PHASE_C_CACHE_OPS_RFC_DRAFT.md`) are not aspirational design documents.
+  They are contracts. Each one defines what must be true before the next layer
+  begins. This document (`Evolution.md`) explains why those contracts exist and
+  how they fit together.
 
-- **Test evidence as proof** — Phase B's gate checklist requires four evidence
-  buckets: unit coverage, concurrency coverage, long-session integration
-  coverage, and performance comparison evidence. This pattern — evidence over
-  assertion — should extend to Phase C and to community contributions.
+- **Test evidence as proof** — The Prefetch layer's gate checklist requires
+  four evidence buckets: unit coverage, concurrency coverage, long-session
+  integration coverage, and performance comparison evidence. This pattern —
+  evidence over assertion — should extend to the Native Cache layer and to
+  community contributions.
 
 - **Telemetry as shared language** — The structured telemetry dimensions
   (`profile_id`, `strategy`, `builder_id`, `boundary`, `model_type`,
@@ -1111,11 +1122,12 @@ understandable, testable, and contributable.
   When contributors report performance results, regressions, or new strategies,
   they can use these dimensions to communicate precisely.
 
-- **Fallback as safety net** — The universal fallback chain (Phase C fails to
-  Phase B, Phase B fails to synchronous replay, Phase A is always enforced)
-  means that contributions to Phase C cannot break Phase B, and contributions to
-  Phase B cannot break Phase A. This makes the codebase safer to contribute to
-  than a monolithic runtime where every change is load-bearing.
+- **Fallback as safety net** — The universal fallback chain (Native Cache fails
+  to Prefetch, Prefetch fails to synchronous replay, Safety is always enforced)
+  means that contributions to the Native Cache layer cannot break the Prefetch
+  layer, and contributions to the Prefetch layer cannot break the Safety layer.
+  This makes the codebase safer to contribute to than a monolithic runtime where
+  every change is load-bearing.
 
 ### The trajectory
 
@@ -1126,8 +1138,8 @@ understandable, testable, and contributable.
   Past                 Present              Future
   ────                 ───────              ──────
 
-  Session/checkpoint   Phased memory        Adaptive, model-aware,
-  model. Opaque.       policy. Layered.     hardware-responsive
+  Session/checkpoint   Layered memory        Adaptive, model-aware,
+  model. Opaque.       policy. Stacked.     hardware-responsive
   Full recompute       Safety + speed +     cache intelligence.
   on overflow.         native ops.          Per-deployment tuning.
                                             Graduated scaffolds.
@@ -1147,5 +1159,5 @@ being built as we run.
 
 *Document: `docs/Evolution.md`*
 *Title: "Evolution"*
-*Framework: Phase A (Safety) → Phase B (Speed) → Phase C (Intelligence)*
+*Framework: Safety Layer → Prefetch Layer → Native Cache Layer*
 *Audience: Engineers and contributors who want the full picture.*
