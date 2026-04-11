@@ -1,0 +1,14 @@
+version: v1
+compatibility: v1
+profile_id: catalog.step_frozen.v1
+strategy: step_style_context_manager
+allow_runtime_tuning: false
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.90
+  retain_recent_messages: 0
+  target_ratio: 0.75
+  reset_on_exhaustion: true
+  shift_strategy: drop_all_but_system

@@ -1,0 +1,25 @@
+version: v1
+compatibility: v1
+profile_id: catalog.slow_fast_memory_architecture.v1
+strategy: slow_fast_memory_architecture
+shadow_strategy: token_efficient_kv_cache_management
+allow_runtime_tuning: true
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.84
+  retain_recent_messages: 6
+  target_ratio: 0.64
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+catalog_meta:
+  author: TIGER-Lab (Context Forcing framing)
+  source_repo: https://arxiv.org/abs/2507.16055
+  steps:
+    - maintain_fast_buffer_for_immediate_dependencies
+    - maintain_slow_store_for_global_history
+    - distill_long_context_teacher_signals_into_short_context_policy
+    - route_queries_by_temporal_span
+  primary_strength: long_horizon_consistency_with_bounded_online_compute
+  typical_failure_mode: supervision_or_distillation_mismatch_between_fast_and_slow_paths

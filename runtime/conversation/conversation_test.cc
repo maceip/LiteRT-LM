@@ -527,6 +527,89 @@ TEST(ConversationConfigTest, LoadMemoryPolicyYamlFile) {
   std::filesystem::remove(yaml_path, ec);
 }
 
+TEST(ConversationConfigTest, LoadStepFrozenCatalogProfileFromTestdata) {
+  const std::string yaml_path = GetTestdataPath(
+      "litert_lm/runtime/conversation/testdata/"
+      "context_catalog_step_frozen.yaml");
+  ASSERT_OK_AND_ASSIGN(auto policy,
+                       ConversationConfig::LoadMemoryPolicyYamlFile(yaml_path));
+
+  ASSERT_TRUE(policy.profile_id.has_value());
+  EXPECT_EQ(*policy.profile_id, "catalog.step_frozen.v1");
+  EXPECT_EQ(policy.strategy,
+            ConversationConfig::MemoryStrategy::kHardResetReplayWindow);
+  EXPECT_FALSE(policy.allow_runtime_tuning);
+  EXPECT_EQ(policy.safe_boundary,
+            ConversationConfig::SafeBoundary::kTurnBoundary);
+  EXPECT_EQ(policy.context_shift_strategy,
+            ConversationConfig::ContextShiftStrategy::kDropAllButSystem);
+  EXPECT_EQ(policy.context_shift_retain_recent_messages, 0);
+}
+
+TEST(ConversationConfigTest, LoadZugzugCatalogProfileFromTestdata) {
+  const std::string yaml_path = GetTestdataPath(
+      "litert_lm/runtime/conversation/testdata/zugzug_catalog.yaml");
+  ASSERT_OK_AND_ASSIGN(auto policy,
+                       ConversationConfig::LoadMemoryPolicyYamlFile(yaml_path));
+
+  ASSERT_TRUE(policy.profile_id.has_value());
+  EXPECT_EQ(*policy.profile_id, "zugzug.context_manager.v1");
+  EXPECT_EQ(policy.strategy,
+            ConversationConfig::MemoryStrategy::kSummarizeProtectedTail);
+  EXPECT_TRUE(policy.allow_runtime_tuning);
+  EXPECT_EQ(policy.safe_boundary,
+            ConversationConfig::SafeBoundary::kTurnBoundary);
+  EXPECT_EQ(policy.context_shift_strategy,
+            ConversationConfig::ContextShiftStrategy::kReplayRecent);
+  EXPECT_EQ(policy.context_shift_retain_recent_messages, 4);
+  EXPECT_EQ(policy.shadow_strategy,
+            ConversationConfig::MemoryStrategy::kHardResetReplayWindow);
+}
+
+TEST(ConversationConfigTest, LoadRaptorCatalogProfileFromTestdata) {
+  const std::string yaml_path = GetTestdataPath(
+      "litert_lm/runtime/conversation/testdata/catalog_profiles/"
+      "07_incremental_hierarchical_aggregation.yaml");
+  ASSERT_OK_AND_ASSIGN(auto policy,
+                       ConversationConfig::LoadMemoryPolicyYamlFile(yaml_path));
+
+  ASSERT_TRUE(policy.profile_id.has_value());
+  EXPECT_EQ(*policy.profile_id, "catalog.incremental_hierarchical_aggregation.v1");
+  EXPECT_EQ(policy.strategy,
+            ConversationConfig::MemoryStrategy::kIncrementalHierarchicalAggregation);
+  EXPECT_EQ(policy.context_shift_strategy,
+            ConversationConfig::ContextShiftStrategy::kReplayRecent);
+}
+
+TEST(ConversationConfigTest, LoadStreamingLlmCatalogProfileFromTestdata) {
+  const std::string yaml_path = GetTestdataPath(
+      "litert_lm/runtime/conversation/testdata/catalog_profiles/"
+      "10_token_efficient_kv_cache_management.yaml");
+  ASSERT_OK_AND_ASSIGN(auto policy,
+                       ConversationConfig::LoadMemoryPolicyYamlFile(yaml_path));
+
+  ASSERT_TRUE(policy.profile_id.has_value());
+  EXPECT_EQ(*policy.profile_id, "catalog.token_efficient_kv_cache_management.v1");
+  EXPECT_EQ(policy.strategy,
+            ConversationConfig::MemoryStrategy::kTokenEfficientKvCacheManagement);
+  EXPECT_EQ(policy.context_shift_strategy,
+            ConversationConfig::ContextShiftStrategy::kDropAllButSystem);
+}
+
+TEST(ConversationConfigTest, LoadMcpActiveMetadataCatalogProfileFromTestdata) {
+  const std::string yaml_path = GetTestdataPath(
+      "litert_lm/runtime/conversation/testdata/catalog_profiles/"
+      "16_mcp_active_metadata.yaml");
+  ASSERT_OK_AND_ASSIGN(auto policy,
+                       ConversationConfig::LoadMemoryPolicyYamlFile(yaml_path));
+
+  ASSERT_TRUE(policy.profile_id.has_value());
+  EXPECT_EQ(*policy.profile_id, "catalog.mcp_active_metadata.v1");
+  EXPECT_EQ(policy.strategy,
+            ConversationConfig::MemoryStrategy::kMcpActiveMetadata);
+  EXPECT_EQ(policy.safe_boundary, ConversationConfig::SafeBoundary::kToolResult);
+}
+
 TEST(ConversationConfigTest, ParseMemoryPolicyYamlRejectsUnsupportedVersion) {
   const std::string yaml = R"yaml(
 strategy: hard_reset_replay_window

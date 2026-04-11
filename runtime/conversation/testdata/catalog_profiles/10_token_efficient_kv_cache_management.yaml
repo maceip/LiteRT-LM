@@ -1,0 +1,23 @@
+version: v1
+compatibility: v1
+profile_id: catalog.token_efficient_kv_cache_management.v1
+strategy: token_efficient_kv_cache_management
+shadow_strategy: hard_reset_replay_window
+allow_runtime_tuning: true
+safe_boundary: tool_result
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.92
+  retain_recent_messages: 2
+  target_ratio: 0.78
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+
+# author: StreamingLLM line of work (community references)
+# source_repo: https://github.com/mit-han-lab/streaming-llm
+# steps:
+#   1) pin_attention_sink_head_tokens
+#   2) retain_recent_sliding_window
+#   3) evict_middle_regions
+#   4) preserve positional stability while advancing context

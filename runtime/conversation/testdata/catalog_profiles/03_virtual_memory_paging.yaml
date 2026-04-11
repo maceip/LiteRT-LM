@@ -1,0 +1,15 @@
+version: v1
+compatibility: v1
+profile_id: catalog.virtual_memory_paging.v1
+strategy: virtual_memory_paging
+shadow_strategy: hard_reset_replay_window
+allow_runtime_tuning: true
+safe_boundary: tool_result
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.90
+  retain_recent_messages: 6
+  target_ratio: 0.70
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent

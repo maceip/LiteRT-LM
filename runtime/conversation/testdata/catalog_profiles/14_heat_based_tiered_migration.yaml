@@ -1,0 +1,22 @@
+version: v1
+compatibility: v1
+profile_id: catalog.heat_based_tiered_migration.v1
+strategy: heat_based_tiered_migration
+shadow_strategy: contextual_forgetting_interference_management
+allow_runtime_tuning: true
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.84
+  retain_recent_messages: 6
+  target_ratio: 0.62
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+# author: MemoryOS / A-MEM style pattern (community)
+# source_repo: https://arxiv.org/abs/2604.12342
+# steps:
+#   1) overflow_short_term_fifo
+#   2) migrate_to_mid_term_tier
+#   3) promote_high_heat_items_to_long_term
+#   4) prioritize_hot_memory_on_retrieval

@@ -1,0 +1,26 @@
+# profile_name: MCP + active metadata
+# author: Anthropic et al. (Model Context Protocol ecosystem)
+# source_repo: https://github.com/modelcontextprotocol/specification
+# steps:
+#   1) attach_governed_metadata_truth_nodes
+#   2) separate_speculative_history_from_constraints
+#   3) prioritize_truth_nodes_during_context_selection
+#   4) reweight_or_prune_speculative_nodes_at_boundary
+version: v1
+compatibility: v1
+profile_id: catalog.mcp_active_metadata.v1
+strategy: constraint_first_metadata
+shadow_strategy: summarize_protected_tail
+allow_runtime_tuning: true
+safe_boundary: tool_result
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.88
+  retain_recent_messages: 4
+  target_ratio: 0.68
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+catalog_meta:
+  primary_strength: robust_constraint_governance_and_reduced_lost_middle
+  typical_failure_mode: metadata_drift_or_schema_governance_mismatch

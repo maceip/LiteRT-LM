@@ -1,0 +1,23 @@
+version: v1
+compatibility: v1
+profile_id: zugzug.context_manager.v1
+strategy: summarize_protected_tail
+shadow_strategy: hard_reset_replay_window
+allow_runtime_tuning: true
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.88
+  retain_recent_messages: 4
+  target_ratio: 0.72
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+
+# Annotation-only keys for orchestration layers; currently ignored by the
+# runtime parser but kept here to standardize external memory integration.
+external_memory:
+  enabled: true
+  persistence_policy: verified_facts_and_open_subgoals
+  hydration_limit: 8
+  negative_memory_enabled: true

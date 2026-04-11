@@ -1,0 +1,22 @@
+version: v1
+compatibility: v1
+profile_id: catalog.context_quarantine_isolated_scratchpads.v1
+strategy: context_quarantine_isolated_scratchpads
+shadow_strategy: hard_reset_replay_window
+allow_runtime_tuning: true
+safe_boundary: tool_result
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.84
+  retain_recent_messages: 4
+  target_ratio: 0.62
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+# author: multi-agent production pattern synthesis
+# source_repo: https://www.salesforce.com/news/stories/ai-agents-multi-agent-architecture/
+# steps:
+#   1) isolate_subtask_context
+#   2) run_subagent_in_scratchpad
+#   3) merge_only_verified_result_back
+#   4) drop_intermediate_error_trajectory

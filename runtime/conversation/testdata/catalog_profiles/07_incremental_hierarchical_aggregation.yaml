@@ -1,0 +1,23 @@
+# profile_name: Incremental Hierarchical Aggregation (RAPTOR)
+# author: RAPTOR authors (Sarthi et al.)
+# source_repo: https://github.com/parthsarthi03/raptor
+# source_url: https://arxiv.org/abs/2401.18059
+# steps: cluster_context_nodes -> summarize_per_level -> build_tree_index -> retrieve_global_or_local
+version: v1
+compatibility: v1
+profile_id: catalog.incremental_hierarchical_aggregation.v1
+strategy: raptor
+shadow_strategy: summarize_protected_tail
+allow_runtime_tuning: true
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.86
+  retain_recent_messages: 6
+  target_ratio: 0.66
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+catalog_meta:
+  primary_strength: global_and_local_reasoning_over_long_histories
+  typical_failure_mode: tree_build_token_overhead

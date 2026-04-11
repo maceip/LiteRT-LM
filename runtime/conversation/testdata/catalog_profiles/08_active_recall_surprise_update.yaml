@@ -1,0 +1,22 @@
+version: v1
+compatibility: v1
+profile_id: catalog.active_recall_surprise_update.v1
+strategy: active_recall_surprise_update
+shadow_strategy: fact_memory_extraction_update
+allow_runtime_tuning: true
+safe_boundary: tool_result
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.88
+  retain_recent_messages: 7
+  target_ratio: 0.68
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+
+# author: Generative Agents / SWIRL line of work
+# source_repo: https://github.com/joonspk-research/generative_agents
+# steps:
+#   1) score_event_importance_and_surprise
+#   2) commit_high_score_events_to_long_term_ledger
+#   3) retrieve_by_recency_relevancy_importance

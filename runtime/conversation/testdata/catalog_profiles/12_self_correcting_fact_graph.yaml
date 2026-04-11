@@ -1,0 +1,22 @@
+version: v1
+compatibility: v1
+profile_id: catalog.self_correcting_fact_graph.v1
+strategy: self_rag
+shadow_strategy: fact_memory_extraction_update
+allow_runtime_tuning: true
+safe_boundary: tool_result
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.85
+  retain_recent_messages: 5
+  target_ratio: 0.65
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+# author: Self-RAG
+# source_repo: https://github.com/AkariAsai/self-rag
+# steps:
+#   1) retrieve_candidate_facts
+#   2) critique_relevance_and_sufficiency
+#   3) prune_contradictory_or_irrelevant_items
+#   4) retry_retrieval_or_answer_with_supported_facts

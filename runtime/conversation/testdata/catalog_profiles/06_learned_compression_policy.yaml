@@ -1,0 +1,15 @@
+version: v1
+compatibility: v1
+profile_id: catalog.learned_compression_policy.v1
+strategy: learned_compression_policy
+shadow_strategy: summarize_protected_tail
+allow_runtime_tuning: true
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.86
+  retain_recent_messages: 6
+  target_ratio: 0.66
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent

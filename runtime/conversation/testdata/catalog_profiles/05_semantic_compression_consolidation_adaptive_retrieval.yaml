@@ -1,0 +1,22 @@
+version: v1
+compatibility: v1
+profile_id: catalog.semantic_compression_consolidation_adaptive_retrieval.v1
+strategy: semantic_compression_consolidation_adaptive_retrieval
+shadow_strategy: summarize_protected_tail
+allow_runtime_tuning: true
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.84
+  retain_recent_messages: 5
+  target_ratio: 0.66
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+# Catalog metadata
+# author: SimpleMem-style community synthesis
+# source_repo: https://arxiv.org/abs/2503.16266
+# steps:
+#   1) entropy_filter_raw_dialogue
+#   2) recursively_consolidate_into_memory_units
+#   3) adapt_retrieval_depth_to_query_complexity

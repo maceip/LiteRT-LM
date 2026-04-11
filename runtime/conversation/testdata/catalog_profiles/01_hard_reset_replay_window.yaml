@@ -1,0 +1,22 @@
+# profile_name: Hard reset / replay window (Step-style Context Manager)
+# author: StepFun team (public description)
+# source_repo: https://github.com/stepfun-ai/Step-3.5-Flash
+# source_url: https://huggingface.co/stepfun-ai/Step-3.5-Flash/discussions/27
+# steps: detect_threshold -> reset_context -> replay_recent_or_system_only -> continue_loop
+version: v1
+compatibility: v1
+profile_id: catalog.hard_reset_replay_window.v1
+strategy: step_style_context_manager
+allow_runtime_tuning: false
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.90
+  retain_recent_messages: 0
+  target_ratio: 0.72
+  reset_on_exhaustion: true
+  shift_strategy: drop_all_but_system
+catalog_meta:
+  primary_strength: deterministic_recovery_under_budget_pressure
+  typical_failure_mode: repeated_reexploration_without_external_memory

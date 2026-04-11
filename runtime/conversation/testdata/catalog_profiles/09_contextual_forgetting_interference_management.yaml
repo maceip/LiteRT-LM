@@ -1,0 +1,21 @@
+version: v1
+compatibility: v1
+profile_id: catalog.contextual_forgetting_interference_management.v1
+strategy: contextual_forgetting_interference_management
+shadow_strategy: hard_reset_replay_window
+allow_runtime_tuning: true
+safe_boundary: tool_result
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.86
+  retain_recent_messages: 6
+  target_ratio: 0.68
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+# author: interference-aware policy synthesis
+# source_repo: https://arxiv.org/abs/2407.21059
+# steps:
+#   1) detect_stale_or_resolved_context
+#   2) downrank_or_suppress_interfering_segments
+#   3) attach_negative_constraints_for_current_turn

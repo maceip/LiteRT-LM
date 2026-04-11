@@ -1,0 +1,24 @@
+# profile_name: Hermes Agent memory layering
+# author: Nous Research
+# source_repo: https://github.com/NousResearch/Hermes-Agent
+# source_url: https://hermes-agent.nousresearch.com/docs/developer-guide/architecture/
+# steps_summary: freeze_memory_snapshot -> retrieve_episodic_skills -> query_session_search -> compress_mid_context
+version: v1
+compatibility: v1
+profile_id: catalog.hermes_agent.2026_04_11
+strategy: summarize_protected_tail
+shadow_strategy: hard_reset_replay_window
+allow_runtime_tuning: true
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.85
+  retain_recent_messages: 6
+  target_ratio: 0.70
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+catalog_meta:
+  snapshot_date: 2026-04-11
+  source_kind: official_repo_docs
+  memory_pattern: frozen_profile_plus_episodic_plus_session_search

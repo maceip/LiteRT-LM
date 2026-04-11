@@ -1,0 +1,22 @@
+version: v1
+compatibility: v1
+profile_id: catalog.reflection_metacognitive_buffering.v1
+strategy: reflection_metacognitive_buffering
+shadow_strategy: hard_reset_replay_window
+allow_runtime_tuning: true
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.86
+  retain_recent_messages: 3
+  target_ratio: 0.66
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+# author: Generative Agents / metacognitive scratchpad pattern
+# source_repo: https://arxiv.org/abs/2304.03442
+# steps:
+#   1) derive_hidden_goal_state_from_recent_turns
+#   2) preserve_goal_state_across_turns
+#   3) compress_or_drop_fluff_history
+#   4) re-ground_response_on_goal_state

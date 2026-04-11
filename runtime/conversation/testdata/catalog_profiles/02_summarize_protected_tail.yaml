@@ -1,0 +1,23 @@
+version: v1
+compatibility: v1
+profile_id: catalog.summarize_protected_tail.v1
+strategy: summarize_protected_tail
+shadow_strategy: hard_reset_replay_window
+allow_runtime_tuning: true
+safe_boundary: tool_result
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.85
+  retain_recent_messages: 4
+  target_ratio: 0.68
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+
+# author: Hermes Agent / Nous Research (inspiration)
+# source_repo: https://github.com/NousResearch/Hermes-Agent
+# steps:
+#   1) Detect near-budget pressure.
+#   2) Preserve system/head and recent tail.
+#   3) Compress middle conversation region.
+#   4) Replay compressed state with protected tail/tool integrity.
