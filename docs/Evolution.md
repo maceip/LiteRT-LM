@@ -4,7 +4,7 @@
 across Phase A, Phase B, and Phase C — and why the shift is necessary for
 privacy, user control, and ultimately performance.**
 
-*For the dumpy bulldogs among us who just want to know what's happening
+*A practical guide for engineers who just want to know what's happening
 and why it matters.*
 
 ---
@@ -1147,4 +1147,4 @@ built as we run.
 *Document: `docs/Evolution.md`*
 *Title: "The Hurtle"*
 *Framework: Phase A (Safety) → Phase B (Speed) → Phase C (Intelligence)*
-*Audience: Engineers, contributors, and dumpy bulldogs who want the full picture.*
+*Audience: Engineers and contributors who want the full picture.*
