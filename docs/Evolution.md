@@ -1,4 +1,4 @@
-# Evolution: The Hurtle
+# Evolution: The Hurdle
 
 **A framework narrative for how LiteRT-LM's runtime memory policy evolves
 across Phase A, Phase B, and Phase C — and why the shift is necessary for
@@ -11,7 +11,7 @@ and why it matters.*
 
 ## Table of Contents
 
-1. [Why "Hurtle"](#why-hurtle)
+1. [Why "Hurdle"](#why-hurdle)
 2. [The Framework as A, B, and C](#the-framework-as-a-b-and-c)
 3. [The Shift: Why It Is Necessary](#the-shift-why-it-is-necessary)
 4. [Frontier Model Harrison Matrix](#frontier-model-harrison-matrix)
@@ -24,9 +24,10 @@ and why it matters.*
 
 ---
 
-## Why "Hurtle"
+## Why "Hurdle"
 
-A hurtle is not a graceful arc. It is forward momentum with weight behind it.
+Every phase of this architecture exists because there was a concrete obstacle
+to clear.
 
 This project did not arrive at its current architecture through careful
 committee planning over years. It got here because real products — Chrome,
@@ -34,10 +35,10 @@ Chromebook Plus, Pixel Watch, the AI Edge Gallery — needed on-device LLM
 inference that actually works under real constraints: memory budgets, thermal
 limits, user privacy requirements, and hardware that ships in the millions.
 
-The phased evolution described here is the record of that momentum. Phase A
-locked down safety. Phase B added speculative performance. Phase C opens the
-door to native engine intelligence. Each phase hurtles forward, but each one
-also makes sure the ground behind it is solid.
+Each phase represents a hurdle the runtime had to clear. Phase A cleared the
+safety hurdle — making policy transitions deterministic. Phase B cleared the
+latency hurdle — making context shifts non-blocking. Phase C clears the
+intelligence hurdle — giving the engine native awareness of its own cache.
 
 If you are reading this document, you are somewhere on that trajectory. This
 document tells you where the framework has been, where it is, and where it
@@ -1139,12 +1140,12 @@ understandable, testable, and contributable.
                        fast, and smart"     and it learns"
 ```
 
-The hurtle continues. The ground behind us is solid. The ground ahead is being
-built as we run.
+The next hurdle is ahead. The ground behind us is solid. The ground ahead is
+being built as we run.
 
 ---
 
 *Document: `docs/Evolution.md`*
-*Title: "The Hurtle"*
+*Title: "The Hurdle"*
 *Framework: Phase A (Safety) → Phase B (Speed) → Phase C (Intelligence)*
 *Audience: Engineers and contributors who want the full picture.*
