@@ -20,7 +20,8 @@ and why it matters.*
 7. [Prefetch Layer: Predictive Prefetch Middleware](#prefetch-layer-predictive-prefetch-middleware)
 8. [Native Cache Layer: Engine-Native Operations](#native-cache-layer-engine-native-operations)
 9. [The Golden Retriever: What Each Layer Delivers](#the-golden-retriever-what-each-layer-delivers)
-10. [Where Do We Go from Here?](#where-do-we-go-from-here)
+10. [Aligned Evaluation: Gemma 4 and the Layered System](#aligned-evaluation-gemma-4-and-the-layered-system)
+11. [Where Do We Go from Here?](#where-do-we-go-from-here)
 
 ---
 
@@ -1030,6 +1031,335 @@ each layer fetches for the system.*
   Always on.      Falls back        Falls back
                   to sync replay.   to Prefetch.
 ```
+
+---
+
+## Aligned Evaluation: Gemma 4 and the Layered System
+
+Gemma 4 is the primary evaluation target for the layered architecture because
+it is the model this runtime is built for. It ships inside Google products
+(Chrome, Chromebook Plus, Pixel Watch), it runs on edge hardware via LiteRT-LM,
+and its architecture — hybrid sliding-window/full attention, GQA, MoE — is
+exactly the workload the three layers were designed to serve.
+
+This section defines how to evaluate the layered system against Gemma 4 end to
+end: what to measure, how to measure it, and what alignment looks like.
+
+### Why Gemma 4 is the alignment target
+
+Gemma 4 exercises every layer of the system simultaneously:
+
+```
+  GEMMA 4 — LAYER ALIGNMENT MAP
+  ================================
+
+  Gemma 4 Feature             Layer Exercised       Why It Matters
+  ───────────────             ───────────────       ──────────────
+  Hybrid SWA/Full attention   Native Cache          Local layers have bounded
+  (50 SWA / 10 Full layers)                         cache; global layers grow.
+                                                    Block metadata must track
+                                                    both behaviors per-layer.
+
+  GQA (16 KV / 32 Q heads)   Native Cache          Blocks map to shared KV
+                                                    head groups. Pin/evict ops
+                                                    operate on the reduced
+                                                    representation.
+
+  128-256K context window     Prefetch              Context-shift threshold
+                                                    triggers prefetch planning.
+                                                    Hybrid SWA makes the trigger
+                                                    point predictable.
+
+  Native function calling     Safety                Tool-result boundaries are
+  (code_fence_start/end,                            safe policy transition
+  constraint_mode)                                  points. Atomic-turn rule
+                                                    prevents mid-call changes.
+
+  Vision + Audio modality     Safety + Prefetch     Multimodal tokens inflate
+  (start_of_image_token,                            context faster. Prefetch
+  start_of_audio_token,                             trigger ratio must account
+  patch_width/height)                               for modality overhead.
+
+  Edge deployment             All three             E2B/E4B variants target
+  (E2B, E4B, 26B-A4B)                              phones, watches, RPi.
+                                                    Memory constraints make
+                                                    all three layers critical.
+```
+
+### What to measure
+
+Aligned evaluation measures the layered system as a whole, not individual
+layers in isolation. The evaluation covers three dimensions: correctness,
+performance, and policy compliance.
+
+#### Correctness
+
+Does the output match regardless of which layer handles the context shift?
+
+```
+  CORRECTNESS EVALUATION
+  ========================
+
+  For each test prompt P and Gemma 4 variant V:
+
+  1. Baseline run (no context shift):
+     Engine → Conversation → SendMessage(P) → Response R_baseline
+
+  2. Safety-only run (context shift at threshold, sync replay):
+     Engine → Conversation → fill context to trigger_ratio →
+     SendMessage(P) → context shift (sync replay) →
+     Response R_safety
+
+  3. Prefetch run (context shift with prefetch pack install):
+     Engine → Conversation → fill context to prefetch_min_ratio →
+     prefetch plans in background → fill to trigger_ratio →
+     boundary install → SendMessage(P) → Response R_prefetch
+
+  4. Native Cache run (when engine advertises capability):
+     Engine → Conversation → fill context →
+     CacheOpGroup(EvictRange + Compact) → SendMessage(P) →
+     Response R_native
+
+  Alignment check:
+     R_baseline ≈ R_safety ≈ R_prefetch ≈ R_native
+     (semantic equivalence, not token-identical)
+```
+
+#### Performance
+
+Where does the latency go during context shifts?
+
+| Metric | Measurement point | Expected behavior |
+|:---|:---|:---|
+| Time-to-first-token (TTFT) | `SendMessage` → first token callback | Prefetch and Native Cache should reduce TTFT vs Safety-only during context shifts |
+| Context-shift latency | Boundary detection → resumed inference | Native Cache < Prefetch < Safety-only |
+| Prefetch hit rate | Prefetch pack installed vs discarded | Higher is better; Gemma 4's predictable SWA trigger should yield high hit rates |
+| Tokens per second (decode) | Steady-state decode throughput | Should not regress across layers |
+| Peak memory | Max RSS during inference | Native Cache eviction should reduce peak vs full-recompute baseline |
+
+#### Policy compliance
+
+Does the system honor its own contracts during Gemma 4 inference?
+
+| Policy | Evaluation method |
+|:---|:---|
+| Atomic-turn enforcement | Inject policy change during active decode; verify it queues, not applies |
+| Boundary-safe transitions | Verify policy applies only at `tool_result` or `turn_boundary` |
+| Priority arbitration | Set `allow_runtime_tuning=false` in profile; verify override is rejected |
+| Fallback correctness | Disable native capabilities; verify Prefetch path produces equivalent output |
+| Telemetry completeness | Verify all 6 dimensions emitted (`profile_id`, `strategy`, `builder_id`, `boundary`, `model_type`, `reason_code`) |
+
+### How to evaluate
+
+The evaluation uses the existing infrastructure in the repository, extended
+with Gemma 4-specific test data and memory policy profiles.
+
+```
+  EVALUATION PIPELINE — GEMMA 4
+  ================================
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  INPUT                                                         │
+  │                                                                │
+  │  Model:    gemma-4-E2B-it.litertlm (or E4B, 26B-A4B, 31B)    │
+  │  Profile:  memory_policy_gemma4.yaml                           │
+  │  Tests:    test_data/test_gemma4_aligned.json                  │
+  └────────────────────────┬────────────────────────────────────────┘
+                           │
+                           ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  ENGINE SETUP                                                  │
+  │                                                                │
+  │  ModelAssets::Create("gemma-4-E2B-it.litertlm")               │
+  │  EngineSettings::CreateDefault(assets, backend)                │
+  │       → Gemma4 proto auto-detected (has_gemma4())              │
+  │       → delegate clustering disabled                           │
+  │       → Gemma4DataProcessor created by factory                 │
+  │  EngineFactory::CreateAny(settings)                            │
+  │  Conversation::Create(engine, config)                          │
+  │       → memory policy loaded from YAML profile                 │
+  └────────────────────────┬────────────────────────────────────────┘
+                           │
+                           ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  TEST EXECUTION                                                │
+  │                                                                │
+  │  For each test case in test_gemma4_aligned.json:               │
+  │                                                                │
+  │  1. Fill context with multi-turn conversation                  │
+  │     (system prompt → user turns → assistant turns → tool calls)│
+  │                                                                │
+  │  2. Reach context_shift.trigger_ratio (e.g. 0.9)              │
+  │                                                                │
+  │  3. Send evaluation prompt                                     │
+  │                                                                │
+  │  4. Record:                                                    │
+  │     - Response text (for correctness comparison)               │
+  │     - BenchmarkInfo (TTFT, tokens/sec, shift latency)          │
+  │     - Telemetry dimensions (profile_id, strategy, etc.)        │
+  │     - Policy events (queued changes, applied changes, rejects) │
+  │                                                                │
+  │  5. Repeat with different layer configurations:                │
+  │     - Safety only (prefetch disabled, native disabled)         │
+  │     - Safety + Prefetch (native disabled)                      │
+  │     - Safety + Prefetch + Native Cache (when available)        │
+  └────────────────────────┬────────────────────────────────────────┘
+                           │
+                           ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  ALIGNMENT COMPARISON                                          │
+  │                                                                │
+  │  Compare across layer configurations:                          │
+  │  - Semantic equivalence of responses                           │
+  │  - Latency improvement ratios                                  │
+  │  - Memory reduction ratios                                     │
+  │  - Policy compliance (zero violations expected)                │
+  │  - Telemetry completeness (all dimensions present)             │
+  └─────────────────────────────────────────────────────────────────┘
+```
+
+### Gemma 4 memory policy profile
+
+The evaluation requires a Gemma 4-specific memory policy profile. This profile
+is tuned for Gemma 4's hybrid SWA architecture:
+
+```yaml
+  # memory_policy_gemma4.yaml
+  #
+  # Aligned evaluation profile for Gemma 4 variants.
+  # Tuned for hybrid SWA/Full attention with predictable
+  # local-layer cache eviction.
+
+  version: 1
+  profile_id: gemma4-aligned-eval
+  strategy: replay_recent
+
+  context_shift:
+    enabled: true
+    trigger_ratio: 0.85
+    retain_recent_messages: 8
+    target_ratio: 0.7
+    reset_on_exhaustion: true
+    shift_strategy: replay_recent
+
+  prefetch:
+    enabled: true
+    min_ratio: 0.75
+    shadow_mode: false
+
+  constraints:
+    allow_runtime_tuning: true
+    safe_boundary: turn_boundary
+    emit_transition_note: true
+```
+
+Key tuning decisions:
+
+- **`trigger_ratio: 0.85`** — Gemma 4's hybrid SWA means local layers evict
+  at a fixed window (512-1024 tokens), so the effective context pressure comes
+  from global layers. Setting the trigger at 0.85 gives the Prefetch layer time
+  to plan before the global layers saturate.
+
+- **`prefetch.min_ratio: 0.75`** — Start prefetch planning at 75% context
+  usage, giving 10% headroom before the trigger fires at 85%. For Gemma 4's
+  predictable SWA behavior, this should yield high prefetch hit rates.
+
+- **`retain_recent_messages: 8`** — Retain enough recent turns to preserve
+  tool-call chains and function-response context, which Gemma 4's native
+  function calling depends on.
+
+- **`safe_boundary: turn_boundary`** — Apply policy changes at turn boundaries
+  only. This aligns with Gemma 4's function-calling flow where tool results
+  arrive as distinct turns.
+
+### Gemma 4 test data structure
+
+The evaluation test data extends the existing E2E sanity check pattern
+(`tools/test/test_data/test_e2e_sanity_checks.json`) with Gemma 4-specific
+cases that exercise the layered system:
+
+```json
+  {
+    "test_gemma4_aligned": [
+      {
+        "id": "gemma4_basic_correctness",
+        "prompt": "What is the capital of Japan?",
+        "response": "Tokyo",
+        "notes": "Baseline correctness after context shift"
+      },
+      {
+        "id": "gemma4_tool_call_boundary",
+        "prompt": "What is the weather in Tokyo?",
+        "response": "tool_call|function_call",
+        "notes": "Verify tool call survives context shift at boundary"
+      },
+      {
+        "id": "gemma4_multi_turn_retention",
+        "prompt": "Summarize our conversation so far",
+        "response": ".*",
+        "notes": "Verify retained messages are coherent post-shift"
+      },
+      {
+        "id": "gemma4_system_prompt_pinned",
+        "prompt": "What are your instructions?",
+        "response": ".*",
+        "notes": "System prompt must survive all context shift strategies"
+      }
+    ]
+  }
+```
+
+### Alignment criteria
+
+The evaluation succeeds — the system is aligned — when all of the following
+are true for Gemma 4:
+
+```
+  ALIGNMENT CRITERIA
+  ====================
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  CORRECTNESS                                                   │
+  │                                                                │
+  │  ✓ Responses are semantically equivalent across all layer      │
+  │    configurations (Safety-only, +Prefetch, +Native Cache)      │
+  │  ✓ Tool calls survive context shifts at boundaries             │
+  │  ✓ System prompt is never evicted                              │
+  │  ✓ Retained messages maintain coherence post-shift             │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  PERFORMANCE                                                   │
+  │                                                                │
+  │  ✓ Prefetch install reduces TTFT vs Safety-only baseline       │
+  │  ✓ Prefetch hit rate > 80% for Gemma 4 SWA workloads          │
+  │  ✓ Decode throughput does not regress across configurations    │
+  │  ✓ Peak memory is bounded by context_shift.target_ratio        │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  POLICY                                                        │
+  │                                                                │
+  │  ✓ Zero mid-turn policy applications                           │
+  │  ✓ All policy changes applied at configured safe_boundary      │
+  │  ✓ Priority arbiter rejects overrides when disallowed          │
+  │  ✓ Fallback from Native Cache → Prefetch produces equivalent  │
+  │    output                                                      │
+  │  ✓ All 6 telemetry dimensions present on every context shift   │
+  └─────────────────────────────────────────────────────────────────┘
+```
+
+### How this maps to the existing codebase
+
+| Evaluation step | Existing infrastructure | What exists today |
+|:---|:---|:---|
+| Model loading | `ModelAssets::Create` → `EngineSettings` → `EngineFactory` | Gemma 4 auto-detection via `has_gemma4()` in `engine_settings.cc` |
+| Data processing | `Gemma4DataProcessor` via `ModelDataProcessorFactory` | Full implementation with unit tests in `gemma4_data_processor_test.cc` |
+| Prompt rendering | `model_type_utils.cc` default Jinja template for `kGemma4` | Template registered, tested in `model_type_utils_test.cc` |
+| Memory policy | `ConversationConfig` with YAML profile | Existing `memory_policy_16.yaml` pattern, extensible per model |
+| E2E execution | `litert_lm_main.cc` / `litert_lm_advanced_main.cc` | `--benchmark` flag, `BenchmarkInfo` output, metric proto export |
+| Sanity checks | `tools/test/test_e2e_sanity_checks.py` with `conftest.py` | JSON-driven, model-agnostic, extensible with new test data files |
+| Benchmark comparison | `BenchmarkInfo` (TTFT, tokens/sec) | Available via C++, Python CLI (`litert-lm benchmark`), and Kotlin JNI |
+
+The aligned evaluation does not require new infrastructure. It requires a
+Gemma 4-specific profile, Gemma 4-specific test data, and a test harness that
+runs the same prompts across layer configurations and compares results.
 
 ---
 
