@@ -3223,8 +3223,23 @@ Conversation::RewindAndGetInputDataVector() {
 
 absl::Status Conversation::MaybeApplyContextShift() {
   const ConversationConfig::RuntimeMemoryPolicy policy = GetActiveMemoryPolicy();
-  if (!policy.context_shift_enabled || !context_shift_supported_ ||
-      max_context_tokens_ <= 0 || is_appending_message_) {
+  if (!context_shift_supported_ || is_appending_message_) {
+    return absl::OkStatus();
+  }
+
+  if (max_context_tokens_ <= 0) {
+    auto step_or = session_->GetCurrentStep();
+    if (!step_or.ok() && absl::IsUnimplemented(step_or.status())) {
+      context_shift_supported_ = false;
+    }
+    return absl::OkStatus();
+  }
+
+  if (!policy.context_shift_enabled) {
+    auto step_or = session_->GetCurrentStep();
+    if (!step_or.ok() && absl::IsUnimplemented(step_or.status())) {
+      context_shift_supported_ = false;
+    }
     return absl::OkStatus();
   }
 
