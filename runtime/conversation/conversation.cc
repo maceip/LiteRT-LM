@@ -3402,7 +3402,7 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
                              ShouldFallbackToPhaseB(failure_code), failure_code);
       return false;
     }
-    if (*post_native_step_or > target_step) {
+    if (*post_native_step_or != target_step) {
       constexpr NativeCacheFailureCode kFailureCode =
           NativeCacheFailureCode::kPositionSemanticsViolation;
       RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
@@ -3502,7 +3502,6 @@ absl::Status Conversation::MaybeApplyContextShift() {
   }
 
   if (baseline_recompute_needed) {
-    MarkNativeFallbackExecutedIfNeeded();
     const absl::Time baseline_timer_start = absl::Now();
     while (true) {
       auto rewind_status =
@@ -3514,6 +3513,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
         }
         return rewind_status;
       }
+      MarkNativeFallbackExecutedIfNeeded();
 
       if (use_replay_recent && replay_count > 0) {
         ASSIGN_OR_RETURN(std::vector<InputData> replay_inputs,
