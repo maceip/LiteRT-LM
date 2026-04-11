@@ -24,6 +24,8 @@ This reflects where the current LiteRT-LM implementation is today.
 | Catalog entry | File | Intent |
 | --- | --- | --- |
 | `catalog.step_frozen.v1` | `runtime/conversation/testdata/context_catalog_step_frozen.yaml` | Freeze the Step-style discard-all reset behavior. |
+| `catalog.anthropic_mythos.2026_04_11.v1` | `runtime/conversation/testdata/catalog_profiles/17_anthropic_mythos_2026_04_11.yaml` | Named frozen profile for Mythos-oriented reflective memory behavior. |
+| `catalog.meta_muse_spark.2026_04_11.v1` | `runtime/conversation/testdata/catalog_profiles/18_meta_muse_spark_2026_04_11.yaml` | Named frozen profile for Meta Muse Spark-oriented fast/slow memory behavior. |
 
 ### Zugzug profile
 
@@ -92,3 +94,7 @@ retains additional dotted keys in `RuntimeMemoryPolicy.metadata` for tooling.
     `15_context_quarantine_isolated_scratchpads.yaml`
 16. `mcp_active_metadata`:
     `16_mcp_active_metadata.yaml`
+17. named profile:
+    `17_anthropic_mythos_2026_04_11.yaml`
+18. named profile:
+    `18_meta_muse_spark_2026_04_11.yaml`

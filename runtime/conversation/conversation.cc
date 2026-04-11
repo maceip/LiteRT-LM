@@ -293,8 +293,16 @@ void CopyYamlAnnotationsToPolicy(
     return;
   }
   policy->metadata.clear();
+  static const absl::flat_hash_set<std::string> kTopLevelAnnotationKeys = {
+      "profile_name",
+      "author",
+      "source_repo",
+      "source_url",
+      "steps",
+  };
   for (const auto& [key, value] : kv) {
-    if (key.find('.') != std::string::npos) {
+    if (key.find('.') != std::string::npos ||
+        kTopLevelAnnotationKeys.contains(key)) {
       policy->metadata[key] = value;
     }
   }

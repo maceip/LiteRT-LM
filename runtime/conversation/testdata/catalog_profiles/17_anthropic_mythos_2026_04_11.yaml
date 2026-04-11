@@ -1,0 +1,36 @@
+profile_name: Anthropic Mythos (catalog profile)
+author: Anthropic ecosystem (inspiration)
+source_repo: https://www.anthropic.com
+source_url: https://www.anthropic.com
+steps: contemplate -> reflect -> retrieve -> prune -> respond
+version: v1
+compatibility: v1
+profile_id: catalog.anthropic_mythos.2026_04_11.v1
+strategy: reflection_metacognitive_buffering
+shadow_strategy: self_correcting_fact_graph
+allow_runtime_tuning: true
+safe_boundary: turn_boundary
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.87
+  retain_recent_messages: 5
+  target_ratio: 0.70
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+execution:
+  native_cache_ops:
+    enabled: true
+    allow_pin: true
+    allow_evict_range: true
+    allow_remap: true
+    allow_compact: false
+    allow_snapshot_restore: false
+    require_rollback_guarantee: true
+  protected_ranges:
+    head_tokens: 32
+    tail_turns: 5
+    allow_middle_eviction: true
+catalog_meta:
+  primary_strength: reflective_goal_consistency_with_self_critique
+  typical_failure_mode: latency_growth_from_reflection_cycles

@@ -1,0 +1,43 @@
+profile_name: Meta Muse Spark (catalog profile)
+author: Meta Superintelligence Labs (inspiration)
+source_repo: https://ai.meta.com/blog/introducing-muse-spark-msl/
+source_url: https://ai.meta.com/blog/introducing-muse-spark-msl/
+steps: parallel_reasoning -> thought_compression -> native_shift -> verify -> continue
+version: v1
+compatibility: v1
+profile_id: catalog.meta_muse_spark.2026_04_11.v1
+strategy: slow_fast_memory_architecture
+shadow_strategy: token_efficient_kv_cache_management
+allow_runtime_tuning: true
+safe_boundary: tool_result
+emit_transition_note: true
+context_shift:
+  enabled: true
+  trigger_ratio: 0.88
+  retain_recent_messages: 6
+  target_ratio: 0.70
+  reset_on_exhaustion: true
+  shift_strategy: replay_recent
+execution:
+  native_cache_ops:
+    enabled: true
+    allow_pin: true
+    allow_evict_range: true
+    allow_remap: true
+    allow_compact: true
+    allow_snapshot_restore: false
+    require_rollback_guarantee: true
+  protected_ranges:
+    head_tokens: 32
+    tail_turns: 6
+    allow_middle_eviction: true
+prefetch:
+  planner:
+    enabled: true
+    enable_speculative_planning: true
+    trigger_ratio: 0.80
+    builder_hint: summarize_protected_tail
+    invalidation_policy: supersede_on_policy_change
+catalog_meta:
+  primary_strength: fast_parallel_reasoning_with_compression
+  typical_failure_mode: compression_overfocus_can_drop_mid_context_details

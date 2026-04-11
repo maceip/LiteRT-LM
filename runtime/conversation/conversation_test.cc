@@ -646,6 +646,41 @@ TEST(ConversationConfigTest, LoadMcpActiveMetadataCatalogProfileFromTestdata) {
             "constraint_first");
 }
 
+TEST(ConversationConfigTest, LoadAnthropicMythosCatalogProfileFromTestdata) {
+  const std::string yaml_path = GetTestdataPath(
+      "litert_lm/runtime/conversation/testdata/catalog_profiles/"
+      "17_anthropic_mythos_2026_04_11.yaml");
+  ASSERT_OK_AND_ASSIGN(auto policy,
+                       ConversationConfig::LoadMemoryPolicyYamlFile(yaml_path));
+
+  ASSERT_TRUE(policy.profile_id.has_value());
+  EXPECT_EQ(*policy.profile_id, "catalog.anthropic_mythos.2026_04_11.v1");
+  EXPECT_EQ(policy.strategy,
+            ConversationConfig::MemoryStrategy::kReflectionMetacognitiveBuffering);
+  EXPECT_EQ(policy.shadow_strategy,
+            ConversationConfig::MemoryStrategy::kSelfCorrectingFactGraph);
+  EXPECT_TRUE(policy.metadata.contains("author"));
+  EXPECT_TRUE(policy.metadata.contains("source_repo"));
+}
+
+TEST(ConversationConfigTest, LoadMetaMuseSparkCatalogProfileFromTestdata) {
+  const std::string yaml_path = GetTestdataPath(
+      "litert_lm/runtime/conversation/testdata/catalog_profiles/"
+      "18_meta_muse_spark_2026_04_11.yaml");
+  ASSERT_OK_AND_ASSIGN(auto policy,
+                       ConversationConfig::LoadMemoryPolicyYamlFile(yaml_path));
+
+  ASSERT_TRUE(policy.profile_id.has_value());
+  EXPECT_EQ(*policy.profile_id, "catalog.meta_muse_spark.2026_04_11.v1");
+  EXPECT_EQ(policy.strategy,
+            ConversationConfig::MemoryStrategy::kSlowFastMemoryArchitecture);
+  EXPECT_EQ(policy.shadow_strategy,
+            ConversationConfig::MemoryStrategy::kTokenEfficientKvCacheManagement);
+  EXPECT_TRUE(policy.prefetch_planner.enabled);
+  EXPECT_TRUE(policy.metadata.contains("author"));
+  EXPECT_TRUE(policy.metadata.contains("source_repo"));
+}
+
 TEST(ConversationConfigTest, ParseMemoryPolicyYamlRejectsUnsupportedVersion) {
   const std::string yaml = R"yaml(
 strategy: hard_reset_replay_window
