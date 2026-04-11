@@ -917,6 +917,7 @@ class Conversation {
   struct NativeCacheStateSnapshot {
     bool attempted = false;
     bool committed = false;
+    bool fallback_to_phase_b = false;  // Backward-compat alias of completed.
     bool fallback_attempted = false;
     bool fallback_completed = false;
     std::optional<NativeCacheFailureCode> last_failure_code = std::nullopt;

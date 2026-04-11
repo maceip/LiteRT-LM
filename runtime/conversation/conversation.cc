@@ -1038,6 +1038,7 @@ Conversation::GetNativeCacheStateForTest() const {
   return NativeCacheStateSnapshot{
       .attempted = native_cache_state_.attempted,
       .committed = native_cache_state_.committed,
+      // Keep backwards-compatible semantics for existing tests/consumers.
       .fallback_to_phase_b = native_cache_state_.fallback_completed,
       .fallback_attempted = native_cache_state_.fallback_attempted,
       .fallback_completed = native_cache_state_.fallback_completed,
