@@ -1285,6 +1285,7 @@ class Conversation {
   void RecordNativeCacheState(
       bool attempted, bool committed, bool fallback_to_phase_b,
       std::optional<NativeCacheFailureCode> last_failure_code);
+  void MarkNativeFallbackExecutedIfNeeded();
   static bool ShouldFallbackToPhaseB(NativeCacheFailureCode failure_code);
 
   // Schedules background prefetch planning after a safe boundary.

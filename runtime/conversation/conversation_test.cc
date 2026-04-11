@@ -2166,12 +2166,13 @@ TEST_P(ConversationTest,
         .WillOnce([](const Engine::Session::CacheOpGroup& op_group) {
           EXPECT_THAT(op_group.ops, SizeIs(1));
           EXPECT_EQ(op_group.ops[0].verb, Engine::Session::CacheOpVerb::kEvictRange);
-          EXPECT_EQ(op_group.ops[0].token_span.start_token, 0);
-          EXPECT_EQ(op_group.ops[0].token_span.end_token_exclusive, 3);
+          EXPECT_EQ(op_group.ops[0].token_span.start_token, 1);
+          EXPECT_EQ(op_group.ops[0].token_span.end_token_exclusive, 4);
           EXPECT_TRUE(op_group.requires_rollback_guarantee);
           return Engine::Session::CacheOpGroupResult{
               .committed = true, .rollback_available = true};
         });
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(5));
     EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
@@ -2319,6 +2320,71 @@ TEST_P(ConversationTest,
             Engine::Session::CacheOpFailureCode::kUnsupportedCapability);
 }
 
+TEST_P(ConversationTest, NativeCacheRangeConflictRecordsExecutedFallbackPath) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+
+  const Engine::Session::CacheOpCapabilities capabilities{
+      .supports_kv_surgery = true,
+      .supports_range_evict = true,
+  };
+  EXPECT_CALL(*mock_session_ptr, GetCacheOpCapabilities())
+      .Times(1)
+      .WillOnce(Return(capabilities));
+
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(0)
+          .SetPrefetchEnabled(false)
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr, ExecuteCacheOpGroup(testing::_))
+        .WillOnce(Return(Engine::Session::CacheOpGroupResult{
+            .committed = false,
+            .rollback_available = true,
+            .failure = Engine::Session::CacheOpFailure{
+                .code = Engine::Session::CacheOpFailureCode::kRangeConflict,
+                .detail = "selector overlaps protected range"},
+        }));
+    EXPECT_CALL(*mock_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+
+  const auto native_state = conversation->GetNativeCacheStateForTest();
+  ASSERT_TRUE(native_state.last_failure_code.has_value());
+  EXPECT_TRUE(native_state.attempted);
+  EXPECT_FALSE(native_state.committed);
+  EXPECT_TRUE(native_state.fallback_to_phase_b);
+  EXPECT_EQ(*native_state.last_failure_code,
+            Engine::Session::CacheOpFailureCode::kRangeConflict);
+}
+
 TEST_P(ConversationTest, NativeCacheRollbackUnavailableForcesFallback) {
   auto mock_session = CreateMockSession();
   MockSession* mock_session_ptr = mock_session.get();
@@ -2382,6 +2448,69 @@ TEST_P(ConversationTest, NativeCacheRollbackUnavailableForcesFallback) {
   EXPECT_TRUE(native_state.fallback_to_phase_b);
   EXPECT_EQ(*native_state.last_failure_code,
             Engine::Session::CacheOpFailureCode::kRollbackUnavailable);
+}
+
+TEST_P(ConversationTest, NativeCacheStepVerificationFailureFallsBackToPhaseB) {
+  auto mock_session = CreateMockSession();
+  MockSession* mock_session_ptr = mock_session.get();
+  engine_settings_->GetMutableMainExecutorSettings().SetMaxNumTokens(10);
+
+  const Engine::Session::CacheOpCapabilities capabilities{
+      .supports_kv_surgery = true,
+      .supports_range_evict = true,
+  };
+  EXPECT_CALL(*mock_session_ptr, GetCacheOpCapabilities())
+      .Times(1)
+      .WillOnce(Return(capabilities));
+
+  auto mock_engine = CreateMockEngine(std::move(mock_session));
+  ASSERT_OK_AND_ASSIGN(
+      auto conversation_config,
+      ConversationConfig::Builder()
+          .SetSessionConfig(session_config_)
+          .SetOverwritePromptTemplate(PromptTemplate(kTestJinjaPromptTemplate))
+          .SetEnableContextShift(true)
+          .SetContextShiftTriggerRatio(0.5f)
+          .SetContextShiftTargetRatio(0.5f)
+          .SetContextShiftRetainRecentMessages(0)
+          .SetPrefetchEnabled(false)
+          .Build(*mock_engine));
+
+  {
+    InSequence seq;
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
+    EXPECT_CALL(*mock_session_ptr, ExecuteCacheOpGroup(testing::_))
+        .WillOnce(Return(Engine::Session::CacheOpGroupResult{
+            .committed = true,
+            .rollback_available = true,
+        }));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(7));
+    EXPECT_CALL(*mock_session_ptr,
+                RewindToCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
+    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
+        .WillOnce(Return(absl::OkStatus()));
+    EXPECT_CALL(*mock_session_ptr, RunDecode(testing::_))
+        .WillOnce(Return(Responses(TaskState::kProcessing, {"A1"})));
+  }
+
+  ASSERT_OK_AND_ASSIGN(auto conversation,
+                       Conversation::Create(*mock_engine, conversation_config));
+  ASSERT_OK(conversation->SendMessage(
+      JsonMessage{{"role", "user"}, {"content", "Q1"}}));
+
+  const auto native_state = conversation->GetNativeCacheStateForTest();
+  ASSERT_TRUE(native_state.last_failure_code.has_value());
+  EXPECT_TRUE(native_state.attempted);
+  EXPECT_FALSE(native_state.committed);
+  EXPECT_TRUE(native_state.fallback_to_phase_b);
+  EXPECT_EQ(*native_state.last_failure_code,
+            Engine::Session::CacheOpFailureCode::kPositionSemanticsViolation);
 }
 
 TEST_P(ConversationTest, NativeCacheCorruptionSignalForcesFallback) {

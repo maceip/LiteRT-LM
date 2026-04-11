@@ -72,6 +72,7 @@ constexpr absl::string_view kChannelContentCheckpoint =
     "channel_content_checkpoint";
 constexpr absl::string_view kContextShiftAnchorCheckpoint =
     "context_shift_anchor_checkpoint";
+constexpr int kNativeProtectedHeadTokenCount = 32;
 
 bool IsEmptyInputError(const absl::Status& status) {
   return absl::IsInvalidArgument(status) &&
@@ -3324,6 +3325,13 @@ void Conversation::RecordNativeCacheState(
   native_cache_state_.last_failure_code = last_failure_code;
 }
 
+void Conversation::MarkNativeFallbackExecutedIfNeeded() {
+  absl::MutexLock lock(&policy_mutex_);
+  if (native_cache_state_.attempted && !native_cache_state_.committed) {
+    native_cache_state_.fallback_to_phase_b = true;
+  }
+}
+
 bool Conversation::ShouldFallbackToPhaseB(NativeCacheFailureCode failure_code) {
   switch (failure_code) {
     case NativeCacheFailureCode::kUnsupportedCapability:
@@ -3355,12 +3363,18 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
                            /*fallback_to_phase_b=*/false, std::nullopt);
     return false;
   }
+  const int protected_head_tokens = std::min(
+      current_step,
+      std::max(1, std::min(kNativeProtectedHeadTokenCount, target_step / 4)));
+  const int evict_start_token = protected_head_tokens;
+  const int evict_end_token_exclusive = evict_start_token + tokens_to_evict;
 
   Engine::Session::CacheOpGroup op_group;
   op_group.requires_rollback_guarantee = true;
   op_group.ops.push_back(Engine::Session::CacheOp{
       .verb = Engine::Session::CacheOpVerb::kEvictRange,
-      .token_span = {.start_token = 0, .end_token_exclusive = tokens_to_evict},
+      .token_span = {.start_token = evict_start_token,
+                     .end_token_exclusive = evict_end_token_exclusive},
       .pin_class = Engine::Session::CachePinClass::kEphemeral,
       .logical_role = Engine::Session::CacheLogicalRole::kScratchpad,
   });
@@ -3378,6 +3392,23 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
 
   const Engine::Session::CacheOpGroupResult& cache_result = *cache_result_or;
   if (cache_result.committed && !cache_result.failure.has_value()) {
+    auto post_native_step_or = session_->GetCurrentStep();
+    if (!post_native_step_or.ok()) {
+      const NativeCacheFailureCode failure_code =
+          absl::IsUnimplemented(post_native_step_or.status())
+              ? NativeCacheFailureCode::kUnsupportedCapability
+              : NativeCacheFailureCode::kInternalCacheCorruptionSuspected;
+      RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
+                             ShouldFallbackToPhaseB(failure_code), failure_code);
+      return false;
+    }
+    if (*post_native_step_or > target_step) {
+      constexpr NativeCacheFailureCode kFailureCode =
+          NativeCacheFailureCode::kPositionSemanticsViolation;
+      RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
+                             ShouldFallbackToPhaseB(kFailureCode), kFailureCode);
+      return false;
+    }
     RecordNativeCacheState(/*attempted=*/true, /*committed=*/true,
                            /*fallback_to_phase_b=*/false, std::nullopt);
     return true;
@@ -3471,6 +3502,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
   }
 
   if (baseline_recompute_needed) {
+    MarkNativeFallbackExecutedIfNeeded();
     const absl::Time baseline_timer_start = absl::Now();
     while (true) {
       auto rewind_status =
