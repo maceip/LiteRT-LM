@@ -32,3 +32,7 @@ Here you will find detailed information about the LiteRT-LM APIs.
 If you encounter a bug or have a feature request, we encourage you to use the
 [GitHub Issues](https://github.com/google-ai-edge/LiteRT-LM/issues/new) page to
 report it.
+
+## Product Planning
+
+- [Phone Harness + Laptop PEFT Productization Plan](./PHONE_LAPTOP_PEFT_PRODUCTIZATION.md)
