@@ -40,6 +40,8 @@
 
 namespace litert::lm {
 
+inline constexpr uint64_t kLitertLmHeaderMaxSize = 16 * 1024;
+
 // Each buffer is keyed by the data type as the major key and the model type
 // as the optional secondary key when the data type is TFLiteModel or
 // TFLiteWeights.
@@ -67,6 +69,10 @@ struct BufferKey {
     return data_type == other.data_type && model_type == other.model_type;
   }
 };
+
+// Extracts the BufferKey and backend constraint from the section metadata.
+absl::StatusOr<std::pair<BufferKey, std::optional<std::string>>>
+ExtractBufferKeyAndBackendConstraint(const schema::SectionObject* section);
 
 // Hash function for BufferKey
 struct BufferKeyHash {

@@ -43,6 +43,7 @@
 #include "litert/cc/litert_layout.h"  // from @litert
 #include "litert/cc/litert_macros.h"  // from @litert
 #include "litert/cc/litert_model.h"  // from @litert
+#include "litert/cc/litert_model_types.h"  // from @litert
 #include "litert/cc/litert_options.h"  // from @litert
 #include "litert/cc/litert_ranked_tensor_type.h"  // from @litert
 #include "litert/cc/litert_tensor_buffer.h"  // from @litert
@@ -82,8 +83,7 @@ constexpr absl::string_view kDecodeSignatureRunner = "decode";
 constexpr int kDynamicDimValue = -1;
 
 absl::Status InitializeEmbeddingLookups(
-    litert::Environment& env,
-    ModelResources& resources,
+    litert::Environment& env, ModelResources& resources,
     std::unique_ptr<EmbeddingLookupManager>& embedding_lookup,
     std::unique_ptr<EmbeddingLookupManager>& per_layer_embedding_lookup) {
   absl::flat_hash_map<int, const Model*> end_of_multi_modal_embedding_models;
@@ -109,10 +109,8 @@ absl::Status InitializeEmbeddingLookups(
   if (text_embedder_model.ok()) {
     ASSIGN_OR_RETURN(
         embedding_lookup,
-        EmbeddingLookupManager::Create(*text_embedder_model,
-                                       end_of_multi_modal_embedding_models,
-                                       /*fully_supports_multi_modal=*/true,
-                                       /*signature_key=*/std::nullopt, &env));
+        EmbeddingLookupManager::Create(env, *text_embedder_model,
+                                       end_of_multi_modal_embedding_models));
   }
 
   // Create per layer embedding lookups from the resources.
@@ -121,9 +119,8 @@ absl::Status InitializeEmbeddingLookups(
   if (per_layer_embedder_model.ok()) {
     ASSIGN_OR_RETURN(
         per_layer_embedding_lookup,
-        EmbeddingLookupManager::Create(*per_layer_embedder_model,
-                                       /*fully_supports_multi_modal=*/false,
-                                       /*signature_key=*/std::nullopt, &env));
+        EmbeddingLookupManager::Create(env, *per_layer_embedder_model,
+                                       /*fully_supports_multi_modal=*/false));
   }
   return absl::OkStatus();
 }
@@ -1721,7 +1718,6 @@ LlmLiteRtCompiledModelExecutorStatic::Create(
   std::unique_ptr<EmbeddingLookupManager> per_layer_embedding_lookup;
   RETURN_IF_ERROR(InitializeEmbeddingLookups(
       lrt_env, resources, embedding_lookup, per_layer_embedding_lookup));
-
   std::unique_ptr<LlmLiteRtMtpDrafter> mtp_drafter;
   {
     const auto& advanced_settings = executor_settings.GetAdvancedSettings();
@@ -2060,7 +2056,6 @@ LlmLiteRtCompiledModelExecutorDynamic::Create(
   std::unique_ptr<EmbeddingLookupManager> per_layer_embedding_lookup;
   RETURN_IF_ERROR(InitializeEmbeddingLookups(
       lrt_env, resources, embedding_lookup, per_layer_embedding_lookup));
-
   return absl::WrapUnique(new LlmLiteRtCompiledModelExecutorDynamic(
       std::move(executor_settings), lrt_env, litert_model,
       std::move(compiled_model), std::move(decode_input_buffers),

@@ -434,7 +434,7 @@ Gemma4DataProcessor::RenderSingleTurnTemplate(
     const Message& message, const PromptTemplate& prompt_template,
     bool current_is_appending_message, bool append_message,
     std::optional<nlohmann::ordered_json> extra_context) const {
-  const JsonMessage& json_message = std::get<nlohmann::ordered_json>(message);
+  const JsonMessage& json_message = message;
   const auto& json_preface = std::get<JsonPreface>(preface);
   std::string prefill_text = "";
   bool is_first_part = false;
@@ -457,8 +457,7 @@ Gemma4DataProcessor::RenderSingleTurnTemplate(
 
   bool is_role_changed = false;
   if (!history.empty()) {
-    const auto& last_json_message =
-        std::get<nlohmann::ordered_json>(history.back());
+    const auto& last_json_message = history.back();
     // If the last message is in appending state and the current message is
     // a different role, add a closing segment for the previous role.
     if (current_is_appending_message &&

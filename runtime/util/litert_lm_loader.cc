@@ -59,9 +59,47 @@ absl::StatusOr<std::unique_ptr<MemoryMappedFile>> CreateMemoryMapFromScopedFile(
                                               "whole");
 }
 
-constexpr uint64_t kLitertLmHeaderMaxSize = 16 * 1024;
-
 }  // namespace
+
+absl::StatusOr<std::pair<BufferKey, std::optional<std::string>>>
+ExtractBufferKeyAndBackendConstraint(const schema::SectionObject* section) {
+  auto items = section->items();
+  BufferKey buffer_key(section->data_type());
+  std::optional<std::string> backend_constraint;
+  // Extract the specific model type from the section items KeyValuePairs.
+  if (section->data_type() == schema::AnySectionDataType_TFLiteModel ||
+      section->data_type() == schema::AnySectionDataType_TFLiteWeights) {
+    bool found_model_type = false;
+    std::string model_type;
+    for (size_t j = 0; j < items->size(); ++j) {
+      auto item = items->Get(j);
+      if (item->key() &&
+          absl::AsciiStrToLower(item->key()->str()) == "model_type" &&
+          item->value()) {
+        found_model_type = true;
+        model_type = *(item->value_as_StringValue()->value());
+      }
+      if (item->key() &&
+          absl::AsciiStrToLower(item->key()->str()) == "backend_constraint" &&
+          item->value()) {
+        backend_constraint = *(item->value_as_StringValue()->value());
+      }
+    }
+    if (found_model_type) {
+      ABSL_LOG(INFO) << "model_type: " << model_type;
+      ASSIGN_OR_RETURN(ModelType model_type_enum,
+                       StringToModelType(model_type));
+      buffer_key = BufferKey(section->data_type(), model_type_enum);
+    } else {
+      ABSL_LOG(WARNING) << "model_type not found, use kTfLitePrefillDecode";
+      // For backward compatibility, we will use the default model type if
+      // model_type is not found.
+      buffer_key =
+          BufferKey(section->data_type(), ModelType::kTfLitePrefillDecode);
+    }
+  }
+  return std::make_pair(buffer_key, backend_constraint);
+}
 
 absl::Status LitertLmLoader::MapSection(BufferKey buffer_key,
                                         uint64_t begin_offset,
@@ -149,7 +187,6 @@ absl::Status LitertLmLoader::Initialize() {
   ABSL_LOG(INFO) << "mmap_status is ok";
 
   // Read the header information.
-  schema::LitertlmHeader header;
   absl::Status status =
       ReadHeaderFromLiteRTLM(header_data, header_size, &header_);
   ABSL_LOG(INFO) << "status: " << status;
@@ -164,44 +201,14 @@ absl::Status LitertLmLoader::Initialize() {
   auto sections = header_.metadata->section_metadata()->objects();
   for (size_t i = 0; i < sections->size(); ++i) {
     const schema::SectionObject* section = sections->Get(i);
-    auto items = section->items();
-    BufferKey buffer_key(section->data_type());
-    // Extract the specific model type from the section items KeyValuePairs.
-    if (section->data_type() == schema::AnySectionDataType_TFLiteModel ||
-        section->data_type() == schema::AnySectionDataType_TFLiteWeights) {
-      bool found_model_type = false;
-      std::string model_type;
-      std::string backend_constraint;
-      for (size_t j = 0; j < items->size(); ++j) {
-        auto item = items->Get(j);
-        if (item->key() &&
-            absl::AsciiStrToLower(item->key()->str()) == "model_type" &&
-            item->value()) {
-          found_model_type = true;
-          model_type = *(item->value_as_StringValue()->value());
-        }
-        if (item->key() &&
-            absl::AsciiStrToLower(item->key()->str()) == "backend_constraint" &&
-            item->value()) {
-          backend_constraint = *(item->value_as_StringValue()->value());
-        }
-      }
-      if (found_model_type) {
-        ABSL_LOG(INFO) << "model_type: " << model_type;
-        ASSIGN_OR_RETURN(ModelType model_type_enum,
-                         StringToModelType(model_type));
-        buffer_key = BufferKey(section->data_type(), model_type_enum);
-      } else {
-        ABSL_LOG(WARNING) << "model_type not found, use kTfLitePrefillDecode";
-        // For backward compatibility, we will use the default model type if
-        // model_type is not found.
-        buffer_key =
-            BufferKey(section->data_type(), ModelType::kTfLitePrefillDecode);
-      }
-      if (!backend_constraint.empty()) {
-        section_backend_constraint_[buffer_key] = backend_constraint;
-        ABSL_LOG(INFO) << "section_backend_constraint: " << backend_constraint;
-      }
+    ASSIGN_OR_RETURN(auto key_and_constraint,
+                     ExtractBufferKeyAndBackendConstraint(section));
+    BufferKey buffer_key = key_and_constraint.first;
+    if (key_and_constraint.second.has_value() &&
+        !key_and_constraint.second->empty()) {
+      section_backend_constraint_[buffer_key] = *key_and_constraint.second;
+      ABSL_LOG(INFO) << "section_backend_constraint: "
+                     << *key_and_constraint.second;
     }
     section_locations_[buffer_key] =
         std::make_pair(section->begin_offset(), section->end_offset());

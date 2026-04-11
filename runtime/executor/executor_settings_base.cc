@@ -25,6 +25,7 @@
 #include "absl/strings/match.h"  // from @com_google_absl
 #include "absl/strings/str_cat.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "runtime/util/data_stream.h"
 #include "runtime/util/file_util.h"
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/scoped_file.h"
@@ -154,6 +155,12 @@ absl::StatusOr<ModelAssets> ModelAssets::Create(
 
 // static
 absl::StatusOr<ModelAssets> ModelAssets::Create(
+    std::shared_ptr<litert::lm::DataStream> data_stream) {
+  return ModelAssets(std::move(data_stream));
+}
+
+// static
+absl::StatusOr<ModelAssets> ModelAssets::Create(
     std::shared_ptr<litert::lm::ScopedFile> model_file,
     absl::string_view model_path) {
   return ModelAssets(std::move(model_file), model_path);
@@ -182,6 +189,9 @@ ModelAssets::ModelAssets(
     absl::string_view model_path)
     : path_(model_path), memory_mapped_file_(std::move(model_file)) {}
 
+ModelAssets::ModelAssets(std::shared_ptr<litert::lm::DataStream> data_stream)
+    : data_stream_(std::move(data_stream)) {}
+
 absl::StatusOr<absl::string_view> ModelAssets::GetPath() const {
   if (!path_.empty()) {
     return path_;
@@ -206,6 +216,14 @@ ModelAssets::GetMemoryMappedFile() const {
   return memory_mapped_file_;
 }
 
+absl::StatusOr<std::shared_ptr<DataStream>> ModelAssets::GetDataStream() const {
+  if (!HasDataStream()) {
+    return absl::InvalidArgumentError(
+        "Assets were not created with a data stream.");
+  }
+  return data_stream_;
+}
+
 absl::StatusOr<std::shared_ptr<ScopedFile>> ModelAssets::GetOrCreateScopedFile()
     const {
   if (HasScopedFile()) {
@@ -227,6 +245,8 @@ std::ostream& operator<<(std::ostream& os, const ModelAssets& model_assets) {
   } else if (model_assets.HasMemoryMappedFile()) {
     os << "model_file memory mapped file: "
        << model_assets.GetMemoryMappedFile().value()->data() << "\n";
+  } else if (model_assets.HasDataStream()) {
+    os << "model_file is loading from a data stream\n";
   } else {
     os << "model_path: " << model_assets.GetPath().value() << "\n";
   }

@@ -296,9 +296,9 @@ absl::Status SessionBasic::RunPrefill(const std::vector<InputData>& contents) {
   if (contents.empty()) {
     return absl::InvalidArgumentError("Input is empty.");
   }
-  ABSL_LOG(INFO) << "RunPrefill: ";
+  ABSL_VLOG(1) << "RunPrefill: ";
   for (const auto& content : contents) {
-    ABSL_LOG(INFO) << content;
+    ABSL_VLOG(1) << content;
   }
 
   if (cancelled_.load()) {
@@ -340,9 +340,9 @@ absl::StatusOr<std::unique_ptr<TaskController>> SessionBasic::RunPrefillAsync(
   if (contents.empty()) {
     return absl::InvalidArgumentError("Input is empty.");
   }
-  ABSL_LOG(INFO) << "RunPrefillAsync: ";
+  ABSL_VLOG(1) << "RunPrefillAsync: ";
   for (const auto& content : contents) {
-    ABSL_LOG(INFO) << content;
+    ABSL_VLOG(1) << content;
   }
 
   if (cancelled_.load()) {

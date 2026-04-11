@@ -14,6 +14,7 @@
 
 #include "runtime/executor/executor_settings_base.h"
 
+#include <filesystem>  // NOLINT
 #include <memory>
 #include <sstream>
 #include <string>
@@ -24,11 +25,19 @@
 #include <gtest/gtest.h>
 #include "absl/status/status.h"  // from @com_google_absl
 #include "absl/strings/string_view.h"  // from @com_google_absl
+#include "runtime/util/file_data_stream.h"
 #include "runtime/util/memory_mapped_file.h"
 #include "runtime/util/test_utils.h"  // NOLINT
 
 namespace litert::lm {
 namespace {
+
+std::string GetTestModelPath() {
+  const auto model_path =
+      std::filesystem::path(::testing::SrcDir()) /
+      "litert_lm/runtime/testdata/test_lm.litertlm";
+  return model_path.string();
+}
 
 TEST(LlmExecutorConfigTest, Backend) {
   Backend backend;
@@ -172,6 +181,23 @@ TEST(LlmExecutorConfigTest, ModelAssetsMemoryMapped) {
   std::stringstream oss;
   oss << *model_assets;
   EXPECT_THAT(oss.str(), testing::HasSubstr("model_file memory mapped file"));
+  EXPECT_THAT(oss.str(), testing::HasSubstr("FAKE_WEIGHTS_NONE"));
+}
+
+TEST(LlmExecutorConfigTest, ModelAssetsDataStream) {
+  ASSERT_OK_AND_ASSIGN(auto data_stream,
+                       FileDataStream::Create(GetTestModelPath()));
+
+  auto model_assets = ModelAssets::Create(data_stream);
+  ASSERT_OK(model_assets);
+  EXPECT_TRUE(model_assets->HasDataStream());
+  ASSERT_OK_AND_ASSIGN(auto retrieved_stream, model_assets->GetDataStream());
+  EXPECT_EQ(retrieved_stream, data_stream);
+
+  std::stringstream oss;
+  oss << *model_assets;
+  EXPECT_THAT(oss.str(),
+              testing::HasSubstr("model_file is loading from a data stream"));
   EXPECT_THAT(oss.str(), testing::HasSubstr("FAKE_WEIGHTS_NONE"));
 }
 

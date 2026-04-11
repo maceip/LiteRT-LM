@@ -649,7 +649,7 @@ TEST_P(ConversationTest, SendMessage) {
   ExpectAssistantMessageWithNonEmptyText(message);
   const auto history = conversation->GetHistory();
   ASSERT_THAT(history.size(), 2);
-  EXPECT_THAT(history[0], testing::VariantWith<JsonMessage>(user_message));
+  EXPECT_THAT(history[0], testing::Eq(user_message));
   EXPECT_THAT(history[1], testing::Eq(message));
 }
 
@@ -3663,7 +3663,7 @@ TEST_P(ConversationTest, SendMessageAsync) {
   EXPECT_GT(partial_message_count, 0);
   const auto history = conversation->GetHistory();
   ASSERT_THAT(history.size(), 2);
-  EXPECT_THAT(history[0], testing::VariantWith<JsonMessage>(user_message));
+  EXPECT_THAT(history[0], testing::Eq(user_message));
   ExpectAssistantMessageWithNonEmptyText(history[1]);
 }
 
@@ -4583,7 +4583,7 @@ TEST_P(ConversationCancellationTest, CancelProcessWithBenchmarkInfo) {
   // assistant.
   auto history = conversation->GetHistory();
   ASSERT_EQ(history.size(), 2);
-  EXPECT_THAT(history[0], testing::VariantWith<JsonMessage>(JsonMessage{
+  EXPECT_THAT(history[0], testing::Eq(JsonMessage{
                               {"role", "user"}, {"content", "Hello world!"}}));
   // TODO(b/450903294) - Because the cancellation is not fully rollbacked, the
   // assistant message content depends on at which step the cancellation is

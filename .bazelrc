@@ -505,6 +505,9 @@ build:rbe_linux --linkopt=-lm
 build:rbe_linux --host_linkopt=-lm
 
 build:rbe_linux_cpu --config=rbe_linux
+# Explicitly set C++20 for RBE Linux CPU builds
+build:rbe_linux_cpu --cxxopt=-std=c++20
+build:rbe_linux_cpu --host_cxxopt=-std=c++20
 # Linux cpu and cuda builds share the same toolchain now.
 build:rbe_linux_cpu --host_crosstool_top="@local_config_cuda//crosstool:toolchain"
 build:rbe_linux_cpu --crosstool_top="@local_config_cuda//crosstool:toolchain"

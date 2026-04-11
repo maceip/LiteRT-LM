@@ -24,9 +24,7 @@
 namespace litert::lm {
 
 using JsonMessage = nlohmann::ordered_json;
-
-// Message is the data container for a single turn of the conversation.
-using Message = std::variant<JsonMessage>;
+using Message = JsonMessage;
 
 std::ostream& operator<<(std::ostream& os, const Message& message);
 

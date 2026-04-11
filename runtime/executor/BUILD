@@ -86,6 +86,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "//runtime/util:data_stream",
         "//runtime/util:file_util",
         "//runtime/util:litert_status_util",
         "//runtime/util:memory_mapped_file",
@@ -96,11 +97,13 @@ cc_library(
 cc_test(
     name = "executor_settings_base_test",
     srcs = ["executor_settings_base_test.cc"],
+    data = ["//runtime/testdata"],
     deps = [
         ":executor_settings_base",
         "@com_google_googletest//:gtest_main",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings:string_view",
+        "//runtime/util:file_data_stream",
         "//runtime/util:memory_mapped_file",
         "//runtime/util:test_utils",
     ],
@@ -311,7 +314,12 @@ cc_test(
     data = [
         "//runtime/testdata",
     ],
-    tags = ["requires-gpu-nvidia"],
+    tags = [
+        "noasan",
+        "nomsan",
+        "notsan",
+        "requires-gpu-nvidia",
+    ],
     deps = [
         ":default_static_gpu_accelerator",
         ":executor_settings_base",

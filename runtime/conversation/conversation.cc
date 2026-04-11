@@ -129,12 +129,10 @@ bool ContainsToolMessage(const nlohmann::ordered_json& json_msg) {
 
 Message MaybeStripChannelContentFromMessage(
     const Message& message, bool strip_channel_content) {
-  if (!strip_channel_content ||
-      !std::holds_alternative<nlohmann::ordered_json>(message)) {
+  if (!strip_channel_content) {
     return message;
   }
-  nlohmann::ordered_json json_message =
-      std::get<nlohmann::ordered_json>(message);
+  nlohmann::ordered_json json_message = message;
   if (json_message.is_object()) {
     json_message.erase(std::string(kChannelsKey));
   }
@@ -777,14 +775,10 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnTextFromFullHistory(
 
   absl::MutexLock lock(history_mutex_);  // NOLINT
   for (const auto& history_msg : history_) {
-    if (std::holds_alternative<nlohmann::ordered_json>(history_msg)) {
-      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
-                       model_data_processor_->MessageToTemplateInput(
-                           std::get<nlohmann::ordered_json>(history_msg)));
-      old_tmpl_input.messages.push_back(message_tmpl_input);
-    } else {
-      return absl::UnimplementedError("Message type is not supported yet");
-    }
+    ASSIGN_OR_RETURN(
+        nlohmann::ordered_json message_tmpl_input,
+        model_data_processor_->MessageToTemplateInput(history_msg));
+    old_tmpl_input.messages.push_back(message_tmpl_input);
   }
   nlohmann::ordered_json messages =
       json_message.is_array() ? json_message
@@ -827,11 +821,7 @@ absl::StatusOr<std::string> Conversation::GetSingleTurnTextFromFullHistory(
 
 absl::StatusOr<std::string> Conversation::GetSingleTurnText(
     const Message& message, const OptionalArgs& optional_args) {
-  if (!std::holds_alternative<nlohmann::ordered_json>(message)) {
-    return absl::InvalidArgumentError("Json message is required for now.");
-  }
-  nlohmann::ordered_json json_message =
-      std::get<nlohmann::ordered_json>(message);
+  const nlohmann::ordered_json& json_message = message;
   if (!prompt_template_.GetCapabilities().supports_single_turn &&
       optional_args.has_pending_message) {
     return absl::InvalidArgumentError(
@@ -2464,11 +2454,8 @@ size_t Conversation::ComputePrefetchValidityHash() const {
     absl::MutexLock lock(&history_mutex_);
     history_size = history_.size();
     history_revision = history_revision_;
-    if (!history_.empty() &&
-        std::holds_alternative<nlohmann::ordered_json>(history_.back())) {
-      history_tail_digest =
-          std::hash<std::string>{}(std::get<nlohmann::ordered_json>(history_.back())
-                                       .dump());
+    if (!history_.empty()) {
+      history_tail_digest = std::hash<std::string>{}(history_.back().dump());
     }
   }
 
@@ -2519,20 +2506,14 @@ size_t Conversation::ComputeRetainedHistoryDigest(
     seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
   };
   for (const auto& message : retained_messages) {
-    if (std::holds_alternative<nlohmann::ordered_json>(message)) {
-      hash_combine(std::hash<std::string>{}(
-          std::get<nlohmann::ordered_json>(message).dump()));
-    }
+    hash_combine(std::hash<std::string>{}(message.dump()));
   }
   return seed;
 }
 
 absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
                                                   OptionalArgs optional_args) {
-  if (!std::holds_alternative<nlohmann::ordered_json>(message)) {
-    return absl::InvalidArgumentError("Json message is required for now.");
-  }
-  auto json_message = std::get<nlohmann::ordered_json>(message);
+  const nlohmann::ordered_json& json_message = message;
   const BoundaryEvent incoming_boundary_event = DetectBoundaryEvent(json_message);
   if (optional_args.policy_update_request.has_value()) {
     RETURN_IF_ERROR(
@@ -2637,9 +2618,7 @@ absl::StatusOr<Message> Conversation::SendMessage(const Message& message,
       if (config_.filter_channel_content_from_kv_cache() &&
           session_checkpoint_supported_ &&
           !checkpoint_message_index_.has_value() &&
-          std::holds_alternative<nlohmann::ordered_json>(assistant_message) &&
-          std::get<nlohmann::ordered_json>(assistant_message)
-              .contains(kChannelsKey)) {
+          assistant_message.contains(kChannelsKey)) {
         checkpoint_message_index_ = history_.size() - 1;
       }
     }
@@ -2660,10 +2639,7 @@ absl::Status Conversation::SendMessageAsync(
     const Message& message,
     absl::AnyInvocable<void(absl::StatusOr<Message>)> user_callback,
     OptionalArgs optional_args) {
-  if (!std::holds_alternative<nlohmann::ordered_json>(message)) {
-    return absl::InvalidArgumentError("Json message is required for now.");
-  }
-  auto json_message = std::get<nlohmann::ordered_json>(message);
+  const nlohmann::ordered_json& json_message = message;
   const BoundaryEvent incoming_boundary_event = DetectBoundaryEvent(json_message);
   if (optional_args.policy_update_request.has_value()) {
     RETURN_IF_ERROR(
@@ -2735,9 +2711,7 @@ absl::Status Conversation::SendMessageAsync(
           if (config_.filter_channel_content_from_kv_cache() &&
               session_checkpoint_supported_ &&
               !checkpoint_message_index_.has_value() &&
-              std::holds_alternative<nlohmann::ordered_json>(complete_message) &&
-              std::get<nlohmann::ordered_json>(complete_message)
-                  .contains(kChannelsKey)) {
+              complete_message.contains(kChannelsKey)) {
             checkpoint_message_index_ = history_.size() - 1;
           }
         }
@@ -3181,12 +3155,9 @@ absl::StatusOr<std::string> Conversation::GetPrefillTextForMessages(
 
   // Add old messages to the `old` template context.
   for (const auto& message : old_messages) {
-    if (std::holds_alternative<nlohmann::ordered_json>(message)) {
-      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
-                       model_data_processor_->MessageToTemplateInput(
-                           std::get<nlohmann::ordered_json>(message)));
-      old_context.messages.push_back(message_tmpl_input);
-    }
+    ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
+                     model_data_processor_->MessageToTemplateInput(message));
+    old_context.messages.push_back(message_tmpl_input);
   }
 
   // Render the `old` string.
@@ -3199,14 +3170,10 @@ absl::StatusOr<std::string> Conversation::GetPrefillTextForMessages(
   // Add new messages to the `new` template context.
   nlohmann::ordered_json prefill_messages = nlohmann::ordered_json::array();
   for (const auto& message : new_messages) {
-    if (std::holds_alternative<nlohmann::ordered_json>(message)) {
-      nlohmann::ordered_json json_msg =
-          std::get<nlohmann::ordered_json>(message);
-      prefill_messages.push_back(json_msg);
-      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
-                       model_data_processor_->MessageToTemplateInput(json_msg));
-      new_context.messages.push_back(message_tmpl_input);
-    }
+    prefill_messages.push_back(message);
+    ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
+                     model_data_processor_->MessageToTemplateInput(message));
+    new_context.messages.push_back(message_tmpl_input);
   }
 
   // Render the `new` string.
@@ -3252,26 +3219,19 @@ Conversation::GetInputDataVectorForMessagesWithProcessor(
     }
   }
   for (const auto& message : old_messages) {
-    if (std::holds_alternative<nlohmann::ordered_json>(message)) {
-      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
-                       processor.MessageToTemplateInput(
-                           std::get<nlohmann::ordered_json>(message)));
-      old_context.messages.push_back(message_tmpl_input);
-    }
+    ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
+                     processor.MessageToTemplateInput(message));
+    old_context.messages.push_back(message_tmpl_input);
   }
   ASSIGN_OR_RETURN(const std::string old_string, prompt_template_.Apply(old_context));
 
   PromptTemplateInput new_context = old_context;
   nlohmann::ordered_json prefill_messages = nlohmann::ordered_json::array();
   for (const auto& message : new_messages) {
-    if (std::holds_alternative<nlohmann::ordered_json>(message)) {
-      nlohmann::ordered_json json_msg =
-          std::get<nlohmann::ordered_json>(message);
-      prefill_messages.push_back(json_msg);
-      ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
-                       processor.MessageToTemplateInput(json_msg));
-      new_context.messages.push_back(message_tmpl_input);
-    }
+    prefill_messages.push_back(message);
+    ASSIGN_OR_RETURN(nlohmann::ordered_json message_tmpl_input,
+                     processor.MessageToTemplateInput(message));
+    new_context.messages.push_back(message_tmpl_input);
   }
   ASSIGN_OR_RETURN(const std::string new_string, prompt_template_.Apply(new_context));
   if (old_string.length() > new_string.length()) {

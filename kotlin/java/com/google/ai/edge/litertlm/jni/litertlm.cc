@@ -69,7 +69,7 @@ using litert::lm::InputAudio;
 using litert::lm::InputData;
 using litert::lm::InputImage;
 using litert::lm::InputText;
-using litert::lm::JsonMessage;
+
 using litert::lm::JsonPreface;
 using litert::lm::Message;
 using litert::lm::ModelAssets;
@@ -389,7 +389,7 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSetMinLogSeverity)(
 LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateEngine)(
     JNIEnv* env, jclass thiz, jstring model_path, jstring backend,
     jstring vision_backend, jstring audio_backend, jint max_num_tokens,
-    jstring cache_dir, jboolean enable_benchmark,
+    jint max_num_images, jstring cache_dir, jboolean enable_benchmark,
     jboolean enable_speculative_decoding, jstring main_npu_native_library_dir,
     jstring vision_npu_native_library_dir, jstring audio_npu_native_library_dir,
     jint main_backend_num_threads, jint audio_backend_num_threads) {
@@ -514,6 +514,9 @@ LITERTLM_JNIEXPORT jlong JNICALL JNI_METHOD(nativeCreateEngine)(
 
   if (max_num_tokens > 0) {
     settings->GetMutableMainExecutorSettings().SetMaxNumTokens(max_num_tokens);
+  }
+  if (max_num_images > 0) {
+    settings->GetMutableMainExecutorSettings().SetMaxNumImages(max_num_images);
   }
 
   if (main_backend_num_threads > 0) {
@@ -946,8 +949,7 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
       reinterpret_cast<Conversation*>(conversation_pointer);
 
   const char* json_chars = env->GetStringUTFChars(messageJSONString, nullptr);
-  litert::lm::JsonMessage json_message =
-      nlohmann::ordered_json::parse(json_chars);
+  litert::lm::Message json_message = nlohmann::ordered_json::parse(json_chars);
   env->ReleaseStringUTFChars(messageJSONString, json_chars);
 
   litert::lm::OptionalArgs optional_args;
@@ -1003,27 +1005,15 @@ LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeSendMessageAsync)(
         };
 
         if (message.ok()) {
-          if (!std::holds_alternative<litert::lm::JsonMessage>(*message)) {
-            ABSL_LOG(WARNING) << "Receive callback OnError: Not a JsonMessage";
-            jstring err_message =
-                env->NewStringUTF("Response is not a JsonMessage");
-            env->CallVoidMethod(callback_global, on_error_mid,
-                                (jint)absl::StatusCode::kInternal, err_message);
-            env->DeleteLocalRef(err_message);
+          if (message->empty()) {
+            // Null/empty message indicates completion.
+            env->CallVoidMethod(callback_global, on_complete_mid);
             on_done_fn();
           } else {
-            auto json_message = std::get<litert::lm::JsonMessage>(*message);
-            if (json_message.is_null()) {
-              // Null message indicates completion.
-              env->CallVoidMethod(callback_global, on_complete_mid);
-              on_done_fn();
-            } else {
-              std::string message_str = json_message.dump();
-              jstring message_jstr = NewStringStandardUTF(env, message_str);
-              env->CallVoidMethod(callback_global, on_message_mid,
-                                  message_jstr);
-              env->DeleteLocalRef(message_jstr);
-            }
+            std::string message_str = message->dump();
+            jstring message_jstr = NewStringStandardUTF(env, message_str);
+            env->CallVoidMethod(callback_global, on_message_mid, message_jstr);
+            env->DeleteLocalRef(message_jstr);
           }
         } else {
           ABSL_LOG(WARNING) << "Receive callback OnError: " << message.status();
@@ -1056,8 +1046,7 @@ LITERTLM_JNIEXPORT jstring JNICALL JNI_METHOD(nativeSendMessage)(
       reinterpret_cast<Conversation*>(conversation_pointer);
 
   const char* json_chars = env->GetStringUTFChars(messageJSONString, nullptr);
-  litert::lm::JsonMessage json_message =
-      nlohmann::ordered_json::parse(json_chars);
+  litert::lm::Message json_message = nlohmann::ordered_json::parse(json_chars);
   env->ReleaseStringUTFChars(messageJSONString, json_chars);
 
   litert::lm::OptionalArgs optional_args;
@@ -1075,14 +1064,7 @@ LITERTLM_JNIEXPORT jstring JNICALL JNI_METHOD(nativeSendMessage)(
     return nullptr;
   }
 
-  if (!std::holds_alternative<litert::lm::JsonMessage>(*response)) {
-    ThrowLiteRtLmJniException(
-        env, "Failed to call nativeSendMessage: Response is not a JsonMessage");
-    return nullptr;
-  }
-
-  auto json_response = std::get<litert::lm::JsonMessage>(*response);
-  return NewStringStandardUTF(env, json_response.dump());
+  return NewStringStandardUTF(env, response->dump());
 }
 
 LITERTLM_JNIEXPORT void JNICALL JNI_METHOD(nativeConversationCancelProcess)(
