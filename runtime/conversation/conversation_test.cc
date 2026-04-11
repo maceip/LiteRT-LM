@@ -2194,6 +2194,8 @@ TEST_P(ConversationTest,
   const auto native_state = conversation->GetNativeCacheStateForTest();
   EXPECT_TRUE(native_state.attempted);
   EXPECT_TRUE(native_state.committed);
+  EXPECT_FALSE(native_state.fallback_attempted);
+  EXPECT_FALSE(native_state.fallback_completed);
   EXPECT_FALSE(native_state.fallback_to_phase_b);
   EXPECT_FALSE(native_state.last_failure_code.has_value());
 }
@@ -2255,6 +2257,8 @@ TEST_P(ConversationTest,
   const auto native_state = conversation->GetNativeCacheStateForTest();
   EXPECT_FALSE(native_state.attempted);
   EXPECT_FALSE(native_state.committed);
+  EXPECT_FALSE(native_state.fallback_attempted);
+  EXPECT_FALSE(native_state.fallback_completed);
   EXPECT_FALSE(native_state.fallback_to_phase_b);
   EXPECT_FALSE(native_state.last_failure_code.has_value());
 }
@@ -2315,6 +2319,8 @@ TEST_P(ConversationTest,
   ASSERT_TRUE(native_state.last_failure_code.has_value());
   EXPECT_TRUE(native_state.attempted);
   EXPECT_FALSE(native_state.committed);
+  EXPECT_TRUE(native_state.fallback_attempted);
+  EXPECT_TRUE(native_state.fallback_completed);
   EXPECT_TRUE(native_state.fallback_to_phase_b);
   EXPECT_EQ(*native_state.last_failure_code,
             Engine::Session::CacheOpFailureCode::kUnsupportedCapability);
@@ -2380,6 +2386,8 @@ TEST_P(ConversationTest, NativeCacheRangeConflictRecordsExecutedFallbackPath) {
   ASSERT_TRUE(native_state.last_failure_code.has_value());
   EXPECT_TRUE(native_state.attempted);
   EXPECT_FALSE(native_state.committed);
+  EXPECT_TRUE(native_state.fallback_attempted);
+  EXPECT_TRUE(native_state.fallback_completed);
   EXPECT_TRUE(native_state.fallback_to_phase_b);
   EXPECT_EQ(*native_state.last_failure_code,
             Engine::Session::CacheOpFailureCode::kRangeConflict);
@@ -2445,6 +2453,8 @@ TEST_P(ConversationTest, NativeCacheRollbackUnavailableForcesFallback) {
   ASSERT_TRUE(native_state.last_failure_code.has_value());
   EXPECT_TRUE(native_state.attempted);
   EXPECT_FALSE(native_state.committed);
+  EXPECT_TRUE(native_state.fallback_attempted);
+  EXPECT_TRUE(native_state.fallback_completed);
   EXPECT_TRUE(native_state.fallback_to_phase_b);
   EXPECT_EQ(*native_state.last_failure_code,
             Engine::Session::CacheOpFailureCode::kRollbackUnavailable);
@@ -2508,6 +2518,8 @@ TEST_P(ConversationTest, NativeCacheStepVerificationFailureFallsBackToPhaseB) {
   ASSERT_TRUE(native_state.last_failure_code.has_value());
   EXPECT_TRUE(native_state.attempted);
   EXPECT_FALSE(native_state.committed);
+  EXPECT_TRUE(native_state.fallback_attempted);
+  EXPECT_TRUE(native_state.fallback_completed);
   EXPECT_TRUE(native_state.fallback_to_phase_b);
   EXPECT_EQ(*native_state.last_failure_code,
             Engine::Session::CacheOpFailureCode::kPositionSemanticsViolation);
@@ -2572,6 +2584,8 @@ TEST_P(ConversationTest, NativeCacheOverEvictionFallsBackToPhaseB) {
   ASSERT_TRUE(native_state.last_failure_code.has_value());
   EXPECT_TRUE(native_state.attempted);
   EXPECT_FALSE(native_state.committed);
+  EXPECT_TRUE(native_state.fallback_attempted);
+  EXPECT_TRUE(native_state.fallback_completed);
   EXPECT_TRUE(native_state.fallback_to_phase_b);
   EXPECT_EQ(*native_state.last_failure_code,
             Engine::Session::CacheOpFailureCode::kPositionSemanticsViolation);
@@ -2633,6 +2647,8 @@ TEST_P(ConversationTest, NativeCacheRewindFailureDoesNotMarkFallbackCompleted) {
   ASSERT_TRUE(native_state.last_failure_code.has_value());
   EXPECT_TRUE(native_state.attempted);
   EXPECT_FALSE(native_state.committed);
+  EXPECT_TRUE(native_state.fallback_attempted);
+  EXPECT_FALSE(native_state.fallback_completed);
   EXPECT_FALSE(native_state.fallback_to_phase_b);
   EXPECT_EQ(*native_state.last_failure_code,
             Engine::Session::CacheOpFailureCode::kRangeConflict);
@@ -2699,6 +2715,8 @@ TEST_P(ConversationTest, NativeCacheCorruptionSignalForcesFallback) {
   ASSERT_TRUE(native_state.last_failure_code.has_value());
   EXPECT_TRUE(native_state.attempted);
   EXPECT_FALSE(native_state.committed);
+  EXPECT_TRUE(native_state.fallback_attempted);
+  EXPECT_TRUE(native_state.fallback_completed);
   EXPECT_TRUE(native_state.fallback_to_phase_b);
   EXPECT_EQ(*native_state.last_failure_code,
             Engine::Session::CacheOpFailureCode::

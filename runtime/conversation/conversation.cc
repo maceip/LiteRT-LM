@@ -1038,7 +1038,10 @@ Conversation::GetNativeCacheStateForTest() const {
   return NativeCacheStateSnapshot{
       .attempted = native_cache_state_.attempted,
       .committed = native_cache_state_.committed,
-      .fallback_to_phase_b = native_cache_state_.fallback_to_phase_b,
+      // Keep backwards-compatible semantics for existing tests/consumers.
+      .fallback_to_phase_b = native_cache_state_.fallback_completed,
+      .fallback_attempted = native_cache_state_.fallback_attempted,
+      .fallback_completed = native_cache_state_.fallback_completed,
       .last_failure_code = native_cache_state_.last_failure_code,
   };
 }
@@ -3316,19 +3319,29 @@ Conversation::RewindAndGetInputDataVector() {
 }
 
 void Conversation::RecordNativeCacheState(
-    bool attempted, bool committed, bool fallback_to_phase_b,
+    bool attempted, bool committed, bool fallback_attempted,
+    bool fallback_completed,
     std::optional<NativeCacheFailureCode> last_failure_code) {
   absl::MutexLock lock(&policy_mutex_);
   native_cache_state_.attempted = attempted;
   native_cache_state_.committed = committed;
-  native_cache_state_.fallback_to_phase_b = fallback_to_phase_b;
+  native_cache_state_.fallback_attempted = fallback_attempted;
+  native_cache_state_.fallback_completed = fallback_completed;
   native_cache_state_.last_failure_code = last_failure_code;
 }
 
-void Conversation::MarkNativeFallbackExecutedIfNeeded() {
+void Conversation::MarkNativeFallbackAttemptedIfNeeded() {
   absl::MutexLock lock(&policy_mutex_);
   if (native_cache_state_.attempted && !native_cache_state_.committed) {
-    native_cache_state_.fallback_to_phase_b = true;
+    native_cache_state_.fallback_attempted = true;
+  }
+}
+
+void Conversation::MarkNativeFallbackCompletedIfNeeded() {
+  absl::MutexLock lock(&policy_mutex_);
+  if (native_cache_state_.attempted && !native_cache_state_.committed &&
+      native_cache_state_.fallback_attempted) {
+    native_cache_state_.fallback_completed = true;
   }
 }
 
@@ -3354,13 +3367,15 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
   const int tokens_to_evict = std::max(0, current_step - target_step);
   if (tokens_to_evict <= 0) {
     RecordNativeCacheState(/*attempted=*/false, /*committed=*/false,
-                           /*fallback_to_phase_b=*/false, std::nullopt);
+                           /*fallback_attempted=*/false,
+                           /*fallback_completed=*/false, std::nullopt);
     return false;
   }
   if (!native_cache_capabilities_.supports_kv_surgery ||
       !native_cache_capabilities_.supports_range_evict) {
     RecordNativeCacheState(/*attempted=*/false, /*committed=*/false,
-                           /*fallback_to_phase_b=*/false, std::nullopt);
+                           /*fallback_attempted=*/false,
+                           /*fallback_completed=*/false, std::nullopt);
     return false;
   }
   const int protected_head_tokens = std::min(
@@ -3386,7 +3401,9 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
             ? NativeCacheFailureCode::kUnsupportedCapability
             : NativeCacheFailureCode::kInternalCacheCorruptionSuspected;
     RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
-                           ShouldFallbackToPhaseB(failure_code), failure_code);
+                           /*fallback_attempted=*/ShouldFallbackToPhaseB(
+                               failure_code),
+                           /*fallback_completed=*/false, failure_code);
     return false;
   }
 
@@ -3399,18 +3416,23 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
               ? NativeCacheFailureCode::kUnsupportedCapability
               : NativeCacheFailureCode::kInternalCacheCorruptionSuspected;
       RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
-                             ShouldFallbackToPhaseB(failure_code), failure_code);
+                             /*fallback_attempted=*/ShouldFallbackToPhaseB(
+                                 failure_code),
+                             /*fallback_completed=*/false, failure_code);
       return false;
     }
     if (*post_native_step_or != target_step) {
       constexpr NativeCacheFailureCode kFailureCode =
           NativeCacheFailureCode::kPositionSemanticsViolation;
       RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
-                             ShouldFallbackToPhaseB(kFailureCode), kFailureCode);
+                             /*fallback_attempted=*/ShouldFallbackToPhaseB(
+                                 kFailureCode),
+                             /*fallback_completed=*/false, kFailureCode);
       return false;
     }
     RecordNativeCacheState(/*attempted=*/true, /*committed=*/true,
-                           /*fallback_to_phase_b=*/false, std::nullopt);
+                           /*fallback_attempted=*/false,
+                           /*fallback_completed=*/false, std::nullopt);
     return true;
   }
 
@@ -3422,7 +3444,9 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
     failure_code = NativeCacheFailureCode::kRollbackUnavailable;
   }
   RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
-                         ShouldFallbackToPhaseB(failure_code), failure_code);
+                         /*fallback_attempted=*/ShouldFallbackToPhaseB(
+                             failure_code),
+                         /*fallback_completed=*/false, failure_code);
   return false;
 }
 
@@ -3502,6 +3526,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
   }
 
   if (baseline_recompute_needed) {
+    MarkNativeFallbackAttemptedIfNeeded();
     const absl::Time baseline_timer_start = absl::Now();
     while (true) {
       auto rewind_status =
@@ -3513,7 +3538,7 @@ absl::Status Conversation::MaybeApplyContextShift() {
         }
         return rewind_status;
       }
-      MarkNativeFallbackExecutedIfNeeded();
+      MarkNativeFallbackCompletedIfNeeded();
 
       if (use_replay_recent && replay_count > 0) {
         ASSIGN_OR_RETURN(std::vector<InputData> replay_inputs,

@@ -917,7 +917,9 @@ class Conversation {
   struct NativeCacheStateSnapshot {
     bool attempted = false;
     bool committed = false;
-    bool fallback_to_phase_b = false;
+    bool fallback_to_phase_b = false;  // Backward-compat alias of completed.
+    bool fallback_attempted = false;
+    bool fallback_completed = false;
     std::optional<NativeCacheFailureCode> last_failure_code = std::nullopt;
   };
 
@@ -1196,7 +1198,8 @@ class Conversation {
   struct NativeCacheState {
     bool attempted = false;
     bool committed = false;
-    bool fallback_to_phase_b = false;
+    bool fallback_attempted = false;
+    bool fallback_completed = false;
     std::optional<NativeCacheFailureCode> last_failure_code = std::nullopt;
   };
 
@@ -1283,9 +1286,11 @@ class Conversation {
   absl::StatusOr<bool> TryApplyNativeContextShift(int current_step,
                                                   int target_step);
   void RecordNativeCacheState(
-      bool attempted, bool committed, bool fallback_to_phase_b,
+      bool attempted, bool committed, bool fallback_attempted,
+      bool fallback_completed,
       std::optional<NativeCacheFailureCode> last_failure_code);
-  void MarkNativeFallbackExecutedIfNeeded();
+  void MarkNativeFallbackAttemptedIfNeeded();
+  void MarkNativeFallbackCompletedIfNeeded();
   static bool ShouldFallbackToPhaseB(NativeCacheFailureCode failure_code);
 
   // Schedules background prefetch planning after a safe boundary.
