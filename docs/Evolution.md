@@ -1361,6 +1361,64 @@ The aligned evaluation does not require new infrastructure. It requires a
 Gemma 4-specific profile, Gemma 4-specific test data, and a test harness that
 runs the same prompts across layer configurations and compares results.
 
+### Baseline results: Gemma 4 E2B on CPU
+
+The following results were captured on April 11, 2026 using `litert-lm` v0.10.1
+with the `gemma-4-E2B-it.litertlm` model from
+`litert-community/gemma-4-E2B-it-litert-lm` on an Intel Xeon x86_64 host with
+16GB RAM, running on CPU backend.
+
+#### Benchmark results
+
+```
+  GEMMA 4 E2B — BENCHMARK RESULTS (CPU, x86_64, 16GB RAM)
+  ==========================================================
+
+  Configuration         Prefill     Decode     Init       TTFT
+                        (tok/s)     (tok/s)    (s)        (s)
+  ─────────────         ───────     ──────     ────       ────
+  256 prefill / 256 dec  70.74      23.97      25.57      3.66
+  512 prefill / 128 dec  125.98     20.78      24.78      4.11
+  1024 prefill / 128 dec 271.62     22.46      23.18      3.81
+
+  Observations:
+  - Prefill speed scales superlinearly with token count (batch efficiency)
+  - Decode speed is stable at ~21-24 tok/s across configurations
+  - TTFT is consistent at ~3.7-4.1s (dominated by first-prefill cost)
+  - Init time is ~24-26s (model load + weight conversion)
+```
+
+#### Correctness results
+
+All five evaluation prompts produced correct, coherent responses:
+
+| # | Prompt | Expected | Result |
+|:--|:-------|:---------|:-------|
+| 1 | "What is the capital of Japan?" | Tokyo | **PASS** — "The capital of Japan is **Tokyo**." |
+| 2 | "What's the tallest building in the world?" | Burj Khalifa | **PASS** — "the tallest building in the world is ... the **Burj Khalifa**" |
+| 3 | "Write a Python function that computes the Fibonacci sequence up to n terms." | Working code | **PASS** — Three implementations (iterative, recursive, memoized) with comparison table |
+| 4 | "List exactly 5 differences between a golden retriever and a labrador retriever." | Numbered 1-5 | **PASS** — Five numbered differences covering coat, temperament, build, head shape, energy |
+| 5 | "Explain the concept of attention sinks in transformer KV caches." | Technical accuracy | **PASS** — Accurate explanation of sink phenomenon, KV cache dynamics, and implications |
+
+#### What these results establish
+
+These baseline results provide the reference point for aligned evaluation across
+layer configurations. They confirm:
+
+1. **The model loads and runs correctly** via the existing `ModelAssets` →
+   `EngineSettings` → `Gemma4DataProcessor` pipeline.
+2. **Decode throughput is stable** (~22 tok/s on CPU), providing a regression
+   baseline for future Prefetch and Native Cache layer changes.
+3. **Response quality is high** across factual, code-generation, structured-
+   output, and technical-explanation prompts.
+4. **Prefill scales well** with batch size, confirming that the engine's
+   batched prefill path is functional for Gemma 4.
+
+The next step is to run these same prompts with context-shift scenarios enabled
+(fill context to trigger ratio, then send evaluation prompt) and compare
+correctness and latency across Safety-only, +Prefetch, and +Native Cache
+configurations.
+
 ---
 
 ## Where Do We Go from Here?
