@@ -286,6 +286,20 @@ absl::StatusOr<std::optional<std::string>> GetYamlValue(
   return std::nullopt;
 }
 
+void CopyYamlAnnotationsToPolicy(
+    const absl::flat_hash_map<std::string, std::string>& kv,
+    ConversationConfig::RuntimeMemoryPolicy* policy) {
+  if (policy == nullptr) {
+    return;
+  }
+  policy->metadata.clear();
+  for (const auto& [key, value] : kv) {
+    if (key.find('.') != std::string::npos) {
+      policy->metadata[key] = value;
+    }
+  }
+}
+
 absl::StatusOr<absl::flat_hash_map<std::string, std::string>>
 ParseConstrainedYaml(absl::string_view yaml_text) {
   absl::flat_hash_map<std::string, std::string> out;
@@ -387,6 +401,9 @@ ConversationConfig::MemoryStrategyFromString(absl::string_view strategy_name) {
       {"context_quarantine_isolated_scratchpads",
        S::kContextQuarantineIsolatedScratchpads},
       {"mcp_active_metadata", S::kMcpActiveMetadata},
+      {"constraint_first_metadata", S::kMcpActiveMetadata},
+      {"governed_metadata_nodes", S::kMcpActiveMetadata},
+      {"truth_nodes_speculative_history", S::kMcpActiveMetadata},
       {"mcp", S::kMcpActiveMetadata},
   };
   if (auto it = kMap.find(normalized); it != kMap.end()) {
@@ -464,6 +481,83 @@ absl::StatusOr<ConversationConfig::RuntimeMemoryPolicy>
 ConversationConfig::ParseMemoryPolicyYaml(absl::string_view yaml_text) {
   ASSIGN_OR_RETURN(auto kv, ParseConstrainedYaml(yaml_text));
   RuntimeMemoryPolicy policy;
+  CopyYamlAnnotationsToPolicy(kv, &policy);
+
+  auto set_bool_field =
+      [&](std::initializer_list<absl::string_view> keys,
+          absl::string_view field_name, bool* target) -> absl::Status {
+    ASSIGN_OR_RETURN(std::optional<std::string> value_text,
+                     GetYamlValue(kv, keys));
+    if (!value_text.has_value()) {
+      return absl::OkStatus();
+    }
+    bool value = false;
+    if (!TryParseBool(*value_text, &value)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat(field_name, " must be a boolean"));
+    }
+    *target = value;
+    return absl::OkStatus();
+  };
+
+  auto set_int_field =
+      [&](std::initializer_list<absl::string_view> keys,
+          absl::string_view field_name, int* target) -> absl::Status {
+    ASSIGN_OR_RETURN(std::optional<std::string> value_text,
+                     GetYamlValue(kv, keys));
+    if (!value_text.has_value()) {
+      return absl::OkStatus();
+    }
+    if (!absl::SimpleAtoi(*value_text, target)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat(field_name, " must be an int"));
+    }
+    return absl::OkStatus();
+  };
+
+  auto set_float_field =
+      [&](std::initializer_list<absl::string_view> keys,
+          absl::string_view field_name, float* target) -> absl::Status {
+    ASSIGN_OR_RETURN(std::optional<std::string> value_text,
+                     GetYamlValue(kv, keys));
+    if (!value_text.has_value()) {
+      return absl::OkStatus();
+    }
+    if (!absl::SimpleAtof(*value_text, target)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat(field_name, " must be float"));
+    }
+    return absl::OkStatus();
+  };
+
+  auto set_optional_float_field =
+      [&](std::initializer_list<absl::string_view> keys,
+          absl::string_view field_name,
+          std::optional<float>* target) -> absl::Status {
+    ASSIGN_OR_RETURN(std::optional<std::string> value_text,
+                     GetYamlValue(kv, keys));
+    if (!value_text.has_value()) {
+      return absl::OkStatus();
+    }
+    float value = 0.0f;
+    if (!absl::SimpleAtof(*value_text, &value)) {
+      return absl::InvalidArgumentError(
+          absl::StrCat(field_name, " must be float"));
+    }
+    *target = value;
+    return absl::OkStatus();
+  };
+
+  auto set_string_field = [&](std::initializer_list<absl::string_view> keys,
+                              std::optional<std::string>* target)
+      -> absl::Status {
+    ASSIGN_OR_RETURN(std::optional<std::string> value_text,
+                     GetYamlValue(kv, keys));
+    if (value_text.has_value()) {
+      *target = *value_text;
+    }
+    return absl::OkStatus();
+  };
 
   ASSIGN_OR_RETURN(std::optional<std::string> profile_id,
                    GetYamlValue(kv, {"profile_id", "profile.id"}));
@@ -595,6 +689,152 @@ ConversationConfig::ParseMemoryPolicyYaml(absl::string_view yaml_text) {
     }
     policy.emit_transition_note = emit;
   }
+
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.native_cache_ops.enabled", "native_cache_ops.enabled"},
+      "execution.native_cache_ops.enabled", &policy.native_cache_ops.enabled));
+  RETURN_IF_ERROR(
+      set_bool_field({"execution.native_cache_ops.allow_pin",
+                      "native_cache_ops.allow_pin"},
+                     "execution.native_cache_ops.allow_pin",
+                     &policy.native_cache_ops.allow_pin));
+  RETURN_IF_ERROR(set_bool_field({"execution.native_cache_ops.allow_evict_range",
+                                  "native_cache_ops.allow_evict_range"},
+                                 "execution.native_cache_ops.allow_evict_range",
+                                 &policy.native_cache_ops.allow_evict_range));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.native_cache_ops.allow_remap", "native_cache_ops.allow_remap"},
+      "execution.native_cache_ops.allow_remap",
+      &policy.native_cache_ops.allow_remap));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.native_cache_ops.allow_compact",
+       "native_cache_ops.allow_compact"},
+      "execution.native_cache_ops.allow_compact",
+      &policy.native_cache_ops.allow_compact));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.native_cache_ops.allow_snapshot_restore",
+       "native_cache_ops.allow_snapshot_restore"},
+      "execution.native_cache_ops.allow_snapshot_restore",
+      &policy.native_cache_ops.allow_snapshot_restore));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.native_cache_ops.require_rollback_guarantee",
+       "native_cache_ops.require_rollback_guarantee"},
+      "execution.native_cache_ops.require_rollback_guarantee",
+      &policy.native_cache_ops.require_rollback_guarantee));
+
+  RETURN_IF_ERROR(set_int_field(
+      {"execution.protected_ranges.head_tokens", "protected_ranges.head_tokens"},
+      "execution.protected_ranges.head_tokens",
+      &policy.protected_ranges.head_tokens));
+  RETURN_IF_ERROR(set_int_field(
+      {"execution.protected_ranges.tail_turns", "protected_ranges.tail_turns"},
+      "execution.protected_ranges.tail_turns", &policy.protected_ranges.tail_turns));
+  RETURN_IF_ERROR(
+      set_bool_field({"execution.protected_ranges.allow_middle_eviction",
+                      "protected_ranges.allow_middle_eviction"},
+                     "execution.protected_ranges.allow_middle_eviction",
+                     &policy.protected_ranges.allow_middle_eviction));
+
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.fallback_policy.on_unsupported_capability",
+       "fallback_policy.on_unsupported_capability"},
+      "execution.fallback_policy.on_unsupported_capability",
+      &policy.fallback_policy.on_unsupported_capability));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.fallback_policy.on_rollback_unavailable",
+       "fallback_policy.on_rollback_unavailable"},
+      "execution.fallback_policy.on_rollback_unavailable",
+      &policy.fallback_policy.on_rollback_unavailable));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.fallback_policy.on_internal_cache_corruption",
+       "fallback_policy.on_internal_cache_corruption"},
+      "execution.fallback_policy.on_internal_cache_corruption",
+      &policy.fallback_policy.on_internal_cache_corruption));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.fallback_policy.on_position_semantics_violation",
+       "fallback_policy.on_position_semantics_violation"},
+      "execution.fallback_policy.on_position_semantics_violation",
+      &policy.fallback_policy.on_position_semantics_violation));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.fallback_policy.on_range_conflict",
+       "fallback_policy.on_range_conflict"},
+      "execution.fallback_policy.on_range_conflict",
+      &policy.fallback_policy.on_range_conflict));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.fallback_policy.on_pinned_block_conflict",
+       "fallback_policy.on_pinned_block_conflict"},
+      "execution.fallback_policy.on_pinned_block_conflict",
+      &policy.fallback_policy.on_pinned_block_conflict));
+  RETURN_IF_ERROR(set_bool_field(
+      {"execution.fallback_policy.on_invalid_selector",
+       "fallback_policy.on_invalid_selector"},
+      "execution.fallback_policy.on_invalid_selector",
+      &policy.fallback_policy.on_invalid_selector));
+
+  RETURN_IF_ERROR(set_bool_field(
+      {"prefetch.planner.enabled", "prefetch_planner.enabled"},
+      "prefetch.planner.enabled", &policy.prefetch_planner.enabled));
+  RETURN_IF_ERROR(set_bool_field(
+      {"prefetch.planner.enable_speculative_planning",
+       "prefetch_planner.enable_speculative_planning"},
+      "prefetch.planner.enable_speculative_planning",
+      &policy.prefetch_planner.enable_speculative_planning));
+  RETURN_IF_ERROR(set_optional_float_field(
+      {"prefetch.planner.trigger_ratio", "prefetch_planner.trigger_ratio"},
+      "prefetch.planner.trigger_ratio", &policy.prefetch_planner.trigger_ratio));
+  RETURN_IF_ERROR(set_string_field(
+      {"prefetch.planner.builder_hint", "prefetch_planner.builder_hint"},
+      &policy.prefetch_planner.builder_hint));
+  RETURN_IF_ERROR(set_string_field(
+      {"prefetch.planner.invalidation_policy",
+       "prefetch_planner.invalidation_policy"},
+      &policy.prefetch_planner.invalidation_policy));
+
+  RETURN_IF_ERROR(set_bool_field(
+      {"verification.require_post_native_exact_step",
+       "verification.post_native_exact_step"},
+      "verification.require_post_native_exact_step",
+      &policy.verification.require_post_native_exact_step));
+  RETURN_IF_ERROR(set_int_field(
+      {"verification.max_step_drift_tokens"},
+      "verification.max_step_drift_tokens",
+      &policy.verification.max_step_drift_tokens));
+  RETURN_IF_ERROR(set_bool_field(
+      {"verification.require_selector_protected_range_check"},
+      "verification.require_selector_protected_range_check",
+      &policy.verification.require_selector_protected_range_check));
+
+  RETURN_IF_ERROR(set_bool_field({"telemetry.emit_reason_codes"},
+                                 "telemetry.emit_reason_codes",
+                                 &policy.telemetry.emit_reason_codes));
+  RETURN_IF_ERROR(set_bool_field({"telemetry.emit_native_cache_state"},
+                                 "telemetry.emit_native_cache_state",
+                                 &policy.telemetry.emit_native_cache_state));
+  RETURN_IF_ERROR(set_bool_field({"telemetry.capture_attention_heatmap"},
+                                 "telemetry.capture_attention_heatmap",
+                                 &policy.telemetry.capture_attention_heatmap));
+  RETURN_IF_ERROR(set_bool_field(
+      {"telemetry.capture_token_attention_trace"},
+      "telemetry.capture_token_attention_trace",
+      &policy.telemetry.capture_token_attention_trace));
+
+  RETURN_IF_ERROR(set_bool_field(
+      {"orchestration.external_memory.enabled", "external_memory.enabled"},
+      "orchestration.external_memory.enabled", &policy.external_memory.enabled));
+  RETURN_IF_ERROR(set_int_field(
+      {"orchestration.external_memory.hydration_limit",
+       "external_memory.hydration_limit"},
+      "orchestration.external_memory.hydration_limit",
+      &policy.external_memory.hydration_limit));
+  RETURN_IF_ERROR(set_string_field(
+      {"orchestration.external_memory.persistence_policy",
+       "external_memory.persistence_policy"},
+      &policy.external_memory.persistence_policy));
+  RETURN_IF_ERROR(set_bool_field(
+      {"orchestration.external_memory.negative_memory_enabled",
+       "external_memory.negative_memory_enabled"},
+      "orchestration.external_memory.negative_memory_enabled",
+      &policy.external_memory.negative_memory_enabled));
 
   RETURN_IF_ERROR(ValidateRuntimeMemoryPolicy(policy));
   return policy;

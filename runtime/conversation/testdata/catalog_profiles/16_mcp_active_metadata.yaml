@@ -1,11 +1,7 @@
-# profile_name: MCP + active metadata
-# author: Anthropic et al. (Model Context Protocol ecosystem)
-# source_repo: https://github.com/modelcontextprotocol/specification
-# steps:
-#   1) attach_governed_metadata_truth_nodes
-#   2) separate_speculative_history_from_constraints
-#   3) prioritize_truth_nodes_during_context_selection
-#   4) reweight_or_prune_speculative_nodes_at_boundary
+profile_name: MCP + active metadata
+author: Anthropic MCP ecosystem (inspiration)
+source_repo: https://github.com/modelcontextprotocol/specification
+steps: attach_governed_metadata_truth_nodes -> separate_speculative_history_from_constraints -> prioritize_truth_nodes_during_context_selection -> reweight_or_prune_speculative_nodes_at_boundary
 version: v1
 compatibility: v1
 profile_id: catalog.mcp_active_metadata.v1
@@ -21,6 +17,53 @@ context_shift:
   target_ratio: 0.68
   reset_on_exhaustion: true
   shift_strategy: replay_recent
+execution:
+  native_cache_ops:
+    enabled: true
+    allow_pin: true
+    allow_evict_range: true
+    allow_remap: true
+    allow_compact: false
+    allow_snapshot_restore: false
+    require_rollback_guarantee: true
+  protected_ranges:
+    head_tokens: 32
+    tail_turns: 4
+    allow_middle_eviction: true
+  fallback_policy:
+    on_unsupported_capability: true
+    on_rollback_unavailable: true
+    on_internal_cache_corruption: true
+    on_position_semantics_violation: true
+    on_range_conflict: false
+    on_pinned_block_conflict: false
+    on_invalid_selector: false
+prefetch:
+  planner:
+    enabled: true
+    enable_speculative_planning: true
+    trigger_ratio: 0.80
+    builder_hint: summarize_protected_tail
+    invalidation_policy: supersede_on_policy_change
+verification:
+  require_post_native_exact_step: true
+  max_step_drift_tokens: 0
+  require_selector_protected_range_check: true
+telemetry:
+  emit_reason_codes: true
+  emit_native_cache_state: true
+  capture_attention_heatmap: false
+  capture_token_attention_trace: false
+orchestration:
+  external_memory:
+    enabled: true
+    hydration_limit: 8
+    persistence_policy: truth_nodes_and_speculative_history
+    negative_memory_enabled: true
+external_memory:
+  constraint_policy: constraint_first
+  truth_nodes: governed_metadata_nodes
+  speculative_history: quarantined
 catalog_meta:
   primary_strength: robust_constraint_governance_and_reduced_lost_middle
   typical_failure_mode: metadata_drift_or_schema_governance_mismatch

@@ -608,6 +608,42 @@ TEST(ConversationConfigTest, LoadMcpActiveMetadataCatalogProfileFromTestdata) {
   EXPECT_EQ(policy.strategy,
             ConversationConfig::MemoryStrategy::kMcpActiveMetadata);
   EXPECT_EQ(policy.safe_boundary, ConversationConfig::SafeBoundary::kToolResult);
+  EXPECT_TRUE(policy.native_cache_ops.enabled);
+  EXPECT_TRUE(policy.native_cache_ops.allow_pin);
+  EXPECT_TRUE(policy.native_cache_ops.allow_evict_range);
+  EXPECT_TRUE(policy.native_cache_ops.allow_remap);
+  EXPECT_TRUE(policy.native_cache_ops.require_rollback_guarantee);
+  EXPECT_EQ(policy.protected_ranges.head_tokens, 32);
+  EXPECT_EQ(policy.protected_ranges.tail_turns, 4);
+  EXPECT_TRUE(policy.fallback_policy.on_position_semantics_violation);
+  EXPECT_TRUE(policy.prefetch_planner.enabled);
+  EXPECT_TRUE(policy.prefetch_planner.enable_speculative_planning);
+  ASSERT_TRUE(policy.prefetch_planner.trigger_ratio.has_value());
+  EXPECT_FLOAT_EQ(*policy.prefetch_planner.trigger_ratio, 0.80f);
+  ASSERT_TRUE(policy.prefetch_planner.builder_hint.has_value());
+  EXPECT_EQ(*policy.prefetch_planner.builder_hint, "summarize_protected_tail");
+  EXPECT_TRUE(policy.verification.require_post_native_exact_step);
+  EXPECT_EQ(policy.verification.max_step_drift_tokens, 0);
+  EXPECT_TRUE(policy.telemetry.emit_reason_codes);
+  EXPECT_FALSE(policy.telemetry.capture_attention_heatmap);
+  EXPECT_TRUE(policy.external_memory.enabled);
+  EXPECT_EQ(policy.external_memory.hydration_limit, 8);
+  ASSERT_TRUE(policy.external_memory.persistence_policy.has_value());
+  EXPECT_EQ(*policy.external_memory.persistence_policy,
+            "truth_nodes_and_speculative_history");
+  EXPECT_TRUE(policy.external_memory.negative_memory_enabled);
+  EXPECT_TRUE(policy.metadata.contains("author"));
+  EXPECT_TRUE(policy.metadata.contains("source_repo"));
+  EXPECT_TRUE(policy.metadata.contains("catalog_meta.primary_strength"));
+  EXPECT_TRUE(policy.metadata.contains("catalog_meta.typical_failure_mode"));
+  EXPECT_TRUE(policy.metadata.contains(
+      "external_memory.constraint_policy"));
+  EXPECT_TRUE(policy.metadata.contains("external_memory.truth_nodes"));
+  EXPECT_TRUE(
+      policy.metadata.contains("external_memory.speculative_history"));
+  EXPECT_EQ(policy.metadata.at("author"), "Anthropic MCP ecosystem (inspiration)");
+  EXPECT_EQ(policy.metadata.at("external_memory.constraint_policy"),
+            "constraint_first");
 }
 
 TEST(ConversationConfigTest, ParseMemoryPolicyYamlRejectsUnsupportedVersion) {

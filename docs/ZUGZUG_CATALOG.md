@@ -14,9 +14,11 @@ Keep deterministic context-shift controls in runtime while enabling a higher
 layer (agent/gateway) to persist and rehydrate curated memory across reset
 episodes.
 
-The runtime-enforced policy remains strict and bounded. Extra keys under
-`external_memory.*` are annotations for orchestration code and are currently
-ignored by `ConversationConfig::ParseMemoryPolicyYaml`.
+The runtime-enforced policy remains strict and bounded. Structured expressive
+blocks (for example `execution.*`, `prefetch.planner.*`, `verification.*`,
+`telemetry.*`, and `orchestration.external_memory.*`) can be parsed into
+`RuntimeMemoryPolicy`, while additional dotted keys are preserved in policy
+metadata for orchestration tooling.
 
 ## Engine-native implementation notes (detail)
 
@@ -34,10 +36,10 @@ current phased roadmap:
    - Plan compression/replay packs asynchronously ahead of boundary events.
    - Install only at safe boundaries with strict staleness and policy checks.
 4. **Policy-aware token handling**
-   - Catalog can carry metadata intent for selective handling
-     (facts/code/chitchat/etc.).
-   - Runtime parser currently enforces only declared `RuntimeMemoryPolicy`
-     fields; metadata extensions remain orchestration-layer hints.
+  - Catalog can carry metadata intent for selective handling
+    (facts/code/chitchat/etc.).
+  - Structured policy keys are parseable today; deeper token-level virtual
+    pruning remains an execution-layer target.
 5. **Traceable execution diagnostics**
    - Future target: persist attention/selection diagnostics for failure
      forensics and parity checks.

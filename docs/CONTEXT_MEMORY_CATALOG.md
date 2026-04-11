@@ -14,7 +14,7 @@ This reflects where the current LiteRT-LM implementation is today.
 | Phase C native cache ops | Bootstrap | Capability-gated native path with fallback to Phase B recompute. |
 | KV cache remap/compact surgery | Partial | Bootstrap includes native evict flow; full remap/compact semantics are pending. |
 | Attention sink preservation | Partial | Protected head behavior exists; true engine-level sink pinning/mask controls are pending. |
-| Policy-aware token metadata pruning | Not implemented | Catalog expresses desired policy behaviors; runtime parser currently ignores extra metadata keys. |
+| Policy-aware/token-metadata policy surface | Partial | YAML parser now preserves metadata annotations and parses structured v2 policy blocks; token-level pruning logic is still pending. |
 | Traceable tensor/attention diagnostics | Not implemented | No persisted attention heatmap or token-attention tracing yet. |
 
 ## Catalog Profiles
@@ -42,6 +42,21 @@ Each file includes:
 - profile metadata (author/source repo/source notes)
 - executable runtime policy fields
 - compact `catalog_meta` strengths/failure-modes
+
+## v2 expressive policy blocks
+
+Catalog profiles may define the following structured blocks:
+
+- `execution.native_cache_ops.*`
+- `execution.protected_ranges.*`
+- `execution.fallback_policy.*`
+- `prefetch.planner.*`
+- `verification.*`
+- `telemetry.*`
+- `orchestration.external_memory.*`
+
+`ParseMemoryPolicyYaml` maps these into `RuntimeMemoryPolicy` fields, and
+retains additional dotted keys in `RuntimeMemoryPolicy.metadata` for tooling.
 
 ## Strategy-to-file map
 

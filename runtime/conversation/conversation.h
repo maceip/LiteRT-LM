@@ -101,6 +101,60 @@ class ConversationConfig {
   };
 
   struct RuntimeMemoryPolicy {
+    struct NativeCacheOpsPolicy {
+      bool enabled = false;
+      bool allow_pin = true;
+      bool allow_evict_range = true;
+      bool allow_remap = false;
+      bool allow_compact = false;
+      bool allow_snapshot_restore = false;
+      bool require_rollback_guarantee = true;
+    };
+
+    struct ProtectedRangesPolicy {
+      int head_tokens = 0;
+      int tail_turns = 0;
+      bool allow_middle_eviction = true;
+    };
+
+    struct FallbackPolicy {
+      bool on_unsupported_capability = true;
+      bool on_rollback_unavailable = true;
+      bool on_internal_cache_corruption = true;
+      bool on_position_semantics_violation = false;
+      bool on_range_conflict = false;
+      bool on_pinned_block_conflict = false;
+      bool on_invalid_selector = false;
+    };
+
+    struct PrefetchPlannerPolicy {
+      bool enabled = true;
+      bool enable_speculative_planning = true;
+      std::optional<float> trigger_ratio = std::nullopt;
+      std::optional<std::string> builder_hint = std::nullopt;
+      std::optional<std::string> invalidation_policy = std::nullopt;
+    };
+
+    struct VerificationPolicy {
+      bool require_post_native_exact_step = true;
+      int max_step_drift_tokens = 0;
+      bool require_selector_protected_range_check = true;
+    };
+
+    struct TelemetryPolicy {
+      bool emit_reason_codes = true;
+      bool emit_native_cache_state = true;
+      bool capture_attention_heatmap = false;
+      bool capture_token_attention_trace = false;
+    };
+
+    struct ExternalMemoryPolicy {
+      bool enabled = false;
+      int hydration_limit = 0;
+      std::optional<std::string> persistence_policy = std::nullopt;
+      bool negative_memory_enabled = false;
+    };
+
     MemoryStrategy strategy = MemoryStrategy::kHardResetReplayWindow;
     bool context_shift_enabled = false;
     float context_shift_trigger_ratio = 0.9f;
@@ -116,6 +170,17 @@ class ConversationConfig {
     SafeBoundary safe_boundary = SafeBoundary::kToolResult;
     std::optional<MemoryStrategy> shadow_strategy = std::nullopt;
     bool emit_transition_note = false;
+    NativeCacheOpsPolicy native_cache_ops;
+    ProtectedRangesPolicy protected_ranges;
+    FallbackPolicy fallback_policy;
+    PrefetchPlannerPolicy prefetch_planner;
+    VerificationPolicy verification;
+    TelemetryPolicy telemetry;
+    ExternalMemoryPolicy external_memory;
+    // Additional parsed YAML keys not interpreted by runtime policy logic.
+    // This preserves expressive catalog metadata (author, source links, steps,
+    // external memory annotations, etc.) for tooling/docs.
+    absl::flat_hash_map<std::string, std::string> metadata;
   };
 
   // Creates a default ConversationConfig from the given Engine.
