@@ -74,6 +74,15 @@ constexpr absl::string_view kContextShiftAnchorCheckpoint =
     "context_shift_anchor_checkpoint";
 constexpr int kNativeProtectedHeadTokenCount = 32;
 
+Conversation::NativeCacheFailureCode NativeCacheFailureCodeFromStatus(
+    const absl::Status& status) {
+  if (absl::IsUnimplemented(status)) {
+    return Conversation::NativeCacheFailureCode::kUnsupportedCapability;
+  }
+  return Conversation::NativeCacheFailureCode::
+      kInternalCacheCorruptionSuspected;
+}
+
 bool IsEmptyInputError(const absl::Status& status) {
   return absl::IsInvalidArgument(status) &&
          absl::StrContains(status.message(), "Input is empty");
@@ -3318,16 +3327,9 @@ Conversation::RewindAndGetInputDataVector() {
   return input_data_vector;
 }
 
-void Conversation::RecordNativeCacheState(
-    bool attempted, bool committed, bool fallback_attempted,
-    bool fallback_completed,
-    std::optional<NativeCacheFailureCode> last_failure_code) {
+void Conversation::RecordNativeCacheState(NativeCacheState native_cache_state) {
   absl::MutexLock lock(&policy_mutex_);
-  native_cache_state_.attempted = attempted;
-  native_cache_state_.committed = committed;
-  native_cache_state_.fallback_attempted = fallback_attempted;
-  native_cache_state_.fallback_completed = fallback_completed;
-  native_cache_state_.last_failure_code = last_failure_code;
+  native_cache_state_ = std::move(native_cache_state);
 }
 
 void Conversation::MarkNativeFallbackAttemptedIfNeeded() {
@@ -3366,16 +3368,24 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
                                                               int target_step) {
   const int tokens_to_evict = std::max(0, current_step - target_step);
   if (tokens_to_evict <= 0) {
-    RecordNativeCacheState(/*attempted=*/false, /*committed=*/false,
-                           /*fallback_attempted=*/false,
-                           /*fallback_completed=*/false, std::nullopt);
+    RecordNativeCacheState(NativeCacheState{
+        .attempted = false,
+        .committed = false,
+        .fallback_attempted = false,
+        .fallback_completed = false,
+        .last_failure_code = std::nullopt,
+    });
     return false;
   }
   if (!native_cache_capabilities_.supports_kv_surgery ||
       !native_cache_capabilities_.supports_range_evict) {
-    RecordNativeCacheState(/*attempted=*/false, /*committed=*/false,
-                           /*fallback_attempted=*/false,
-                           /*fallback_completed=*/false, std::nullopt);
+    RecordNativeCacheState(NativeCacheState{
+        .attempted = false,
+        .committed = false,
+        .fallback_attempted = false,
+        .fallback_completed = false,
+        .last_failure_code = std::nullopt,
+    });
     return false;
   }
   const int protected_head_tokens = std::min(
@@ -3397,13 +3407,14 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
   auto cache_result_or = session_->ExecuteCacheOpGroup(op_group);
   if (!cache_result_or.ok()) {
     const NativeCacheFailureCode failure_code =
-        absl::IsUnimplemented(cache_result_or.status())
-            ? NativeCacheFailureCode::kUnsupportedCapability
-            : NativeCacheFailureCode::kInternalCacheCorruptionSuspected;
-    RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
-                           /*fallback_attempted=*/ShouldFallbackToPhaseB(
-                               failure_code),
-                           /*fallback_completed=*/false, failure_code);
+        NativeCacheFailureCodeFromStatus(cache_result_or.status());
+    RecordNativeCacheState(NativeCacheState{
+        .attempted = true,
+        .committed = false,
+        .fallback_attempted = ShouldFallbackToPhaseB(failure_code),
+        .fallback_completed = false,
+        .last_failure_code = failure_code,
+    });
     return false;
   }
 
@@ -3412,27 +3423,35 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
     auto post_native_step_or = session_->GetCurrentStep();
     if (!post_native_step_or.ok()) {
       const NativeCacheFailureCode failure_code =
-          absl::IsUnimplemented(post_native_step_or.status())
-              ? NativeCacheFailureCode::kUnsupportedCapability
-              : NativeCacheFailureCode::kInternalCacheCorruptionSuspected;
-      RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
-                             /*fallback_attempted=*/ShouldFallbackToPhaseB(
-                                 failure_code),
-                             /*fallback_completed=*/false, failure_code);
+          NativeCacheFailureCodeFromStatus(post_native_step_or.status());
+      RecordNativeCacheState(NativeCacheState{
+          .attempted = true,
+          .committed = false,
+          .fallback_attempted = ShouldFallbackToPhaseB(failure_code),
+          .fallback_completed = false,
+          .last_failure_code = failure_code,
+      });
       return false;
     }
     if (*post_native_step_or != target_step) {
       constexpr NativeCacheFailureCode kFailureCode =
           NativeCacheFailureCode::kPositionSemanticsViolation;
-      RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
-                             /*fallback_attempted=*/ShouldFallbackToPhaseB(
-                                 kFailureCode),
-                             /*fallback_completed=*/false, kFailureCode);
+      RecordNativeCacheState(NativeCacheState{
+          .attempted = true,
+          .committed = false,
+          .fallback_attempted = ShouldFallbackToPhaseB(kFailureCode),
+          .fallback_completed = false,
+          .last_failure_code = kFailureCode,
+      });
       return false;
     }
-    RecordNativeCacheState(/*attempted=*/true, /*committed=*/true,
-                           /*fallback_attempted=*/false,
-                           /*fallback_completed=*/false, std::nullopt);
+    RecordNativeCacheState(NativeCacheState{
+        .attempted = true,
+        .committed = true,
+        .fallback_attempted = false,
+        .fallback_completed = false,
+        .last_failure_code = std::nullopt,
+    });
     return true;
   }
 
@@ -3443,10 +3462,13 @@ absl::StatusOr<bool> Conversation::TryApplyNativeContextShift(int current_step,
   if (!cache_result.rollback_available) {
     failure_code = NativeCacheFailureCode::kRollbackUnavailable;
   }
-  RecordNativeCacheState(/*attempted=*/true, /*committed=*/false,
-                         /*fallback_attempted=*/ShouldFallbackToPhaseB(
-                             failure_code),
-                         /*fallback_completed=*/false, failure_code);
+  RecordNativeCacheState(NativeCacheState{
+      .attempted = true,
+      .committed = false,
+      .fallback_attempted = ShouldFallbackToPhaseB(failure_code),
+      .fallback_completed = false,
+      .last_failure_code = failure_code,
+  });
   return false;
 }
 

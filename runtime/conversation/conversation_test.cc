@@ -2553,7 +2553,8 @@ TEST_P(ConversationTest, NativeCacheOverEvictionFallsBackToPhaseB) {
 
   {
     InSequence seq;
-    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+    EXPECT_CALL(*mock_session_ptr,
+                SaveCheckpoint("context_shift_anchor_checkpoint"))
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
     EXPECT_CALL(*mock_session_ptr, ExecuteCacheOpGroup(testing::_))
@@ -2567,7 +2568,8 @@ TEST_P(ConversationTest, NativeCacheOverEvictionFallsBackToPhaseB) {
                 RewindToCheckpoint("context_shift_anchor_checkpoint"))
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(0));
-    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+    EXPECT_CALL(*mock_session_ptr,
+                SaveCheckpoint("context_shift_anchor_checkpoint"))
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, RunPrefill(testing::_))
         .WillOnce(Return(absl::OkStatus()));
@@ -2619,16 +2621,18 @@ TEST_P(ConversationTest, NativeCacheRewindFailureDoesNotMarkFallbackCompleted) {
 
   {
     InSequence seq;
-    EXPECT_CALL(*mock_session_ptr, SaveCheckpoint("context_shift_anchor_checkpoint"))
+    EXPECT_CALL(*mock_session_ptr,
+                SaveCheckpoint("context_shift_anchor_checkpoint"))
         .WillOnce(Return(absl::OkStatus()));
     EXPECT_CALL(*mock_session_ptr, GetCurrentStep()).WillOnce(Return(8));
     EXPECT_CALL(*mock_session_ptr, ExecuteCacheOpGroup(testing::_))
         .WillOnce(Return(Engine::Session::CacheOpGroupResult{
             .committed = false,
             .rollback_available = true,
-            .failure = Engine::Session::CacheOpFailure{
-                .code = Engine::Session::CacheOpFailureCode::kRangeConflict,
-                .detail = "range conflict"},
+            .failure =
+                Engine::Session::CacheOpFailure{
+                    .code = Engine::Session::CacheOpFailureCode::kRangeConflict,
+                    .detail = "range conflict"},
         }));
     EXPECT_CALL(*mock_session_ptr,
                 RewindToCheckpoint("context_shift_anchor_checkpoint"))
@@ -2637,9 +2641,10 @@ TEST_P(ConversationTest, NativeCacheRewindFailureDoesNotMarkFallbackCompleted) {
 
   ASSERT_OK_AND_ASSIGN(auto conversation,
                        Conversation::Create(*mock_engine, conversation_config));
-  const absl::Status status = conversation->SendMessage(
-      JsonMessage{{"role", "user"}, {"content", "Q1"}})
-                                  .status();
+  const absl::Status status =
+      conversation
+          ->SendMessage(JsonMessage{{"role", "user"}, {"content", "Q1"}})
+          .status();
   EXPECT_TRUE(absl::IsInternal(status));
   EXPECT_THAT(status.message(), HasSubstr("rewind failed"));
 

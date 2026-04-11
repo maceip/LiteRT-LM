@@ -1285,10 +1285,7 @@ class Conversation {
   absl::Status MaybeApplyContextShift();
   absl::StatusOr<bool> TryApplyNativeContextShift(int current_step,
                                                   int target_step);
-  void RecordNativeCacheState(
-      bool attempted, bool committed, bool fallback_attempted,
-      bool fallback_completed,
-      std::optional<NativeCacheFailureCode> last_failure_code);
+  void RecordNativeCacheState(NativeCacheState native_cache_state);
   void MarkNativeFallbackAttemptedIfNeeded();
   void MarkNativeFallbackCompletedIfNeeded();
   static bool ShouldFallbackToPhaseB(NativeCacheFailureCode failure_code);
